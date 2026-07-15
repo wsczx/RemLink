@@ -167,7 +167,7 @@ ip link set dev eth0 promisc on
 
 ## 常见问题
 
-请前往 [常见问题文档](https://github.com/wsczx/RemLink/wiki) 查看。
+请前往 [常见问题文档](doc/question.md) 查看。
 
 ## 支持与打赏
 
