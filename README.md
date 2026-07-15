@@ -8,6 +8,8 @@ RemLink 是一个企业级远程办公 SSL VPN 软件，可以支持多人同时
 
 使用 RemLink，你可以随时随地安全的访问你的内部网络。
 
+> **声明**：RemLink 基于 [AnyLink](https://github.com/bjdgyc/anylink) 深度重构，在原项目基础上进行了认证架构重写、前端重构、安全加固与大量功能增强。感谢原作者 [bjdgyc](https://github.com/bjdgyc) 的开源贡献。
+
 ## 简介
 
 RemLink 基于 [ietf-openconnect](https://tools.ietf.org/html/draft-mavrogiannopoulos-openconnect-02) 协议开发，并且借鉴了 [ocserv](http://ocserv.gitlab.io/www/index.html) 的开发思路，使其可以同时兼容 AnyConnect 客户端。
