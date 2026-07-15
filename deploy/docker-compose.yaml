@@ -1,0 +1,23 @@
+services:
+  remlink:
+    image: wsczx/remlink:latest
+    container_name: remlink
+    restart: always
+    privileged: true
+    #cpus: 2
+    #mem_limit: 4g
+    ports:
+      - 443:443
+      - 8800:8800
+      - 443:443/udp
+    environment:
+      LINK_LOG_LEVEL: info
+    # 使用外部数据库:
+    # LINK_DB_TYPE: mysql
+    # LINK_DB_SOURCE: user:pass@tcp(host:3306)/dbname
+    # 加密密钥目录（可选）:
+    # REMLINK_ENCRYPTION_KEY_DIR: /secure
+    # 持久化配置和数据:
+    #volumes:
+    #  - /home/myconf:/app/conf
+    dns_search: .
