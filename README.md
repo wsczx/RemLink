@@ -14,10 +14,10 @@ RemLink 基于 [ietf-openconnect](https://tools.ietf.org/html/draft-mavrogiannop
 
 ## 端口说明
 
-| 端口 | 用途 |
-|---|---|
-| 443 (TCP) | VPN 连接（TLS-TCP） |
-| 443 (UDP) | VPN 连接（DTLS-UDP） |
+| 端口       | 用途                    |
+| ---------- | ----------------------- |
+| 443 (TCP)  | VPN 连接（TLS-TCP）     |
+| 443 (UDP)  | VPN 连接（DTLS-UDP）    |
 | 8800 (TCP) | 管理后台 Web 界面 + API |
 
 > 管理后台访问地址：`https://<IP>:8800`
@@ -33,19 +33,20 @@ RemLink 基于 [ietf-openconnect](https://tools.ietf.org/html/draft-mavrogiannop
 <summary>点击展开完整功能列表</summary>
 
 ### 网络与基础设施
+
 - IP 分配（IP、MAC 映射持久化）
 - TLS-TCP 通道 / DTLS-UDP 通道
 - 兼容 AnyConnect / OpenConnect 客户端
 - tun 设备 NAT 模式 / tun/macvtap 设备桥接模式
 - 支持 proxy protocol v1 & v2
 - nftables 后端（自动回退 iptables），使用 netlink 替代 iproute2 命令
-- FakeDNS + FakeIP（域名规则匹配 + DNS 缓存加速）
 - 流量压缩（LZS）、出口 IP 自动放行
 - 空闲链接超时自动断开、流量速率限制
 - 组级别独立 IP 池与 NAT 规则
 - 内置 Let's Encrypt / TrustAsia ACME 证书自动申请
 
 ### 认证体系
+
 - 本地密码认证（bcrypt）
 - TOTP 动态码认证（管理员 OTP 含 90 秒防重放）
 - 客户端证书认证（支持设备绑定、CSR 模式）
@@ -61,6 +62,7 @@ RemLink 基于 [ietf-openconnect](https://tools.ietf.org/html/draft-mavrogiannop
 - 自动同步 LDAP / 企微 / 飞书用户
 
 ### 用户门户
+
 - 客户端下载页面
 - 证书自助申请与下载（P12 / PEM 格式）
 - 在线设备管理与踢下线
@@ -71,6 +73,7 @@ RemLink 基于 [ietf-openconnect](https://tools.ietf.org/html/draft-mavrogiannop
 - 自定义仪表盘（公告 / 快捷链接 / 主题色 / 自定义 CSS / 客户端连接指引）
 
 ### 管理与运维
+
 - Web 管理后台（自适应响应式）
 - 用户 / 组 / 策略管理（策略支持批量应用到组/用户）
 - 用户批量发邮件 / 批量删除
@@ -179,12 +182,12 @@ sudo systemctl enable --now remlink
 
 默认 SQLite，无需配置。支持在线切换到 MySQL / PostgreSQL / MSSQL：
 
-| db_type | db_source |
-|---|---|
-| sqlite3 | `./conf/remlink.db` |
-| mysql | `user:pass@tcp(127.0.0.1:3306)/remlink?charset=utf8mb4` |
+| db_type  | db_source                                                      |
+| -------- | -------------------------------------------------------------- |
+| sqlite3  | `./conf/remlink.db`                                          |
+| mysql    | `user:pass@tcp(127.0.0.1:3306)/remlink?charset=utf8mb4`      |
 | postgres | `postgres://user:pass@localhost/remlink?sslmode=verify-full` |
-| mssql | `sqlserver://user:pass@localhost?database=remlink` |
+| mssql    | `sqlserver://user:pass@localhost?database=remlink`           |
 
 切换方式：管理后台「软件配置」→ 数据库「切换」按钮（支持自动数据迁移）。也可通过 `--db_type` 和 `--db_source` 命令行参数或 `conf/db.json` 首次启动时指定。
 
@@ -206,11 +209,11 @@ ip link set dev eth0 promisc on
 
 ## 客户端
 
-| 客户端 | 平台 |
-|---|---|
-| [AnyConnect Secure Client](https://www.cisco.com/) | Windows / macOS / Linux / Android / iOS |
-| [OpenConnect](https://gitlab.com/openconnect/openconnect) | Windows / macOS / Linux |
-| [三方客户端下载（推荐）](https://cisco.yydy.link/) | 全平台 |
+| 客户端                                                   | 平台                                    |
+| -------------------------------------------------------- | --------------------------------------- |
+| [AnyConnect Secure Client](https://www.cisco.com/)        | Windows / macOS / Linux / Android / iOS |
+| [OpenConnect](https://gitlab.com/openconnect/openconnect) | Windows / macOS / Linux                 |
+| [三方客户端下载（推荐）](https://cisco.yydy.link/)        | 全平台                                  |
 
 ## 镜像加速
 
