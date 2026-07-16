@@ -241,6 +241,8 @@ docker pull docker.1ms.run/wsczx/remlink:latest
 
 如果您觉得 RemLink 对您有帮助，欢迎打赏支持项目持续开发。请[点击这里](.github/FUNDING.md)查看打赏二维码。
 
+[打赏列表](doc/sponsors.md)
+
 ## License
 
 RemLink 为闭源商业软件，采用专属最终用户许可协议（EULA）。未经授权，不得复制、修改、反向工程或再分发本软件及其任何部分。完整条款见 [LICENSE](LICENSE)。
