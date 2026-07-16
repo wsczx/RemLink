@@ -4,7 +4,7 @@
 ![GitHub downloads](https://img.shields.io/github/downloads/wsczx/RemLink/total)
 [![Docker pulls](https://img.shields.io/docker/pulls/wsczx/remlink.svg)](https://hub.docker.com/r/wsczx/remlink)
 
-RemLink 是一个企业级远程办公软件，支持多人同时在线，兼容 AnyConnect / OpenConnect 客户端。
+RemLink 是一个企业级远程办公软件，支持多人同时在线，兼容 AnyConnect(推荐) / OpenConnect 客户端。
 
 > **声明**：RemLink 基于 [AnyLink](https://github.com/bjdgyc/anylink) 深度重构，在原项目基础上进行了认证架构重写、前端重构、安全加固与大量功能增强。感谢原作者 [bjdgyc](https://github.com/bjdgyc) 的开源贡献。
 
@@ -21,7 +21,7 @@ RemLink 基于 [ietf-openconnect](https://tools.ietf.org/html/draft-mavrogiannop
 | 8800 (TCP) | 管理后台 Web 界面 + API |
 
 > 管理后台访问地址：`https://<IP>:8800`
-> VPN 连接地址：`<域名或IP>:443`（AnyConnect 客户端中填写）
+> VPN 连接地址：`<域名或IP>:443`
 
 ## 下载
 
@@ -39,7 +39,7 @@ RemLink 基于 [ietf-openconnect](https://tools.ietf.org/html/draft-mavrogiannop
 - 兼容 AnyConnect / OpenConnect 客户端
 - tun 设备 NAT 模式 / tun/macvtap 设备桥接模式
 - 支持 proxy protocol v1 & v2
-- nftables 后端（自动回退 iptables），使用 netlink 替代 iproute2 命令
+- nftables/iptables 自动配置
 - 流量压缩（LZS）、出口 IP 自动放行
 - 空闲链接超时自动断开、流量速率限制
 - 组级别独立 IP 池与 NAT 规则
@@ -47,15 +47,15 @@ RemLink 基于 [ietf-openconnect](https://tools.ietf.org/html/draft-mavrogiannop
 
 ### 认证体系
 
-- 本地密码认证（bcrypt）
-- TOTP 动态码认证（管理员 OTP 含 90 秒防重放）
+- 本地密码认证
+- TOTP 动态码认证
 - 客户端证书认证（支持设备绑定、CSR 模式）
 - LDAP / AD 认证
 - RADIUS 认证（含 Access-Challenge 二次验证）
 - 企业微信 OAuth2 扫码登录
 - 飞书 OAuth2 扫码登录
 - SMS 短信验证码（腾讯云 + 阿里云，含防暴力破解）
-- WebAuth 浏览器端证书认证
+- WebAuth 浏览器端认证
 - 认证 Pipeline 可编排架构（多步骤自由组合 + 断点恢复）
 - Provider 统一管理第三方认证配置
 - 登录防爆（用户 + IP 三级锁定策略）
@@ -64,7 +64,7 @@ RemLink 基于 [ietf-openconnect](https://tools.ietf.org/html/draft-mavrogiannop
 ### 用户门户
 
 - 客户端下载页面
-- 证书自助申请与下载（P12 / PEM 格式）
+- 证书自助申请与下载（P12格式）
 - 在线设备管理与踢下线
 - 密码自助重置（token 防重放 + 限流）
 - OTP 动态码绑定
@@ -81,7 +81,7 @@ RemLink 基于 [ietf-openconnect](https://tools.ietf.org/html/draft-mavrogiannop
 - 系统日志实时推送（WebSocket）
 - 数据库在线切换（SQLite / MySQL / PostgreSQL / MSSQL，支持自动数据迁移）
 - 数据备份与还原
-- 在线升级（GitHub Releases 下载 → 替换 → 进程内重启，全程可视化进度）
+- 在线升级
 - 配置数据库化（支持命令行参数 / 环境变量覆盖，部分配置热更新）
 - AnyConnect Profile XML 在线编辑
 - 敏感字段 AES-256-GCM 加密存储（可选启用）+ API 脱敏
@@ -172,7 +172,6 @@ sudo systemctl enable --now remlink
 ```bash
 ./remlink -h                        # 查看帮助
 ./remlink tool -d                   # 查看所有配置项
-./remlink tool -p 123456            # 生成密码哈希
 ./remlink tool -s                   # 生成 JWT 密钥
 ./remlink --reset-admin-password    # 重置管理员密码（需先停止服务）
 ./remlink --disable-admin-otp       # 禁用管理员 OTP（需先停止服务）
