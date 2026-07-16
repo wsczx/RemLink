@@ -2,7 +2,7 @@
 
 ### AnyConnect 客户端问题
 
-> 请使用官方 AnyConnect / OpenConnect 客户端，其他版本未经充分测试，不保证可用性。
+> 推荐使用官方 AnyConnect 客户端，可以使用webauth认证功能，体检更佳，其他版本未经充分测试，不保证可用性。
 
 ### OTP 动态码
 
@@ -40,7 +40,7 @@
 ### 客户端证书
 
 > - 支持 P12 和 PEM（CSR 模式）两种签发方式
-> - 支持设备绑定（限制证书只能在指定数量的设备上使用）
+> - 支持设备绑定（限制证书只能在指定数量的设备上使用【仅对cisco anyconnect生效】）
 > - 用户可在门户自助申请和下载证书
 
 ### 客户端连接名称
@@ -150,7 +150,7 @@ stream {
 
 ### UFW / firewalld 兼容问题
 
-> RemLink 支持 nftables 和 iptables 两种防火墙后端，UFW 冲突**仅在 nftables 后端下发生**。
+> RemLink 支持 nftables 和 iptables 两种防火墙后端，UFW 和firewalld某些情况下可能和 **nftables 后端冲突**。
 
 **确认当前后端**：
 
@@ -200,6 +200,7 @@ ufw reload
 > 加密为可选功能，需在管理后台「安全设置」页面手动启用。启用后密钥文件 `.encryption_key` 默认保存在工作目录。
 >
 > 可通过环境变量自定义密钥位置：
+>
 > - `REMLINK_ENCRYPTION_KEY` — 指定密钥文件的完整路径
 > - `REMLINK_ENCRYPTION_KEY_DIR` — 指定密钥文件的存放目录
 >
