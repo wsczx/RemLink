@@ -25,7 +25,7 @@ RemLink 基于 [ietf-openconnect](https://tools.ietf.org/html/draft-mavrogiannop
 
 ## 下载
 
-从 [Releases](https://github.com/wsczx/RemLink/releases) 下载对应平台的 `remlink-deploy.tar.gz`。
+从 [Releases](https://github.com/wsczx/RemLink/releases) 下载对应平台的二进制：`remlink-linux-amd64`（x86_64）或 `remlink-linux-arm64`（ARM64）。下载后重命名为 `remlink` 即可使用。
 
 ## 功能特性
 
@@ -140,16 +140,30 @@ services:
 ### 二进制部署
 
 ```bash
-tar xzf remlink-deploy.tar.gz
-cd remlink-deploy
+# 下载对应架构的二进制并重命名为 remlink
+curl -fL https://github.com/wsczx/RemLink/releases/latest/download/remlink-linux-amd64 -o remlink
+chmod +x remlink
 sudo ./remlink
 ```
 
-### Systemd 服务
+### 一键安装（推荐）
+
+自动下载最新版二进制、安装到 `/usr/local/remlink`、注册 systemd 服务并放行防火墙端口：
 
 ```bash
-sudo cp remlink-deploy /usr/local/remlink-deploy -r
-sudo chmod +x /usr/local/remlink-deploy/remlink
+curl -fsSL https://raw.githubusercontent.com/wsczx/RemLink/main/deploy/install.sh | sudo bash
+# 或指定版本： sudo VERSION=0.16.1 bash install.sh
+# 仅安装不启动： sudo bash install.sh --no-start
+```
+
+脚本位于 `deploy/install.sh`，亦可下载后本地执行。
+
+### Systemd 服务（手动）
+
+```bash
+sudo mkdir -p /usr/local/remlink
+sudo curl -fL https://github.com/wsczx/RemLink/releases/latest/download/remlink-linux-amd64 -o /usr/local/remlink/remlink
+sudo chmod +x /usr/local/remlink/remlink
 sudo cp deploy/remlink.service /usr/lib/systemd/system/  # CentOS
 # Ubuntu: /lib/systemd/system/
 sudo systemctl daemon-reload
