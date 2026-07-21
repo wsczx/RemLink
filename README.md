@@ -233,13 +233,34 @@ docker pull docker.1ms.run/wsczx/remlink:latest
 
 > 升级前建议备份 `conf` 目录和数据库。
 
+## 界面截图
+
+<details>
+<summary>点击展开查看界面截图</summary>
+
+### 管理后台
+
+![后台管理登录页](doc/screenshot/后台管理登录页.png)
+![管理员安全设置](doc/screenshot/管理员安全设置.png)
+![用户组配置](doc/screenshot/用户组配置.png)
+![软件配置](doc/screenshot/软件配置.png)
+
+### 用户门户
+
+![用户门户登录页](doc/screenshot/用户门户登录页.png)
+![门户首页](doc/screenshot/门户首页.png)
+![自定义门户](doc/screenshot/自定义门户.png)
+![自定义品牌](doc/screenshot/自定义品牌.png)
+
+</details>
+
 ## 常见问题
 
 请前往 [常见问题文档](doc/question.md) 查看。
 
 ## 支持与打赏
 
-如果您觉得 RemLink 对您有帮助，欢迎打赏支持项目持续开发。请[点击这里](.github/FUNDING.md)查看打赏二维码。
+如果您觉得 RemLink 对您有帮助，欢迎打赏支持项目持续开发。请[点击这里](doc/screenshot/shoukuanma.png)查看打赏二维码。
 
 [打赏列表](doc/sponsors.md)
 
