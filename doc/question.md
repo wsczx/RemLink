@@ -215,3 +215,34 @@ ufw reload
 > RemLink 内置 Let's Encrypt / TrustAsia ACME 证书自动申请功能，可在管理后台「证书设置」页面配置。
 >
 > 也支持手动上传自定义证书（PEM 格式）。
+
+### 数据库：首次使用非 SQLite 与数据库切换
+
+默认使用 SQLite（`conf/remlink.db`），无需任何配置。如需使用 MySQL / PostgreSQL / MSSQL：
+
+**场景一：首次安装即使用外部数据库**
+
+在首次启动前指定数据库连接，有三种等效方式（优先级：`conf/db.json` 最高，其次命令行参数 / 环境变量）：
+
+1. 创建 `conf/db.json`（推荐，优先级最高）：
+
+```json
+{
+  "db_type": "mysql",
+  "db_source": "user:pass@tcp(127.0.0.1:3306)/remlink?charset=utf8mb4"
+}
+```
+
+2. 命令行参数：`./remlink --db_type mysql --db_source "user:pass@tcp(127.0.0.1:3306)/remlink?charset=utf8mb4"`
+
+3. 环境变量：`LINK_DB_TYPE=mysql LINK_DB_SOURCE="user:pass@tcp(127.0.0.1:3306)/remlink?charset=utf8mb4" ./remlink`
+
+> 外部库需**提前创建好空的数据库**（表结构由 RemLink 首次连接时自动初始化）。数据库驱动已内置，无需额外安装。
+>
+> `db_type` 支持：`sqlite3` / `mysql` / `postgres` / `mssql`。
+
+**场景二：已运行的实例切换数据库**
+
+在管理后台「软件配置」→「数据库」点击切换，向导会自动完成：测试连接 → 备份并迁移现有数据 → 写入 `conf/db.json` → 重启服务。支持 SQLite 与任意外部库之间互转。
+
+各数据库的 `db_source` 格式详见 README「数据库」章节的对照表。

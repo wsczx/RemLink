@@ -37,7 +37,7 @@ RemLink 基于 [ietf-openconnect](https://tools.ietf.org/html/draft-mavrogiannop
 - IP 分配（IP、MAC 映射持久化）
 - TLS-TCP 通道 / DTLS-UDP 通道
 - 兼容 AnyConnect / OpenConnect 客户端
-- tun 设备 NAT 模式 / tun/macvtap 设备桥接模式
+- tun 设备 NAT 模式 / tap、macvtap 设备桥接模式
 - 支持 proxy protocol v1 & v2
 - nftables/iptables 自动配置
 - 流量压缩（LZS）、出口 IP 自动放行
@@ -175,7 +175,7 @@ sudo systemctl enable --now remlink
 1. 启动后查看日志获取随机生成的管理员密码
 2. 浏览器访问 `https://<IP>:8800` 登录管理后台
 3. 进入「系统设置 > 安全设置」修改管理员密码
-4. 在「软件配置」中设置 `link_mode`（tun/macvtap）和网络参数
+4. 在「软件配置」中设置 `link_mode`（tun/tap/macvtap）和网络参数
 5. 在「证书设置」中配置 TLS 证书（测试可用自签证书，生产建议申请正式证书）
 6. AnyConnect 客户端连接 `<域名>:443`
 
@@ -202,23 +202,45 @@ sudo systemctl enable --now remlink
 | postgres | `postgres://user:pass@localhost/remlink?sslmode=verify-full` |
 | mssql    | `sqlserver://user:pass@localhost?database=remlink`           |
 
-切换方式：管理后台「软件配置」→ 数据库「切换」按钮（支持自动数据迁移）。也可通过 `--db_type` 和 `--db_source` 命令行参数或 `conf/db.json` 首次启动时指定。
+- **首次安装即用外部数据库**（MySQL / PostgreSQL / MSSQL）：启动前在 `conf/db.json` 写入 `db_type` / `db_source`，或用 `--db_type` / `--db_source` 参数、环境变量 `LINK_DB_TYPE` / `LINK_DB_SOURCE` 指定。详见 [常见问题](doc/question.md)。
+- **运行中切换数据库**：管理后台「软件配置」→ 数据库「切换」按钮，向导自动完成测试连接、数据迁移、写回配置并重启，支持 SQLite 与外部库互转。
 
 ## 网络模式
 
-### tun 模式（推荐）
+`link_mode` 支持 `tun` / `tap` / `macvtap` 三种模式，可在管理后台「软件配置 → 虚拟网络」中设置，或配置 `link_mode` 参数，修改后重启服务生效。其中 `tun` 既可作为三层 NAT 隧道（默认），也可配合内核 `proxy_arp` 用作 ARP 代理桥接（即 anylink 俗称的 `arp_proxy`）。
 
-客户端传输 IP 层数据，性能最佳。服务端自动设置 IP 转发和 NAT。
+### tun 模式（推荐，三层 NAT 隧道）
 
-### 桥接模式（macvtap / arp_proxy）
+客户端传输 IP 层数据，性能最佳。服务端自动设置 IP 转发和 NAT，客户端获得 VPN 私网 IP（如 `192.168.90.0/24`）后通过 NAT 访问外部与内网。
 
-客户端获得内网真实 IP，需主网卡开启混杂模式：
+- 适用场景：绝大多数场景，尤其是云服务器、只需出网或访问指定内网网段。
+- 配置要点：无需主网卡混杂模式；`global_nat=true`（默认）时自动添加全局 NAT 规则。
 
-```bash
-ip link set dev eth0 promisc on
-```
+### tun + proxy_arp 桥接
 
-> 云环境不支持桥接模式，请使用 tun 模式。
+`tun` 模式配合 Linux 内核 `proxy_arp` 可实现 ARP 代理桥接：客户端获得与内网同段的真实 IP，内网机器能直接二层访问客户端，无需 NAT、也无需混杂模式或网桥。
+
+原理：客户端 IP 配在 tun 接口上；当 `ipv4_cidr` 与主网卡（如 `eth0`）同网段、且主网卡开启 `proxy_arp` 时，内网机器对客户端 IP 的 ARP 请求会由内核代答（内核知道该 IP 的路由走 tun 接口），从而把流量经 tun 转发给客户端。
+
+- 适用场景：需要客户端使用内网真实 IP，但不想配置网桥 / 混杂模式的场景。
+- 配置要点：手动开启内核 `proxy_arp`（`sysctl -w net.ipv4.conf.all.proxy_arp=1`，并写入 `/etc/sysctl.conf` 持久化）；关闭 NAT（`global_nat=false`）；`ipv4_cidr` 必须与 `ipv4_master` 网卡现有网段一致，`ipv4_gateway` 填主网卡自身 IP；无需混杂模式。
+- 限制：与 tap / macvtap 相同，云环境通常不支持（网卡 MAC 加白、802.1x 认证网络受限）。
+
+### tap 模式（桥接 / 用户态 ARP 代答）
+
+服务端在用户态用 `arpdis` 对客户端做 ARP 代答，使客户端获得与内网同段的真实 IP。客户端传输二层帧，服务端需做链路层到 IP 层的转换，性能略低于 tun。注意：此处的用户态 ARP 代答**不同于**上文的 `proxy_arp`（后者是 tun 模式下由 Linux 内核完成的 ARP 代理）。
+
+- 适用场景：需要客户端真正接入二层广播域（广播 / 多播 / 非 IP 协议穿透），或环境不支持 `macvtap` 内核模块时作为兼容 / 兜底。基于标准 Linux 网桥（`remlink0`），成熟可控，不依赖 `macvtap` 模块。
+- 配置要点：主网卡开启混杂模式（`ip link set dev eth0 promisc on`）；关闭 NAT（`global_nat=false`）；正确设置 `ipv4_master` / `ipv4_cidr` / `ipv4_gateway`。
+
+### macvtap 模式（桥接 / 内核态）
+
+基于内核 `macvtap` 模块，由内核直接桥接，性能优于 tap。客户端同样获得内网真实 IP。
+
+- 适用场景：支持 `macvtap`（`macvlan`）内核模块的 Linux 宿主机（虚拟化宿主、物理机），追求更好性能的二层桥接。注意：macvlan 的 vepa / private 等模式会限制接口间或与宿主机互访，且部分容器 / 受限环境无法加载该模块；此类情况改回 tap。
+- 配置要点：主网卡开启混杂模式；关闭 NAT（`global_nat=false`）；需内核加载 `macvtap` 模块。
+
+> 桥接模式（tun + proxy_arp / tap / macvtap）在云环境通常不支持，请使用 tun 默认 NAT 隧道模式。
 
 ## 客户端
 
