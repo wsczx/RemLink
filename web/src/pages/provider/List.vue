@@ -883,7 +883,7 @@ export default {
 
 .form-tip-info code {
   font-family: monospace;
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--bg-hover);
   padding: 1px 6px;
   border-radius: 4px;
   color: var(--text-primary);
@@ -897,16 +897,16 @@ export default {
   gap: 4px;
   margin-top: 6px;
   padding: 6px 10px;
-  background: var(--warn-bg, #fdf6ec);
-  border-left: 3px solid var(--warn, #e6a23c);
+  background: var(--warning-bg);
+  border-left: 3px solid var(--color-warning);
   border-radius: 4px;
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--text-regular);
 }
 
 .form-tip-warn code {
   font-family: monospace;
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--bg-hover);
   padding: 1px 6px;
   border-radius: 4px;
   color: var(--text-primary);
@@ -917,7 +917,7 @@ export default {
 .config-panel {
   margin-top: 4px;
   padding: 8px 16px 4px;
-  background: #f8fafc;
+  background: var(--bg-hover);
   border: 1px solid var(--border-color);
   border-radius: 8px;
 }
