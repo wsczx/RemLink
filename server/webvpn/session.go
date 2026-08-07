@@ -106,37 +106,57 @@ func (m *AuthSessionManager) IssueGrant(w http.ResponseWriter, r *http.Request, 
 }
 
 // 用一次性免登授权换取正式 WebVPN 会话并写入 cookie（通过 w），返回 (token, user, ok)
-// 仅校验 grant 自身合法且未过期（短时效、单用途、一次性）；成功后 grant 即被单条吊销，不可复用
+// grant 不可用（缺失/过期）时，若门户会话（portal_session JWT）仍然有效，则基于门户身份
+// 直接签发 WebVPN 会话，实现免登自动续接
 func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Request) (string, *dbdata.User, bool) {
-	c, err := r.Cookie(grantCookieName)
+	// 优先用一次性免登授权（webvpn_grant）
+	if c, err := r.Cookie(grantCookieName); err == nil && c.Value != "" {
+		data, err := admin.GetJwtData(c.Value)
+		if err == nil {
+			username, _ := data["webvpn_grant_user"].(string)
+			if username != "" {
+				// 吊销 grant 自身 jti，确保一次性（防重放）；不可吊销门户 jti，否则会误杀门户登录态
+				if grantJTI, err := admin.JtiOf(c.Value); err == nil && grantJTI != "" {
+					if exp, ok := data["exp"].(float64); ok {
+						admin.RevokeJwt(grantJTI, int64(exp))
+					}
+				}
+				user := m.freshUser(username)
+				if user != nil {
+					token, err := m.Issue(w, r, user, 0)
+					if err == nil {
+						return token, user, true
+					}
+				}
+			}
+		}
+	}
+	// grant 不可用：回退到门户会话，门户仍登录着则自动重兑 WebVPN 会话
+	if user, ok := m.userFromPortalSession(r); ok && user != nil {
+		token, err := m.Issue(w, r, user, 0)
+		if err == nil {
+			return token, user, true
+		}
+	}
+	return "", nil, false
+}
+
+// 在免登授权缺失/失效时，用仍有效的门户会话（portal_session JWT）
+// 解析用户身份；JWT 过期或非法时返回 (nil, false)。用户有效性由 freshUser 复核。
+func (m *AuthSessionManager) userFromPortalSession(r *http.Request) (*dbdata.User, bool) {
+	c, err := r.Cookie("portal_session")
 	if err != nil || c.Value == "" {
-		return "", nil, false
+		return nil, false
 	}
 	data, err := admin.GetJwtData(c.Value)
 	if err != nil {
-		return "", nil, false
+		return nil, false
 	}
-	username, _ := data["webvpn_grant_user"].(string)
+	username, _ := data["portal_user"].(string)
 	if username == "" {
-		return "", nil, false
+		return nil, false
 	}
-	// 单条吊销 grant 自身 jti，确保一次性（防重放）
-	// 注意：webvpn_grant_jti 绑定的是「门户会话 jti」，仅用于校验门户登录态是否仍有效
-	// 不能吊销它——否则会误杀用户门户登录态，并让 grant 失去一次性保护
-	if grantJTI, err := admin.JtiOf(c.Value); err == nil && grantJTI != "" {
-		if exp, ok := data["exp"].(float64); ok {
-			admin.RevokeJwt(grantJTI, int64(exp))
-		}
-	}
-	user := m.freshUser(username)
-	if user == nil {
-		return "", nil, false
-	}
-	token, err := m.Issue(w, r, user, 0)
-	if err != nil {
-		return "", nil, false
-	}
-	return token, user, true
+	return m.freshUser(username), true
 }
 
 // 从请求解析当前 WebVPN 会话用户
