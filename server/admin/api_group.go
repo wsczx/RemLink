@@ -146,6 +146,8 @@ func GroupSet(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
+	// 组认证配置可能变更了 cert 步骤，立即使证书认证缓存失效（TLS 层下次握手即生效）
+	dbdata.InvalidateCertAuthCache()
 
 	// 网段变更则清理旧 NAT 规则
 	if oldGroup.ClientCidr != "" && oldGroup.ClientCidr != v.ClientCidr {
@@ -182,6 +184,8 @@ func GroupDel(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
+	// 删除组后可能移除了最后一个 cert 组，立即使证书认证缓存失效
+	dbdata.InvalidateCertAuthCache()
 
 	// 清理该组在防火墙里的 NAT/转发规则，避免删除后规则残留至整机重启
 	sessdata.RemoveGroupNAT(g.ClientCidr, g.ClientCidr6, g.OutDev)

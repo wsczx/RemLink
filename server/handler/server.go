@@ -70,13 +70,19 @@ func startTls() {
 		MinVersion:   tls.VersionTLS12,
 		CipherSuites: selectedCipherSuites,
 		GetCertificate: func(chi *tls.ClientHelloInfo) (*tls.Certificate, error) {
-			// base.Trace("GetCertificate ServerName", chi.ServerName)
 			return dbdata.GetCertificateBySNI(chi.ServerName)
 		},
 	}
-	// 请求客户端证书（TLS 层不验证，由认证管道处理）。
-	tlsConfig.ClientAuth = tls.RequestClientCert
-	tlsConfig.ClientCAs = dbdata.LoadClientCAPool()
+	// 客户端证书请求，支持热更新
+	tlsConfig.GetConfigForClient = func(chi *tls.ClientHelloInfo) (*tls.Config, error) {
+		if !dbdata.AnyGroupHasCertAuth() {
+			return nil, nil // 无 cert 组不请求证书
+		}
+		c := tlsConfig.Clone()
+		c.ClientAuth = tls.RequestClientCert    // 请求客户端证书
+		c.ClientCAs = dbdata.LoadClientCAPool() // 加载客户端CA证书
+		return c, nil
+	}
 	srv := &http.Server{
 		Addr:         addr,
 		Handler:      webVpnRootHandler(),

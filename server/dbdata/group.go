@@ -7,6 +7,7 @@ import (
 	"net"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/songgao/water/waterutil"
@@ -355,6 +356,50 @@ func GroupAuthLogin(name, pwd string, authProfile json.RawMessage) error {
 	default:
 		return fmt.Errorf("认证返回未知状态: %v", result)
 	}
+}
+
+// 是否有任意启用状态的用户组开启了客户端证书（cert）认证
+// 用于 TLS 层按需决定是否请求/验证客户端证书，避免未启用证书认证时浏览器访问弹框
+// 结果带 30 秒 TTL 缓存，避免每次 TLS 握手都全表扫描组配置
+var (
+	certAuthCacheMux sync.RWMutex
+	certAuthCached   bool
+	certAuthCacheAt  time.Time
+	certAuthCacheTTL = 30 * time.Second
+)
+
+func AnyGroupHasCertAuth() bool {
+	certAuthCacheMux.RLock()
+	if time.Since(certAuthCacheAt) < certAuthCacheTTL {
+		v := certAuthCached
+		certAuthCacheMux.RUnlock()
+		return v
+	}
+	certAuthCacheMux.RUnlock()
+
+	groups, err := GetAllGroups()
+	has := false
+	if err == nil {
+		for _, g := range groups {
+			if HasAuthType(g.AuthProfile, "cert") {
+				has = true
+				break
+			}
+		}
+	}
+
+	certAuthCacheMux.Lock()
+	certAuthCached = has
+	certAuthCacheAt = time.Now()
+	certAuthCacheMux.Unlock()
+	return has
+}
+
+// 组认证配置变更后调用，使证书认证缓存立即失效，保证 TLS 层及时响应
+func InvalidateCertAuthCache() {
+	certAuthCacheMux.Lock()
+	certAuthCacheAt = time.Time{}
+	certAuthCacheMux.Unlock()
 }
 
 // 检查 AuthProfile 中是否包含指定认证类型
