@@ -9,9 +9,9 @@
             <div class="setting-card">
               <div class="setting-card-title"><i class="el-icon-lock"></i> 上传自定义 SSL 证书</div>
               <el-form ref="customCert" :model="customCert" label-width="100px" size="small">
-                <el-form-item label="证书槽位">
+                <el-form-item label="证书类型">
                   <el-radio-group v-model="customCert.slot">
-                    <el-radio label="">主证书（门户/登录）</el-radio>
+                    <el-radio label="main">主证书（门户/登录）</el-radio>
                     <el-radio label="wild">WebVPN 泛域名（*.{{ webvpnDomain }}）</el-radio>
                   </el-radio-group>
                   <div class="form-tip" v-if="customCert.slot === 'wild'">
@@ -314,7 +314,7 @@ export default {
   },
   mounted() {
     this.getletsCert();
-    // 获取 WebVPN 域名用于证书槽位提示
+    // 获取 WebVPN 域名用于证书类型提示
     axios.get("/webvpn/domain").then(resp => {
       if (resp.data.code === 0) this.webvpnDomain = resp.data.data.domain || "";
     }).catch(() => { });
@@ -343,7 +343,7 @@ export default {
     return {
       activeTab: "customCert",
       webvpnDomain: "",
-      customCert: { slot: "", cert: "", key: "" },
+      customCert: { slot: "main", cert: "", key: "" },
       letsCert: {
         domain: "", legomail: "", name: "", renew: "", dnsResolver: "",
         certType: "main",
@@ -427,7 +427,7 @@ export default {
     beforeKeyUpload(file) { this.customCert.key = file; },
     submitCustomCert() {
       if (!this.customCert.slot) {
-        this.$message.error("请选择证书槽位");
+        this.$message.error("请选择证书类型");
         return;
       }
       const formData = new FormData();

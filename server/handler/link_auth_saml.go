@@ -26,8 +26,13 @@ func SAMLSPLogin(w http.ResponseWriter, r *http.Request) {
 	// 校验该组的认证配置确实包含请求的 SSO 类型
 	groupData := &dbdata.Group{}
 	if err := dbdata.One("Name", tgname, groupData); err != nil {
-		base.Error("组不存在:", tgname)
-		http.Error(w, "组不存在", http.StatusBadRequest)
+		if dbdata.CheckErrNotFound(err) {
+			base.Error("组不存在:", tgname)
+			http.Error(w, "组不存在", http.StatusBadRequest)
+			return
+		}
+		base.Error("查询组失败:", tgname, err)
+		http.Error(w, "系统繁忙，请稍后重试", http.StatusServiceUnavailable)
 		return
 	}
 

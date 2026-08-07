@@ -2,6 +2,7 @@ package dbdata
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	_ "github.com/denisenkom/go-mssqldb"
@@ -10,6 +11,8 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/wsczx/remlink/base"
 	"xorm.io/xorm"
+	"xorm.io/xorm/core"
+	"xorm.io/xorm/dialects"
 )
 
 var (
@@ -44,7 +47,32 @@ func TableModels() []any {
 
 func initDb() {
 	var err error
-	xdb, err = xorm.NewEngine(base.GetCfg().DbType, base.GetCfg().DbSource)
+	dbType := base.GetCfg().DbType
+	dbSource := base.GetCfg().DbSource
+
+	// SQLite 单写锁：默认加 busy_timeout 让驱动在拿不到写锁时等待而非立即报
+	// "database is locked"。否则高并发写（流控自增、审计批量写）会频繁撞锁
+	if dbType == "sqlite3" {
+		if !strings.Contains(dbSource, "_busy_timeout=") {
+			sep := "?"
+			if strings.Contains(dbSource, "?") {
+				sep = "&"
+			}
+			dbSource += sep + "_busy_timeout=5000"
+		}
+		// 注入 SQLite 锁退避重试（见 db_sqlite_retry.go）
+		sqlDB, dErr := newRetrySqliteDB(dbSource)
+		if dErr != nil {
+			base.Fatal(dErr)
+		}
+		dialect, dErr := dialects.OpenDialect(dbType, dbSource)
+		if dErr != nil {
+			base.Fatal(dErr)
+		}
+		xdb, err = xorm.NewEngineWithDialectAndDB(dbType, dbSource, dialect, core.FromDB(sqlDB))
+	} else {
+		xdb, err = xorm.NewEngine(dbType, dbSource)
+	}
 	if err != nil {
 		base.Fatal(err)
 	}
@@ -102,6 +130,7 @@ func addInitData() error {
 	if err != nil {
 		return err
 	}
+	defer sess.Rollback()
 
 	// SettingSmtp
 	smtp := &SettingSmtp{

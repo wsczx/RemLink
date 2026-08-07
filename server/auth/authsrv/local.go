@@ -29,10 +29,16 @@ func (a *LocalAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 
 	v := &dbdata.User{}
 	err := dbdata.One("Username", ctx.Conn.Username, v)
-	userExists := err == nil
-	// 防用户枚举：用户名不存在与密码错误返回一致的文案
-	if !userExists || v.Status != 1 {
-		base.Debug("local auth account invalid:", ctx.Conn.Username, "exists=", userExists, "status=", v.Status)
+	if err != nil {
+		// 防用户枚举：用户名不存在与密码错误返回一致的文案
+		if dbdata.CheckErrNotFound(err) {
+			base.Debug("local auth account invalid:", ctx.Conn.Username)
+		} else {
+			base.Warn("local auth query user failed:", ctx.Conn.Username, err)
+		}
+		return auth.StepFail, fmt.Errorf("用户名或密码错误")
+	}
+	if v.Status != 1 {
 		return auth.StepFail, fmt.Errorf("用户名或密码错误")
 	}
 

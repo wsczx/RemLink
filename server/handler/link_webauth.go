@@ -198,7 +198,11 @@ func WebAuthSelectGroup(w http.ResponseWriter, r *http.Request) {
 
 	groupData := &dbdata.Group{}
 	if err := dbdata.One("Name", req.Group, groupData); err != nil {
-		webAuthError(w, "用户组不存在")
+		if dbdata.CheckErrNotFound(err) {
+			webAuthError(w, "用户组不存在")
+			return
+		}
+		webAuthError(w, "系统繁忙，请稍后重试")
 		return
 	}
 

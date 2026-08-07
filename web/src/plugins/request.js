@@ -3,6 +3,16 @@ import axios from "axios";
 import { logout as doLogout, isLoggingOut, beginLogout, isChecked, getLastLoginTime } from "./auth";
 
 axios.defaults.headers.post['Content-Type'] = 'application/x-www-form-urlencoded';
+// 兼容FormData和裸对象自动 JSON 序列化
+axios.defaults.transformRequest = [
+    function (data, headers) {
+        if (data && typeof data === 'object' && !(data instanceof FormData) && typeof data !== 'string') {
+            headers['Content-Type'] = 'application/json';
+            return JSON.stringify(data);
+        }
+        return data;
+    }
+];
 
 if (process.env.NODE_ENV !== 'production') {
     axios.defaults.baseURL = process.env.VUE_APP_API_BASE || '';
