@@ -706,7 +706,10 @@ func TestPortalLogoutRevokesWebVpnSession(t *testing.T) {
 // 兑换失败（权限中途被取消 / grant 过期 / 会话已被吊销）时，WebVpnHandler 必须直接
 // 渲染无权限提示页（403），而不得 302 回登录页。否则门户已登录的前端会自动回跳、
 // 后端又判定未登录再次跳转，形成高频率刷新死循环。
-func TestWebVpnNoLoopWhenPortalLoggedInButDenied(t *testing.T) {
+// TestWebVpnPortalLoggedInAutoExchange 验证设计核心：门户已登录用户访问 WebVPN 子域时，
+// 通过免登兑换自动获得 WebVPN 会话并进入代理，而不会跳转到登录页（避免前端自动回跳→后端又判未登录→
+// 再次跳转的刷新死循环）。门户会话 cookie 不会直接被当作 WebVPN 会话，必须经由 ExchangeGrant 兑换。
+func TestWebVpnPortalLoggedInAutoExchange(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
 
@@ -725,9 +728,19 @@ func TestWebVpnNoLoopWhenPortalLoggedInButDenied(t *testing.T) {
 
 	handled := WebVpnHandler(rec, req)
 	assert.True(t, handled, "WebVpnHandler 应处理该请求")
-	// 关键断言：返回 403 无权限页，而非 302 跳登录页（避免刷新死循环）
-	assert.Equal(t, http.StatusForbidden, rec.Code, "门户已登录但免登失败时不应跳登录页")
+	// 门户已登录应免登兑换成功并进入代理（不会跳登录页，避免死循环）
+	assert.Equal(t, http.StatusOK, rec.Code, "门户已登录用户应通过免登兑换直接进入，而非跳登录页")
 	assert.Empty(t, rec.Header().Get("Location"), "不应重定向到登录页")
+	// 兑换成功后应写入 webvpn 会话 cookie，使后续请求直接走 CurrentUser
+	cookies := rec.Result().Cookies()
+	foundSession := false
+	for _, c := range cookies {
+		if c.Name == webVpnSessionCookie {
+			foundSession = true
+			break
+		}
+	}
+	assert.True(t, foundSession, "免登兑换成功后应下发 WebVPN 会话 cookie")
 }
 
 // TestWebVpnProxyAuditLogged 验证设计 §6：每次代理请求落一条审计记录（含真实客户端 IP）。

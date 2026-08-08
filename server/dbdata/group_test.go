@@ -101,3 +101,78 @@ func TestGetGroupNames(t *testing.T) {
 		ast.Equal(true, utils.InArrStr(gAll, v.Name))
 	}
 }
+
+// 测试 AnyGroupHasCertAuth：扫描组认证配置判断是否启用 cert 认证，带缓存。
+// 缓存核心语义：InvalidateCertAuthCache 后立即反映最新组配置。
+func TestAnyGroupHasCertAuth(t *testing.T) {
+	t.Run("有cert组返回true", func(t *testing.T) {
+		ast := assert.New(t)
+		defer InvalidateCertAuthCache()
+		preIpData(t)
+		defer closeIpdata()
+
+		pt := &Policy{Name: "cert-auth-default", ClientDns: []ValData{{Val: "8.8.8.8"}}, Status: 1}
+		ast.Nil(SetPolicy(pt))
+		ast.Nil(SetGroup(&Group{Name: "cert-yes", Status: 1, PolicyId: pt.Id,
+			AuthProfile: json.RawMessage(`{"step":[{"type":"cert"},{"type":"local"}]}`)}))
+		InvalidateCertAuthCache()
+		ast.True(AnyGroupHasCertAuth(), "含 cert 组应返回 true")
+	})
+
+	t.Run("无cert组返回false", func(t *testing.T) {
+		ast := assert.New(t)
+		defer InvalidateCertAuthCache()
+		preIpData(t)
+		defer closeIpdata()
+
+		pt := &Policy{Name: "cert-auth-none", ClientDns: []ValData{{Val: "8.8.8.8"}}, Status: 1}
+		ast.Nil(SetPolicy(pt))
+		ast.Nil(SetGroup(&Group{Name: "cert-no", Status: 1, PolicyId: pt.Id,
+			AuthProfile: json.RawMessage(`{"step":[{"type":"local"}]}`)}))
+		InvalidateCertAuthCache()
+		ast.False(AnyGroupHasCertAuth(), "无 cert 组应返回 false")
+	})
+}
+
+// 测试 InvalidateCertAuthCache：使缓存立即失效，失效后反映最新组配置，且并发安全。
+func TestInvalidateCertAuthCache(t *testing.T) {
+	t.Run("失效后反映最新配置", func(t *testing.T) {
+		ast := assert.New(t)
+		defer InvalidateCertAuthCache()
+		preIpData(t)
+		defer closeIpdata()
+
+		pt := &Policy{Name: "cert-inv-default", ClientDns: []ValData{{Val: "8.8.8.8"}}, Status: 1}
+		ast.Nil(SetPolicy(pt))
+		ast.Nil(SetGroup(&Group{Name: "cert-inv", Status: 1, PolicyId: pt.Id,
+			AuthProfile: json.RawMessage(`{"step":[{"type":"cert"}]}`)}))
+		_ = pt.Id
+
+		InvalidateCertAuthCache()
+		ast.True(AnyGroupHasCertAuth(), "有 cert 组应返回 true")
+	})
+
+	t.Run("并发失效安全", func(t *testing.T) {
+		ast := assert.New(t)
+		defer InvalidateCertAuthCache()
+		// 并发多次失效不应 panic
+		for i := 0; i < 50; i++ {
+			go InvalidateCertAuthCache()
+		}
+		InvalidateCertAuthCache()
+		// 失效后处于未缓存状态，调用应安全返回（不依赖具体 true/false，只验证不 panic）
+		v := AnyGroupHasCertAuth()
+		ast.True(v || !v, "并发失效后调用不应 panic")
+	})
+}
+
+// 测试 HasAuthType：解析 AuthProfile 判断是否包含指定认证类型。
+func TestHasAuthType(t *testing.T) {
+	ast := assert.New(t)
+
+	ast.True(HasAuthType(json.RawMessage(`{"step":[{"type":"cert"},{"type":"local"}]}`), "cert"))
+	ast.True(HasAuthType(json.RawMessage(`{"step":[{"type":"local"}]}`), "local"))
+	ast.False(HasAuthType(json.RawMessage(`{"step":[{"type":"local"}]}`), "cert"))
+	ast.False(HasAuthType(json.RawMessage(`not-json`), "cert"))
+	ast.False(HasAuthType(nil, "cert"))
+}

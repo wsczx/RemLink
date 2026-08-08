@@ -62,7 +62,7 @@ func handlerWebAuth(w http.ResponseWriter, r *http.Request, cr *ClientRequest, u
 
 	serverAddr := getServerAddr(r)
 
-	loginURL := fmt.Sprintf("%s/+CSCOE+/web-auth/sp/login?state=%s&#x26;acsamlcap=v2", serverAddr, url.QueryEscape(state))
+	loginURL := fmt.Sprintf("%s/+CSCOE+/web-auth/sp/login?state=%s", serverAddr, url.QueryEscape(state))
 	completeURL := serverAddr + "/+CSCOE+/saml_ac_login.html"
 
 	xml := `<?xml version="1.0" encoding="UTF-8"?>
@@ -133,7 +133,12 @@ func WebAuthStart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 证书自动识别组（从原始 AnyConnect 连接继承的证书信息）
-	certCN, certOU, certTLS := webAuthRecoverCert(pending)
+	// 仅当存在启用 cert 认证的组时才尝试从证书恢复身份
+	var certCN, certOU string
+	var certTLS *tls.ConnectionState
+	if dbdata.AnyGroupHasCertAuth() {
+		certCN, certOU, certTLS = webAuthRecoverCert(pending)
+	}
 
 	// 回退到组选择流程，让用户可切换组或重试。
 	attemptCertAuto := certCN != "" && certOU != "" && certTLS != nil &&
@@ -151,7 +156,9 @@ func WebAuthStart(w http.ResponseWriter, r *http.Request) {
 			webAuthHandleResult(w, r, state, pending, result, certCN)
 			return
 		}
-		// 证书自动认证失败：回退到组选择流程
+		// 证书自动认证失败：回退到组选择流程，清除本次临时写入的用户名
+		pending.Ctx.Conn.Username = ""
+		pending.UserActLog.Username = ""
 		certErrMsg = "证书自动认证失败，请选择其他组登录"
 		base.Info("[WebAuth-1:start] 证书自动认证失败，回退组选择 ou=", certOU, " err=", result.Err)
 	}
@@ -278,11 +285,13 @@ func WebAuthSelectGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 其他认证方式：返回凭据输入界面（预填已识别的用户名，避免重复输入）
+	// 仅组过滤模式（用户已在 identify 步骤主动输入用户名）才预填，避免会话里残留的
+	// 用户名（如证书 CN、历史污染）在非组过滤场景下被回传并锁死输入框
 	resp := map[string]any{
 		"status": "credentials",
 		"hint":   "请输入登录凭据",
 	}
-	if pending.Ctx.Conn.Username != "" {
+	if base.GetCfg().EnableWebAuthGroupFilter && pending.Ctx.Conn.Username != "" {
 		resp["username"] = pending.Ctx.Conn.Username
 	}
 	webAuthJSON(w, http.StatusOK, resp)

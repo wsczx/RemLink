@@ -271,7 +271,7 @@ var samlSuccessHTML = `
     <div class="container">
         <div class="icon">✅</div>
         <h1>认证成功！</h1>
-        <p class="detail">已成功通过企业微信认证，VPN客户端将自动完成连接。</p>
+        <p class="detail">已成功完成认证，VPN客户端将自动完成连接。</p>
         <p class="detail">
             请返回 AnyConnect 客户端查看连接状态。
         </p>
