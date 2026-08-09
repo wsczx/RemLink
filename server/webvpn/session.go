@@ -312,7 +312,9 @@ func (m *AuthSessionManager) setGrantCookie(w http.ResponseWriter, r *http.Reque
 	if w == nil {
 		return
 	}
-	http.SetCookie(w, m.cookie(grantCookieName, token, r))
+	c := m.cookie(grantCookieName, token, r)
+	c.Domain = wildcardDomain()
+	http.SetCookie(w, c)
 }
 
 func (m *AuthSessionManager) cookie(name, token string, r *http.Request) *http.Cookie {

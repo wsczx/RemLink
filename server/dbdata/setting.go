@@ -98,7 +98,7 @@ type SettingPortalBrand struct {
 	Logo            string `json:"logo"`             // 品牌 Logo 图片地址（URL 或 data URI），为空时前端回退默认图标
 	Favicon         string `json:"favicon"`          // 网站图标地址（URL 或 data URI），为空时前端使用默认 favicon
 	Desc            string `json:"desc"`             // 品牌副标题，为空时各前端回退各自默认文案
-	Footer          string `json:"footer"`           // 页脚文本，为空时前端回退默认页脚
+	Footer          string `json:"footer"`           // 页脚内容（支持 HTML），为空时前端回退默认页脚
 	FeaturesEnabled int    `json:"features_enabled"` // 登录页功能卡片开关：0 未配置（默认显示）/ 1 显示 / 2 关闭
 	Features        string `json:"features"`         // 功能卡片自定义内容（JSON 数组 [{label,desc}]），为空时前端用默认三项
 }

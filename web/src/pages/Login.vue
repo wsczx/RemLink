@@ -23,7 +23,8 @@
       </div>
 
       <!-- 密码输入步骤 -->
-      <el-form v-show="!otpStep" :model="ruleForm" status-icon :rules="rules" ref="ruleForm" class="login-form" @submit.native.prevent>
+      <el-form v-show="!otpStep" :model="ruleForm" status-icon :rules="rules" ref="ruleForm" class="login-form"
+        @submit.native.prevent>
         <el-form-item prop="admin_user">
           <el-input v-model="ruleForm.admin_user" placeholder="请输入管理用户名" prefix-icon="el-icon-user-solid"
             @keydown.enter.native.prevent="submitForm('ruleForm')">
@@ -35,7 +36,8 @@
           </el-input>
         </el-form-item>
         <el-form-item class="login-actions">
-          <el-button type="primary" :loading="isLoading" @click="submitForm('ruleForm')" class="btn-login-full" native-type="button">
+          <el-button type="primary" :loading="isLoading" @click="submitForm('ruleForm')" class="btn-login-full"
+            native-type="button">
             登 录
           </el-button>
         </el-form-item>
@@ -55,7 +57,8 @@
             </el-input>
           </el-form-item>
           <el-form-item class="otp-actions">
-            <el-button type="primary" :loading="otpLoading" @click="submitOtp" class="btn-otp-confirm" native-type="button">
+            <el-button type="primary" :loading="otpLoading" @click="submitOtp" class="btn-otp-confirm"
+              native-type="button">
               验 证
             </el-button>
             <el-button @click="otpStep = false" class="btn-otp-back" native-type="button">
@@ -67,7 +70,7 @@
 
       <!-- 底部提示 -->
       <div class="login-footer">
-        <p v-if="brand.footer" class="login-footer-text">{{ brand.footer }}</p>
+        <div v-if="brand.footer" class="login-footer-text" v-html="brand.footer"></div>
         <p>忘记管理员密码？请在服务器停止服务后执行密码重置命令，再重启服务：</p>
         <code class="reset-cmd">remlink --reset-admin-password</code>
       </div>
@@ -122,7 +125,7 @@ export default {
           this.brand = Object.assign({ title: "", logo: "", favicon: "" }, resp.data.data)
           applyBrandToDocument(this.brand)
         }
-      }).catch(() => {})
+      }).catch(() => { })
     },
     async handleLoginSuccess(rdata) {
       this.$message.success('登录成功');
@@ -409,6 +412,12 @@ export default {
   margin: 0 0 8px 0;
 }
 
+.login-footer-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0 0 10px 0;
+}
+
 .reset-cmd {
   display: inline-block;
   padding: 4px 12px;
@@ -427,21 +436,26 @@ export default {
     width: 90%;
     padding: 36px 24px 28px;
   }
+
   .login-title {
     font-size: 24px;
   }
+
   .login-subtitle {
     font-size: 13px;
   }
+
   .login-form /deep/ .el-input__inner {
     height: 42px;
     line-height: 42px;
     font-size: 13px;
   }
+
   .btn-login-full {
     height: 42px;
     font-size: 14px;
   }
+
   .reset-cmd {
     font-size: 11px;
     padding: 3px 8px;
@@ -469,6 +483,7 @@ export default {
   font-size: 18px;
   transition: all var(--transition-fast);
 }
+
 .theme-toggle-fixed:hover {
   background: rgba(255, 255, 255, 0.2);
   color: var(--text-inverse);
@@ -476,7 +491,7 @@ export default {
 
 html.dark .login-card {
   background: var(--bg-card) !important;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.5) !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5) !important;
 }
 
 html.dark .login-card .el-input__inner {

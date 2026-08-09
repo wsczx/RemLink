@@ -356,11 +356,13 @@ body {
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
   padding: 6px 0;
 }
+
 .el-dropdown-menu__item {
   color: var(--text-regular);
   line-height: 34px;
   padding: 0 16px;
 }
+
 .el-dropdown-menu__item:hover {
   background: var(--color-primary-bg);
   color: var(--color-primary);
@@ -611,6 +613,7 @@ body {
     flex-wrap: wrap;
     width: 100%;
   }
+
   .card-actions .el-button {
     margin-left: 0;
   }
@@ -644,6 +647,7 @@ body {
   .el-pagination {
     text-align: center;
   }
+
   .el-pagination .el-pagination__total,
   .el-pagination .el-pagination__sizes {
     float: none;
@@ -652,7 +656,7 @@ body {
   }
 
   /* 按钮组不换行时缩小间距 */
-  .el-button + .el-button {
+  .el-button+.el-button {
     margin-left: 8px;
   }
 
@@ -707,7 +711,7 @@ html.dark .el-table--striped .el-table__body tr.el-table__row--striped td.el-tab
   background: var(--bg-stripe) !important;
 }
 
-html.dark .el-table__body tr:hover > td.el-table__cell {
+html.dark .el-table__body tr:hover>td.el-table__cell {
   background: var(--bg-hover) !important;
 }
 
@@ -821,7 +825,7 @@ html.dark .el-radio-button__inner {
   border-color: var(--border-color) !important;
 }
 
-html.dark .el-radio-button__orig-radio:checked + .el-radio-button__inner {
+html.dark .el-radio-button__orig-radio:checked+.el-radio-button__inner {
   background: var(--color-primary) !important;
   color: var(--text-inverse) !important;
   border-color: var(--color-primary) !important;
@@ -883,5 +887,91 @@ html.dark .el-tabs__nav-wrap::after {
 
 html.dark .el-tabs__header {
   border-bottom-color: var(--border-color-light) !important;
+}
+
+/* ========== 自定义页脚徽章（管理员在「页脚内容」中填的 HTML 使用 .github-badge 即可） ==========
+   放在全局样式，因为页脚 HTML 由 v-html 注入，scoped 样式无法命中 */
+.login-footer .github-badge,
+.portal-footer .github-badge,
+.portal-login-footer .github-badge,
+.webauth-footer .github-badge,
+.layout-footer .github-badge {
+  display: inline-flex;
+  align-items: stretch;
+  vertical-align: middle;
+  margin: 0 2px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 0 1px rgba(0, 0, 0, 0.15);
+  font-size: 11px;
+  line-height: 18px;
+  text-decoration: none;
+}
+
+.login-footer .github-badge a,
+.portal-footer .github-badge a,
+.portal-login-footer .github-badge a,
+.webauth-footer .github-badge a,
+.layout-footer .github-badge a {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  color: inherit;
+}
+
+.login-footer .badge-subject,
+.portal-footer .badge-subject,
+.portal-login-footer .badge-subject,
+.webauth-footer .badge-subject,
+.layout-footer .badge-subject {
+  display: inline-block;
+  padding: 0 6px;
+  background: #555;
+  color: #fff;
+  border-radius: 3px 0 0 3px;
+}
+
+.login-footer .badge-value,
+.portal-footer .badge-value,
+.portal-login-footer .badge-value,
+.webauth-footer .badge-value,
+.layout-footer .badge-value {
+  display: inline-block;
+  padding: 0 6px;
+  color: #fff;
+  border-radius: 0 3px 3px 0;
+}
+
+.login-footer .bg-blue,
+.portal-footer .bg-blue,
+.portal-login-footer .bg-blue,
+.webauth-footer .bg-blue,
+.layout-footer .bg-blue {
+  background: #007ec6;
+}
+
+.login-footer .bg-green,
+.portal-footer .bg-green,
+.portal-login-footer .bg-green,
+.webauth-footer .bg-green,
+.layout-footer .bg-green {
+  background: #4c1;
+}
+
+.login-footer .bg-orange,
+.portal-footer .bg-orange,
+.portal-login-footer .bg-orange,
+.webauth-footer .bg-orange,
+.layout-footer .bg-orange {
+  background: #f60;
+}
+
+.login-footer .bg-grey,
+.portal-footer .bg-grey,
+.portal-login-footer .bg-grey,
+.webauth-footer .bg-grey,
+.layout-footer .bg-grey {
+  background: #888;
 }
 </style>

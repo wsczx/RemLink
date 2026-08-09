@@ -11,8 +11,8 @@
     <el-container class="layout-main">
       <!-- 顶部栏 -->
       <el-header class="layout-header">
-        <LayoutHeader :is_active.sync="is_active" :route_name="route_name"
-          :is_mobile="is_mobile" @toggle="handleToggle" />
+        <LayoutHeader :is_active.sync="is_active" :route_name="route_name" :is_mobile="is_mobile"
+          @toggle="handleToggle" />
       </el-header>
 
       <!-- 内容区域 -->
@@ -22,7 +22,7 @@
 
       <!-- 底部 -->
       <el-footer class="layout-footer">
-        <span v-if="brand.footer" class="footer-text">{{ brand.footer }}</span>
+        <span v-if="brand.footer" class="footer-text" v-html="brand.footer"></span>
         <span v-if="brand.footer" class="footer-divider">|</span>
         <span class="footer-text">RemLink 企业级安全远程接入网关</span>
         <span class="footer-divider">|</span>
@@ -217,7 +217,7 @@ export default {
         this.brand = Object.assign({ footer: "" }, resp.data.data)
         applyBrandToDocument(this.brand)
       }
-    }).catch(() => {})
+    }).catch(() => { })
     // 页面长期不切路由时（跨天）也能触发每日检查
     this._upgradeTimer = setInterval(this.checkDailyUpgrade, 60 * 60 * 1000)
   },
@@ -274,14 +274,17 @@ export default {
   border-top: 1px solid var(--border-color-light);
   flex-shrink: 0;
 }
+
 .footer-divider {
   color: var(--border-color);
 }
+
 .footer-link {
   color: var(--color-primary);
   text-decoration: none;
   font-weight: 500;
 }
+
 .footer-link:hover {
   text-decoration: underline;
 }

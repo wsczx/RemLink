@@ -280,26 +280,30 @@
                 <el-form-item label="Logo 图片" prop="logo">
                   <el-input v-model="dataBrand.logo" placeholder="图片 URL 或 data:image/...;base64,..."></el-input>
                   <div class="brand-logo-row">
-                    <img v-if="dataBrand.logo" :src="normalizeSrc(dataBrand.logo)" class="brand-logo-preview" alt="logo 预览" />
+                    <img v-if="dataBrand.logo" :src="normalizeSrc(dataBrand.logo)" class="brand-logo-preview"
+                      alt="logo 预览" />
                     <el-button size="small" icon="el-icon-upload" @click="$refs.brandFile.click()">上传图片</el-button>
                     <el-button size="small" icon="el-icon-document-copy" v-if="dataBrand.logo"
                       @click="copyText(dataBrand.logo, 'Logo 地址')">复制</el-button>
                     <el-button size="small" icon="el-icon-delete" v-if="dataBrand.logo"
                       @click="dataBrand.logo = ''">清除</el-button>
-                    <input ref="brandFile" type="file" accept="image/*" style="display:none" @change="uploadImage($event, 'logo')" />
+                    <input ref="brandFile" type="file" accept="image/*" style="display:none"
+                      @change="uploadImage($event, 'logo')" />
                   </div>
                   <div class="form-tip-new">建议尺寸 32×32~48×48，支持 PNG/SVG；留空则显示默认图标。</div>
                 </el-form-item>
                 <el-form-item label="网站图标" prop="favicon">
                   <el-input v-model="dataBrand.favicon" placeholder="图片 URL 或 data:image/...;base64,..."></el-input>
                   <div class="brand-logo-row">
-                    <img v-if="dataBrand.favicon" :src="normalizeSrc(dataBrand.favicon)" class="brand-favicon-preview" alt="favicon 预览" />
+                    <img v-if="dataBrand.favicon" :src="normalizeSrc(dataBrand.favicon)" class="brand-favicon-preview"
+                      alt="favicon 预览" />
                     <el-button size="small" icon="el-icon-upload" @click="$refs.faviconFile.click()">上传图片</el-button>
                     <el-button size="small" icon="el-icon-document-copy" v-if="dataBrand.favicon"
                       @click="copyText(dataBrand.favicon, 'Favicon 地址')">复制</el-button>
                     <el-button size="small" icon="el-icon-delete" v-if="dataBrand.favicon"
                       @click="dataBrand.favicon = ''">清除</el-button>
-                    <input ref="faviconFile" type="file" accept="image/*" style="display:none" @change="uploadImage($event, 'favicon')" />
+                    <input ref="faviconFile" type="file" accept="image/*" style="display:none"
+                      @change="uploadImage($event, 'favicon')" />
                   </div>
                   <div class="form-tip-new">建议尺寸 16×16~32×32，支持 ICO/PNG/SVG；留空则使用默认 favicon（浏览器标签图标）。</div>
                 </el-form-item>
@@ -311,9 +315,9 @@
                   <el-input v-model="dataBrand.desc" placeholder="如 企业级远程接入平台，留空回退默认副标题"></el-input>
                   <div class="form-tip-new">门户、WebAuth 登录页品牌名下方的灰色副标题，留空则显示默认文案。</div>
                 </el-form-item>
-                <el-form-item label="页脚文本" prop="footer">
+                <el-form-item label="页脚内容" prop="footer">
                   <el-input type="textarea" :rows="3" v-model="dataBrand.footer"
-                    placeholder="如 © 2026 某某公司 信息技术部，留空回退默认页脚"></el-input>
+                    placeholder="支持 HTML；可用 .github-badge 实现徽章式页脚，留空回退默认页脚"></el-input>
                 </el-form-item>
               </div>
               <div class="setting-card">
@@ -434,8 +438,7 @@
                         </div>
                       </template>
                       <div class="cg-group-head">
-                        <el-input v-model="g.name" placeholder="平台名称，如 Windows" class="cg-name"
-                          size="small"></el-input>
+                        <el-input v-model="g.name" placeholder="平台名称，如 Windows" class="cg-name" size="small"></el-input>
                         <el-button type="danger" size="small" plain icon="el-icon-delete"
                           @click="removeClientGuideGroup(gi)">删除平台</el-button>
                       </div>
@@ -486,7 +489,8 @@
                         <strong>生效范围：仅登录后的「门户首页」生效，登录页不注入。</strong>
                       </p>
                       <p class="css-help-warn">
-                        ⚠️ <strong>关键：</strong>门户组件样式带 scoped 属性选择器，特异性高于自定义 CSS。凡是要覆盖组件原有样式的规则，<strong>必须加 <code>!important</code></strong>，否则只有配色等少数规则生效、布局改不动（这是最常见的坑）。
+                        ⚠️ <strong>关键：</strong>门户组件样式带 scoped 属性选择器，特异性高于自定义 CSS。凡是要覆盖组件原有样式的规则，<strong>必须加
+                          <code>!important</code></strong>，否则只有配色等少数规则生效、布局改不动（这是最常见的坑）。
                       </p>
                       <div class="css-vars-grid">
                         <div class="css-var-group">
@@ -546,8 +550,10 @@
                         </div>
                       </div>
                       <p class="css-help-example">配色示例：<code>.portal-dash-main { --bg-card: #f7faff; }</code></p>
-                      <p class="css-help-example">布局示例（主区两列，<strong>记得加 !important</strong>）：<code>.dash-grid { display: grid !important; grid-template-columns: 1fr 360px !important; }</code></p>
-                      <p class="css-help-example">悬浮窗示例（把快捷链接钉在左侧）：<code>.quicklinks-card { position: fixed !important; left: 20px; top: 90px; width: 220px; z-index: 50; }</code></p>
+                      <p class="css-help-example">布局示例（主区两列，<strong>记得加 !important</strong>）：<code>.dash-grid { display: grid
+                  !important; grid-template-columns: 1fr 360px !important; }</code></p>
+                      <p class="css-help-example">悬浮窗示例（把快捷链接钉在左侧）：<code>.quicklinks-card { position: fixed !important; left:
+                  20px; top: 90px; width: 220px; z-index: 50; }</code></p>
                       <p class="css-help-example">隐藏页脚：<code>.portal-footer { display: none !important; }</code></p>
                     </el-collapse-item>
                   </el-collapse>
@@ -901,7 +907,7 @@ export default {
       if (!file) return;
       const maxBytes = 1 << 20; // 1MB 原始图片上限（base64 后约 1.33MB，远低于后端 2MB 限制）
       if (file.size > maxBytes) {
-        this.$message.warning(`图片过大（${ (file.size / 1024 / 1024).toFixed(1) }MB），请压缩到 1MB 以内再上传`);
+        this.$message.warning(`图片过大（${(file.size / 1024 / 1024).toFixed(1)}MB），请压缩到 1MB 以内再上传`);
         e.target.value = "";
         return;
       }

@@ -2,7 +2,8 @@
   <div class="portal-page" :class="{ 'portal-logged-in': loggedIn }">
     <!-- 校验登录态中：显示加载占位，避免刷新瞬间闪现登录卡片 -->
     <template v-if="checking">
-      <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;font-size:32px;color:var(--color-primary,#409eff);">
+      <div
+        style="min-height:100vh;display:flex;align-items:center;justify-content:center;font-size:32px;color:var(--color-primary,#409eff);">
         <i class="el-icon-loading"></i>
       </div>
     </template>
@@ -136,8 +137,8 @@
           </div>
           <el-form :model="forcePwdForm" class="force-pwd-form" @submit.native.prevent>
             <el-form-item>
-              <el-input v-model="forcePwdForm.new_password" type="password" prefix-icon="el-icon-lock"
-                placeholder="新密码" autocomplete="new-password" @input="calcForcePwdStrength"
+              <el-input v-model="forcePwdForm.new_password" type="password" prefix-icon="el-icon-lock" placeholder="新密码"
+                autocomplete="new-password" @input="calcForcePwdStrength"
                 @keydown.enter.native.prevent="submitForceChange" />
             </el-form-item>
             <el-form-item>
@@ -195,7 +196,7 @@
               </div>
               <span class="strength-text" :class="'text-level-' + resetPwdLevel">{{ ['', '弱', '中', '强',
                 '很强'][resetPwdLevel]
-              }}</span>
+                }}</span>
             </div>
             <el-button type="primary" class="login-submit-btn" :loading="resetLoading" @click="submitReset"
               native-type="button">重 置 密
@@ -225,8 +226,7 @@
         </div>
 
         <!-- 登录框自定义页脚（品牌设置中的页脚文本） -->
-        <div class="portal-login-footer" v-if="brand.footer">
-          <span>{{ brand.footer }}</span>
+        <div class="portal-login-footer" v-if="brand.footer" v-html="brand.footer">
         </div>
       </div>
     </template>
@@ -295,8 +295,8 @@
           </div>
         </el-card>
 
-      <!-- WebVPN 应用：单点登录后可一键跳转内网 Web 应用（受门户卡片显隐开关 cards_visible.webvpn 控制） -->
-      <el-card shadow="never" class="webvpn-card" v-if="cardVisible('webvpn') && webvpnApps.length">
+        <!-- WebVPN 应用：单点登录后可一键跳转内网 Web 应用（受门户卡片显隐开关 cards_visible.webvpn 控制） -->
+        <el-card shadow="never" class="webvpn-card" v-if="cardVisible('webvpn') && webvpnApps.length">
           <div slot="header" class="card-header">
             <span class="card-title"><i class="el-icon-connection"></i> WebVPN 应用</span>
             <el-button type="text" size="mini" @click="loadWebVpnApps" :loading="webvpnLoading">
@@ -304,8 +304,8 @@
             </el-button>
           </div>
           <div class="webvpn-body">
-            <a v-for="a in webvpnApps" :key="a.name" class="webvpn-item" :href="a.url" target="_blank"
-              rel="noopener" :title="a.note || a.backend">
+            <a v-for="a in webvpnApps" :key="a.name" class="webvpn-item" :href="a.url" target="_blank" rel="noopener"
+              :title="a.note || a.backend">
               <i class="el-icon-s-promotion webvpn-icon"></i>
               <span class="webvpn-name">{{ a.note || a.name }}</span>
               <span class="webvpn-host">{{ a.name }}.{{ webvpnDomain }}</span>
@@ -529,11 +529,11 @@
                       resetLabel(user.user_policy.traffic_reset) }}</span>
                   <span v-if="user.user_policy.route_include > 0"><i class="el-icon-share"></i> 包含 {{
                     user.user_policy.route_include
-                    }} 条路由</span>
+                  }} 条路由</span>
                   <span v-if="user.user_policy.route_exclude > 0"><i class="el-icon-circle-close"></i> 排除 {{
                     user.user_policy.route_exclude }} 条路由</span>
                   <span v-if="user.user_policy.acl_count > 0"><i class="el-icon-lock"></i> {{ user.user_policy.acl_count
-                    }} 条 ACL
+                  }} 条 ACL
                     规则</span>
                 </div>
               </div>
@@ -639,7 +639,7 @@
 
         <footer class="portal-footer">
           <template v-if="brand.footer">
-            <span>{{ brand.footer }}</span>
+            <div v-html="brand.footer"></div>
           </template>
           <template v-else>
             <span>{{ user.issuer || '企业级安全远程接入网关' }}</span>
@@ -1646,7 +1646,7 @@ export default {
     logout() {
       this.stopDevicesPoll()
       // WebVPN 单点登出：清除独立 webvpn_session，不影响门户登录态
-      this.portalApi("post", "/webvpn/logout").catch(() => {})
+      this.portalApi("post", "/webvpn/logout").catch(() => { })
       this.portalApi("post", "/portal/api/logout").finally(() => {
         this.loggedIn = false
         this.user = {}
@@ -2979,47 +2979,6 @@ export default {
   word-break: break-word;
 }
 
-.download-dialog-body>>>h3,
-.download-dialog-body>>>h4 {
-  margin: 0 0 8px;
-  font-size: 15px;
-  color: var(--text-primary);
-}
-
-.download-dialog-body>>>table {
-  border-collapse: collapse;
-  width: 100%;
-}
-
-.download-dialog-body>>>td,
-.download-dialog-body>>>th {
-  padding: 4px 8px;
-}
-
-.download-dialog-body>>>a {
-  color: var(--color-primary);
-  text-decoration: none;
-}
-
-.download-dialog-body>>>a:hover {
-  text-decoration: underline;
-}
-
-.download-dialog-body>>>img {
-  max-width: 100%;
-  border-radius: 4px;
-}
-
-.download-dialog-body>>>ul,
-.download-dialog-body>>>ol {
-  margin: 0;
-  padding-left: 20px;
-}
-
-.download-dialog-body>>>li {
-  margin-bottom: 2px;
-}
-
 /* 在线设备卡片 */
 .devices-card {
   border-radius: 10px;
@@ -3408,14 +3367,6 @@ export default {
   word-break: break-word;
 }
 
-.portal-announcement .announcement-content :first-child {
-  margin-top: 0;
-}
-
-.portal-announcement .announcement-content :last-child {
-  margin-bottom: 0;
-}
-
 .quicklinks-card {
   margin-bottom: 16px;
 }
@@ -3502,6 +3453,102 @@ export default {
 </style>
 
 <style>
+/* 客户端指引步骤自定义 HTML（Portal.replaceServerAddr） */
+.client-step>div {
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.client-step>div :first-child {
+  margin-top: 0;
+}
+
+.client-step>div :last-child {
+  margin-bottom: 0;
+}
+
+.client-step>div a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.client-step>div a:hover {
+  text-decoration: underline;
+}
+
+.client-step>div img {
+  max-width: 100%;
+  border-radius: 4px;
+}
+
+.client-step>div code {
+  background: var(--bg-code, #f5f5f5);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.client-step>div ul,
+.client-step>div ol {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.client-step>div li {
+  margin-bottom: 2px;
+}
+
+/* 客户端下载指引自定义 HTML（Portal.download-dialog-body v-html 注入） */
+.download-dialog-body h3,
+.download-dialog-body h4 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  color: var(--text-primary);
+}
+
+.download-dialog-body table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.download-dialog-body td,
+.download-dialog-body th {
+  padding: 4px 8px;
+}
+
+.download-dialog-body a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.download-dialog-body a:hover {
+  text-decoration: underline;
+}
+
+.download-dialog-body img {
+  max-width: 100%;
+  border-radius: 4px;
+}
+
+.download-dialog-body ul,
+.download-dialog-body ol {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.download-dialog-body li {
+  margin-bottom: 2px;
+}
+
+/* 门户公告自定义 HTML（Portal.announcement-content v-html 注入） */
+.portal-announcement .announcement-content :first-child {
+  margin-top: 0;
+}
+
+.portal-announcement .announcement-content :last-child {
+  margin-bottom: 0;
+}
+
 /* ========== Portal 暗色模式切换按钮 ========== */
 .theme-toggle-fixed {
   position: fixed;

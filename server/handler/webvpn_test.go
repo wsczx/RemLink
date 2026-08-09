@@ -1199,3 +1199,65 @@ func TestPortalLoginOnWebVpnSubdomainSkipsPortalCookie(t *testing.T) {
 	}
 	ast.True(hasPortal2, "父域登录应正常写 portal_session")
 }
+
+// TestWebVpnSessionScopedToAppPermission 验证兑换出的会话按目标应用鉴权：
+// 访问未授权应用应 403，已授权应用仍 200，不会因已建立会话而通吃所有应用。
+func TestWebVpnSessionScopedToAppPermission(t *testing.T) {
+	_, teardown := setupWebVpnTest(t)
+	defer teardown()
+	ast := assert.New(t)
+
+	// alice 在已授权的 app1 用 grant 兑换正式会话
+	grantTok, err := webvpn.GetManager().Session().IssueGrant(
+		nil, nil, &dbdata.User{Username: "alice", Type: "local", Status: 1}, "portal-jti-alice")
+	ast.NoError(err)
+	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
+	req.AddCookie(&http.Cookie{Name: "webvpn_grant", Value: grantTok})
+	ast.True(WebVpnHandler(rec, req))
+	ast.Equal(http.StatusOK, rec.Code, "已授权应用 app1 应放行")
+
+	var sessTok string
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == webVpnSessionCookie {
+			sessTok = c.Value
+		}
+	}
+	ast.NotEmpty(sessTok, "兑换后应下发 webvpn_session")
+
+	// 同一会话访问未授权的 app2 → 403
+	req2, rec2, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app2", noSession: true})
+	req2.AddCookie(&http.Cookie{Name: webVpnSessionCookie, Value: sessTok})
+	webVpnProxy(rec2, req2, "app2")
+	ast.Equal(http.StatusForbidden, rec2.Code, "未授权应用必须 403")
+
+	// 已授权的 app1 仍放行，证明会话有效、仅权限被精准拦截
+	req3, rec3, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
+	req3.AddCookie(&http.Cookie{Name: webVpnSessionCookie, Value: sessTok})
+	webVpnProxy(rec3, req3, "app1")
+	ast.Equal(http.StatusOK, rec3.Code, "已授权应用应仍放行")
+}
+
+// TestWebVpnRevokedSessionDeniedOnEveryApp 验证整用户踢出后，
+// 已建立的会话访问任意应用都失效（吊销跨应用生效）。
+func TestWebVpnRevokedSessionDeniedOnEveryApp(t *testing.T) {
+	_, teardown := setupWebVpnTest(t)
+	defer teardown()
+	ast := assert.New(t)
+
+	_, _, token := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", user: "alice"})
+	ast.NotEmpty(token)
+
+	webvpn.GetManager().Revoker().RevokeUser("alice")
+
+	// 已授权的 app1 → 失效
+	req1, rec1, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
+	req1.AddCookie(&http.Cookie{Name: webVpnSessionCookie, Value: token})
+	webVpnProxy(rec1, req1, "app1")
+	ast.NotEqual(http.StatusOK, rec1.Code, "踢出后该会话访问 app1 必须失效")
+
+	// 另一应用 apphost → 同样失效
+	req2, rec2, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "apphost", noSession: true})
+	req2.AddCookie(&http.Cookie{Name: webVpnSessionCookie, Value: token})
+	webVpnProxy(rec2, req2, "apphost")
+	ast.NotEqual(http.StatusOK, rec2.Code, "踢出后该会话访问其他应用也必须失效")
+}

@@ -202,8 +202,7 @@
       </div>
 
       <!-- 自定义页脚（品牌设置中的页脚文本） -->
-      <div class="webauth-footer" v-if="brand.footer">
-        <span>{{ brand.footer }}</span>
+      <div class="webauth-footer" v-if="brand.footer" v-html="brand.footer">
       </div>
     </div>
   </div>
