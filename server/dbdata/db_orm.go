@@ -11,11 +11,6 @@ const PageSize = 10
 
 var ErrNotFound = errors.New("ErrNotFound")
 
-// XdbSet 替换全局数据库引擎（仅供测试初始化内存库使用）
-func XdbSet(e *xorm.Engine) {
-	xdb = e
-}
-
 func Add(data any) error {
 	_, err := xdb.InsertOne(data)
 	return err

@@ -166,6 +166,85 @@ func LinkMacvtap(cSess *sessdata.ConnSession) error {
 	return createVtap(cSess, ifName)
 }
 
+// 创建 Ipvtap 网卡。
+// 基于 ipvlan 子系统，工作在三层路由模式：子设备共享母网卡 MAC，
+// 内核按 IP 分发流量（而非二层桥接）。适合客户端规模大、母网卡所在网络对 MAC 数量敏感的场景。
+func LinkIpvtap(cSess *sessdata.ConnSession) error {
+	capL := sessdata.IpPool.IpLongMax - sessdata.IpPool.IpLongMin
+	ipN := utils.Ip2long(cSess.IpAddr) % capL
+	ifName := fmt.Sprintf("%s%d", vTapPrefix, ipN)
+
+	cSess.SetIfName(ifName)
+
+	alias := utils.ParseName(cSess.Group.Name + "." + cSess.Username)
+	// 创建 ipvtap 网卡（Ipvlan 三层模式，与母网卡共享 MAC，不设置独立硬件地址）
+	masterLink, err := netlink.LinkByName(base.GetCfg().MasterDev)
+	if err != nil {
+		base.Error(err)
+		return err
+	}
+	ipvtap := &netlink.IPVtap{
+		IPVlan: netlink.IPVlan{
+			LinkAttrs: netlink.LinkAttrs{
+				Name:        ifName,
+				ParentIndex: masterLink.Attrs().Index,
+				Alias:       alias,
+			},
+			Mode: netlink.IPVLAN_MODE_L3,
+		},
+	}
+	if err = netlink.LinkAdd(ipvtap); err != nil {
+		base.Error(err)
+		return err
+	}
+	link, err := netlink.LinkByName(ifName)
+	if err != nil {
+		base.Error(err)
+		return err
+	}
+	if err = netlink.LinkSetMTU(link, cSess.Mtu); err != nil {
+		base.Error(err)
+		return err
+	}
+	// 启动网卡（ipvtap 共享母网卡 MAC，无需 LinkSetHardwareAddr）
+	if err = netlink.LinkSetUp(link); err != nil {
+		base.Error(err)
+		return err
+	}
+	// 未分配 v6 地址时禁用 v6，避免内核链路本地地址干扰；双栈时显式启用
+	if cSess.IpAddr6 == nil {
+		err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifName), "1")
+		if err != nil {
+			base.Warn(err)
+		}
+	} else {
+		// 双栈：显式启用接口的 IPv6，否则新接口继承 disable_ipv6=1 会导致 v6 数据面 EACCES
+		if err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifName), "0"); err != nil {
+			base.Warn(err)
+		}
+		// 显式开启该接口的 IPv6 转发（新建接口从 default.forwarding 继承，可能仍为 0，导致 v6 转发不生效）
+		if err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.forwarding", ifName), "1"); err != nil {
+			base.Warn(err)
+		}
+		// 将 v6 网关地址赋到 ipvtap 接口。ipvtap 为三层路由，v6 流量按 IP 分发，
+		// 不受共享 MAC 影响；每个 lvtapN 独立接口可各自持有 /128 网关地址。
+		v6GwAddr := &netlink.Addr{
+			IPNet: &net.IPNet{
+				IP:   cSess.IpPool.V6Gateway(),
+				Mask: net.CIDRMask(128, 128),
+			},
+		}
+		if err = netlink.AddrReplace(link, v6GwAddr); err != nil {
+			base.Warn("assign v6 gateway to vtap failed: ", err)
+		}
+	}
+
+	// 设置组NAT
+	setGroupNAT(cSess)
+
+	return createVtap(cSess, ifName)
+}
+
 type ifReq struct {
 	Name  [0x10]byte
 	Flags uint16

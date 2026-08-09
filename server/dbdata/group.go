@@ -312,6 +312,29 @@ func checkCidrOverlap(ipNet *net.IPNet, g *Group, isV6 bool) error {
 			return fmt.Errorf("组网段 %s 与组 %q 的网段 %s 重叠", ipNet.String(), og.Name, c)
 		}
 	}
+
+	// 与母网卡物理网段重叠检测：
+	// 若组网段与母网卡本身所在物理网段同段，会出现路由混乱（macvtap/ipvtap 直接挂母网卡子接口，
+	// tun/tap 虽不挂母网卡但同段也会造成路由冲突），统一拦截
+	if masterDev := base.GetCfg().MasterDev; masterDev != "" {
+		if iface, err := net.InterfaceByName(masterDev); err == nil {
+			if addrs, err := iface.Addrs(); err == nil {
+				for _, a := range addrs {
+					if _, mNet, err := net.ParseCIDR(a.String()); err == nil {
+						// 版本须匹配：v4 组网段只比对 v4 母网卡段，v6 只对 v6
+						isMv6 := mNet.IP.To4() == nil
+						if isMv6 != isV6 {
+							continue
+						}
+						if cidrOverlaps(mNet, ipNet) {
+							return fmt.Errorf("组网段 %s 与母网卡 %s 物理网段 %s 重叠（macvtap/ipvtap 模式下会冲突）",
+								ipNet.String(), masterDev, mNet.String())
+						}
+					}
+				}
+			}
+		}
+	}
 	return nil
 }
 

@@ -2,9 +2,11 @@ package dbdata
 
 import (
 	"encoding/json"
+	"net"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/pkg/security"
 	"github.com/wsczx/remlink/pkg/utils"
 )
@@ -175,4 +177,137 @@ func TestHasAuthType(t *testing.T) {
 	ast.False(HasAuthType(json.RawMessage(`{"step":[{"type":"local"}]}`), "cert"))
 	ast.False(HasAuthType(json.RawMessage(`not-json`), "cert"))
 	ast.False(HasAuthType(nil, "cert"))
+}
+
+// TestCidrOverlaps 表驱动测试两个 CIDR 是否重叠的纯逻辑。
+// 这是组网段重叠检测（含母网卡段）的核心判定，任何回归都会直接影响
+// 保存组配置时的拦截行为，必须稳定。
+func TestCidrOverlaps(t *testing.T) {
+	ast := assert.New(t)
+	cases := []struct {
+		name string
+		a, b string
+		want bool
+	}{
+		{"相同网段", "10.8.0.0/24", "10.8.0.0/24", true},
+		{"包含（大包小）", "10.8.0.0/16", "10.8.1.0/24", true},
+		{"被包含（小被大包）", "10.8.1.0/24", "10.8.0.0/16", true},
+		{"相邻不重叠", "10.8.0.0/24", "10.8.1.0/24", false},
+		{"完全不相交", "10.8.0.0/24", "192.168.1.0/24", false},
+		{"v6 包含", "fd00:1::/32", "fd00:1:0:1::/48", true},
+		{"v6 不相交", "fd00::/32", "fd01::/32", false},
+		{"v4/v6 版本不同不算重叠", "10.8.0.0/24", "fd00::/32", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, a, err1 := net.ParseCIDR(c.a)
+			_, b, err2 := net.ParseCIDR(c.b)
+			ast.NoError(err1)
+			ast.NoError(err2)
+			ast.Equal(c.want, cidrOverlaps(a, b))
+		})
+	}
+}
+
+// TestCheckCidrOverlap 覆盖组自定义网段保存时的全部重叠拦截分支：
+// 全局 VPN 池、其他组、以及母网卡物理网段（macvtap/ipvtap 专属冲突）。
+func TestCheckCidrOverlap(t *testing.T) {
+	ast := assert.New(t)
+	preIpData(t)
+	defer closeIpdata()
+
+	setGlobal := func(v4, v6 string) {
+		base.UpdateCfg(func(c *base.ServerConfig) {
+			c.Ipv4CIDR = v4
+			c.Ipv6CIDR = v6
+			// 用真实存在的回环网卡 lo（127.0.0.1/8、::1/128）验证母网卡段拦截
+			c.MasterDev = "lo"
+		})
+	}
+
+	mustOverlap := func(cidr string, g *Group, isV6 bool) {
+		_, ipNet, err := net.ParseCIDR(cidr)
+		ast.NoError(err)
+		ast.Error(checkCidrOverlap(ipNet, g, isV6), "应判定重叠: %s", cidr)
+	}
+	mustOK := func(cidr string, g *Group, isV6 bool) {
+		_, ipNet, err := net.ParseCIDR(cidr)
+		ast.NoError(err)
+		ast.NoError(checkCidrOverlap(ipNet, g, isV6), "应判定不重叠: %s", cidr)
+	}
+
+	// 1) 与全局 VPN 池重叠 -> 拦（10.8.0.128/25 落在 10.8.0.0/24 内）
+	setGlobal("10.8.0.0/24", "")
+	g := &Group{Name: "g1"}
+	mustOverlap("10.8.0.128/25", g, false)
+
+	// 2) 与全局池不重叠 -> 放行
+	mustOK("192.168.100.0/24", g, false)
+
+	// 3) 母网卡 lo 物理网段（127.0.0.0/8）重叠 -> 拦（对所有 link_mode 统一拦截）
+	mustOverlap("127.0.0.0/8", g, false)
+	mustOverlap("127.1.2.0/24", g, false)
+
+	// 4) 组间重叠 -> 拦
+	setGlobal("10.8.0.0/24", "")
+	ast.NoError(Add(&Group{Name: "g2", ClientCidr: "172.16.0.0/24"}))
+	other := &Group{Id: 0, Name: "g3"}
+	mustOverlap("172.16.0.128/25", other, false) // 与已存在 g2 的 172.16.0.0/24 重叠
+	mustOK("172.17.0.0/24", other, false)
+
+	// 5) 自身已有网段不参与比较（编辑自己）
+	existing := &Group{Name: "g4", ClientCidr: "172.18.0.0/24"}
+	ast.NoError(Add(existing))
+	var self Group
+	ast.NoError(One("Name", "g4", &self))
+	mustOK("172.18.0.0/24", &self, false)
+
+	// 6) v6 对称：母网卡 lo 的 ::1/128 + 全局 v6 池
+	setGlobal("10.8.0.0/24", "fd00:1::/32")
+	g6 := &Group{Name: "g6"}
+	mustOverlap("fd00:1:0:1::/48", g6, true) // 与全局 v6 池重叠
+	mustOverlap("::1/128", g6, true)         // 与母网卡 lo 的 v6 段重叠
+	mustOK("fd00:2::/48", g6, true)          // 不重叠
+}
+
+// TestCheckCidrOverlapMasterDev 补覆盖母网卡物理网段检测的两个边界：
+// MasterDev 为空时检测应完全跳过；版本不匹配（v4/v6）不互相误拦。
+func TestCheckCidrOverlapMasterDev(t *testing.T) {
+	ast := assert.New(t)
+	preIpData(t)
+	defer closeIpdata()
+
+	setGlobal := func(v4, v6, masterDev string) {
+		base.UpdateCfg(func(c *base.ServerConfig) {
+			c.Ipv4CIDR = v4
+			c.Ipv6CIDR = v6
+			c.MasterDev = masterDev
+		})
+	}
+
+	// 1) MasterDev=lo 时，母网卡段（127.0.0.0/8）重叠应拦截
+	setGlobal("10.8.0.0/24", "", "lo")
+	g := &Group{Name: "g_lo"}
+	_, ipNet, err := net.ParseCIDR("127.1.2.0/24")
+	ast.NoError(err)
+	ast.Error(checkCidrOverlap(ipNet, g, false), "MasterDev=lo 应拦截与母网卡物理段重叠")
+
+	// 2) MasterDev 为空时，母网卡检测应完全跳过：组网段与 lo 的 127 段重叠也不拦
+	setGlobal("10.8.0.0/24", "", "")
+	g2 := &Group{Name: "g_empty"}
+	_, ipNet2, err := net.ParseCIDR("127.1.2.0/24")
+	ast.NoError(err)
+	ast.NoError(checkCidrOverlap(ipNet2, g2, false), "MasterDev 为空时不应拦截母网卡段")
+
+	// 3) 版本不匹配不误拦：v6 组网段不比对 v4 母网卡段，v4 组网段不比对 v6 池
+	setGlobal("10.8.0.0/24", "fd00:1::/32", "lo")
+	gv6 := &Group{Name: "g_v6"}
+	_, v6Net, err := net.ParseCIDR("fd00:2::/48") // 与 lo 的 v4/v6 段均不重叠
+	ast.NoError(err)
+	ast.NoError(checkCidrOverlap(v6Net, gv6, true), "v6 组网段不应误判")
+
+	gv4 := &Group{Name: "g_v4"}
+	_, v4Net, err := net.ParseCIDR("192.168.200.0/24") // 不与 lo v4 段、也不与 v6 池重叠
+	ast.NoError(err)
+	ast.NoError(checkCidrOverlap(v4Net, gv4, false), "v4 组网段不与 lo/v6 池重叠不应拦")
 }

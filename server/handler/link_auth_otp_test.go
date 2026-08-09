@@ -452,9 +452,10 @@ func preIpData(t *testing.T) {
 }
 
 func closeIpdata() {
-	_ = dbdata.Stop()
 	// 释放异步日志 worker pool（UserActLogIns 使用 grpool 异步写 DB）
 	dbdata.UserActLogIns.Pool.Release()
 	dbdata.UserActLogIns.Pool = utils.NewWorkerPool(1, 100)
+	// 关闭全局数据库
+	_ = dbdata.Stop()
 	// DB 文件由 t.TempDir() 自动清理，无需手动 os.Remove
 }

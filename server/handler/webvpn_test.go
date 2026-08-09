@@ -14,8 +14,8 @@ import (
 	"github.com/wsczx/remlink/admin"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/webvpn"
-	"xorm.io/xorm"
 )
 
 // webVpnProxy 的集成测试：用 httptest 起后端，直接调用真实代理代码，
@@ -42,15 +42,8 @@ func setupWebVpnTest(t *testing.T) (backend *httptest.Server, teardown func()) {
 	// 导致本测试会话被误判为已吊销（吊销状态存于包级全局 map，需显式重置）。
 	dbdata.WebVpnRevokeReset()
 
-	// 建表
-	eng, err := xorm.NewEngine("sqlite3", base.GetCfg().DbSource)
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
-	dbdata.XdbSet(eng)
-	if err := eng.Sync2(dbdata.TableModels()...); err != nil {
-		t.Fatalf("sync2: %v", err)
-	}
+	// 初始化全局数据库
+	dbdata.Start()
 
 	// 后端：记录收到的请求头，并按路径返回特定响应
 	backend = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -130,7 +123,10 @@ func setupWebVpnTest(t *testing.T) (backend *httptest.Server, teardown func()) {
 		// 不清会残留在 60s TTL 缓存里，导致后续用例反代连到已关闭端口（502）。
 		webvpn.GetManager().Apps().Invalidate()
 		backend.Close()
-		eng.Close()
+		// 先排空异步日志 worker pool 再关库，避免 Stop 关库后残留 worker 读 xdb 竞态
+		dbdata.UserActLogIns.Pool.Release()
+		dbdata.UserActLogIns.Pool = utils.NewWorkerPool(1, 100)
+		dbdata.Stop()
 	}
 	return backend, teardown
 }

@@ -311,6 +311,8 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 		err = LinkTap(cSess)
 	case base.LinkModeMacvtap:
 		err = LinkMacvtap(cSess)
+	case base.LinkModeIpvtap:
+		err = LinkIpvtap(cSess)
 	}
 	if err != nil {
 		base.Error(err)

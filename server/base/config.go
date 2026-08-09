@@ -6,6 +6,7 @@ const (
 	LinkModeTUN     = "tun"
 	LinkModeTAP     = "tap"
 	LinkModeMacvtap = "macvtap"
+	LinkModeIpvtap  = "ipvtap"
 )
 
 const InitialSetupWarning = "检测到默认初始化配置，请修改系统名称，完成后此提示将自动消失"
@@ -151,7 +152,7 @@ var configMetas = map[string]configMeta{
 	"db_source": {usage: "数据库source", group: "数据库", defaultVal: "./conf/remlink.db", restart: true, readonly: true},
 	"show_sql":  {usage: "显示sql语句，用于调试", group: "数据库"},
 
-	"link_mode":       {usage: "虚拟网络类型", group: "虚拟网络", defaultVal: "tun", restart: true, options: map[string]string{"TUN": "tun", "TAP": "tap", "MACVTAP": "macvtap"}},
+	"link_mode":       {usage: "虚拟网络类型", group: "虚拟网络", defaultVal: "tun", restart: true, options: map[string]string{"TUN": "tun", "TAP": "tap", "MACVTAP": "macvtap", "IPVTAP": "ipvtap"}},
 	"master_dev":      {usage: "NAT出网主网卡名称", group: "虚拟网络", defaultVal: "eth0", restart: true},
 	"ipv4_cidr":       {usage: "ip地址网段", group: "虚拟网络", defaultVal: "192.168.90.0/24", restart: true},
 	"ipv4_gateway":    {usage: "ipv4_gateway", group: "虚拟网络", defaultVal: "192.168.90.1", restart: true},
