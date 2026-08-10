@@ -61,6 +61,8 @@ func (a *AuthLdap) SaveUsers(g *Group) error {
 	sr, err := a.SearchUsers(l, "", []string{
 		"displayName",
 		"mail",
+		"telephoneNumber",  // AD/OpenLDAP 手机号（标准 AD 用此属性）
+		"mobile",           // 兼容装了 Exchange / 加了 schema 扩展的 AD、以及 OpenLDAP inetOrgPerson
 		"userAccountControl", // AD用户状态
 		"accountExpires",     // AD账号过期时间
 		"shadowExpire",       // Linux LDAP用户状态
@@ -68,6 +70,13 @@ func (a *AuthLdap) SaveUsers(g *Group) error {
 	})
 	if err != nil {
 		return err
+	}
+	// 兼容不同目录 schema：优先 telephoneNumber，空则退 mobile
+	ldapPhone := func(entry *ldap.Entry) string {
+		if v := entry.GetAttributeValue("telephoneNumber"); v != "" {
+			return v
+		}
+		return entry.GetAttributeValue("mobile")
 	}
 	// 创建LDAP用户映射
 	ldapUserMap := make(map[string]bool)
@@ -86,6 +95,7 @@ func (a *AuthLdap) SaveUsers(g *Group) error {
 			Username:   entry.GetAttributeValue(a.SearchAttr),
 			Nickname:   entry.GetAttributeValue("displayName"),
 			Email:      entry.GetAttributeValue("mail"),
+			Phone:      ldapPhone(entry),
 			Groups:     append(groups, g.Name),
 			DisableOtp: !needOTP,
 			OtpSecret:  gotp.RandomSecret(32),
@@ -118,6 +128,9 @@ func (a *AuthLdap) SaveUsers(g *Group) error {
 		}
 		if u.Email == "" {
 			u.Email = entry.GetAttributeValue("mail")
+		}
+		if u.Phone == "" {
+			u.Phone = ldapPhone(entry)
 		}
 		if !utils.InArrStr(u.Groups, g.Name) {
 			u.Groups = append(u.Groups, g.Name)

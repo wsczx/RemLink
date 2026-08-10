@@ -98,6 +98,24 @@ func (u *User) BeforeUpdate() {
 	}
 }
 
+// 删除用户组后，把该组名从所有用户的 Groups 里移除，避免用户列表残留已删组
+func RemoveGroupFromUsers(groupName string) error {
+	var users []User
+	if err := Find(&users, 0, 0); err != nil {
+		return err
+	}
+	for i := range users {
+		if !utils.InArrStr(users[i].Groups, groupName) {
+			continue
+		}
+		users[i].Groups = utils.RemoveStrFromArr(users[i].Groups, groupName)
+		if err := Set(&users[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // 校验密码
 func VerifyPassword(password, pinCode string) bool {
 	if utils.IsBcryptHash(pinCode) {

@@ -97,6 +97,7 @@ func (m *AuthSessionManager) IssueGrant(w http.ResponseWriter, r *http.Request, 
 		"webvpn_grant_user": user.Username,
 		"webvpn_grant_type": user.Type,
 		"webvpn_grant_jti":  portalJTI, // 绑定门户会话，门户登出后该 grant 也应随之失效
+		"webvpn_groups":     user.Groups,
 	}, expiresAt)
 	if err != nil {
 		return "", err
@@ -122,6 +123,11 @@ func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Reques
 					}
 				}
 				user := m.freshUser(username)
+				if user == nil {
+					// 本地库查不到：回退到 grant 携带的三方认证身份
+					// （门户放行的三方用户未落库，凭 grant 自带 type+groups 重建）
+					user = m.externalUserFromClaims(username, data)
+				}
 				if user != nil {
 					token, err := m.Issue(w, r, user, 0)
 					if err == nil {
@@ -156,7 +162,15 @@ func (m *AuthSessionManager) userFromPortalSession(r *http.Request) (*dbdata.Use
 	if username == "" {
 		return nil, false
 	}
-	return m.freshUser(username), true
+	// 门户仍登录着：本地库能查到则用，查不到回退到 JWT 携带的
+	// 三方用户身份（门户放行的三方用户可直接重兑 WebVPN 会话，无需落库）
+	if u := m.freshUser(username); u != nil {
+		return u, true
+	}
+	if eu := m.externalUserFromClaims(username, data); eu != nil {
+		return eu, true
+	}
+	return nil, false
 }
 
 // 从请求解析当前 WebVPN 会话用户
@@ -198,9 +212,14 @@ func (m *AuthSessionManager) UserFromToken(token string) (*dbdata.User, bool) {
 	}
 
 	// 解析得到基础 user（缓存优先，未命中回查 DB）；组在下方统一按 token 注入
+	// 本地库查不到时回退到 JWT 携带的三方用户身份（门户放行的三方用户）
 	user := m.cachedUser(username)
 	if user == nil || user.Status != 1 {
-		return nil, false
+		if eu := m.externalUserFromClaims(username, data); eu != nil {
+			user = eu
+		} else {
+			return nil, false
+		}
 	}
 
 	// 会话令牌携带的组用于应用组授权。组随每次请求 token 重新解析，不写入缓存 user
@@ -353,16 +372,53 @@ func (m *AuthSessionManager) cachedUser(username string) *dbdata.User {
 	return u
 }
 
+// 在本地库查不到用户时，从 JWT claims 重建身份。
+// 仅当 type 非本地账户（local/ldap）且组非空才放行
+// 门户放行的三方（钉钉等）用户，WebVPN 侧也应建立身份
+// 否则会出现「门户能登录、WebVPN 却被当未登录踢回」的不一致
+func (m *AuthSessionManager) externalUserFromClaims(username string, data map[string]any) *dbdata.User {
+	if username == "" {
+		return nil
+	}
+	// 统一认三类 JWT 的身份类型字段：免登授权、WebVPN 会话、门户会话
+	userType, _ := data["webvpn_grant_type"].(string)
+	if userType == "" {
+		userType, _ = data["webvpn_type"].(string)
+	}
+	if userType == "" {
+		userType, _ = data["portal_type"].(string)
+	}
+	// 本地账户（local/ldap）必须落库才认，避免删除后凭旧 JWT 重建
+	if userType == "local" || userType == "ldap" {
+		return nil
+	}
+	groups := toStringSlice(data["webvpn_groups"])
+	if len(groups) == 0 {
+		groups = toStringSlice(data["portal_groups"])
+	}
+	if len(groups) == 0 {
+		return nil
+	}
+	return &dbdata.User{
+		Type:     userType,
+		Username: username,
+		Groups:   groups,
+		Status:   1,
+	}
+}
+
 // 从数据库重新加载用户当前状态，用于续期/兑换时以服务端权威数据重签
+// 本地账户查库失败即返回 nil；三方用户回退到 JWT 携带的
+// 身份（type+groups），使门户放行的三方用户也能在 WebVPN 侧建立会话
 func (m *AuthSessionManager) freshUser(username string) *dbdata.User {
 	if username == "" {
 		return nil
 	}
 	u := &dbdata.User{}
-	if err := dbdata.One("Username", username, u); err != nil || u.Status != 1 {
-		return nil
+	if err := dbdata.One("Username", username, u); err == nil && u.Status == 1 {
+		return u
 	}
-	return u
+	return nil
 }
 
 func (m *AuthSessionManager) maybeCleanLocked(now time.Time) {

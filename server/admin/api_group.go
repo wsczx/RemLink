@@ -193,6 +193,11 @@ func GroupDel(w http.ResponseWriter, r *http.Request) {
 	// 删除用户组后，组内成员重新签发 WebVPN 会话
 	dbdata.WebVpnRevokeGroupMembers([]string{g.Name})
 
+	// 同步清理各用户 Groups 字段里的已删组名，避免用户列表残留
+	if err := dbdata.RemoveGroupFromUsers(g.Name); err != nil {
+		base.Error(err)
+	}
+
 	dbdata.AdminLog("用户组管理", g.Name, "删除了用户组", r.RemoteAddr)
 	RespSucess(w, nil)
 }
