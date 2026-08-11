@@ -409,12 +409,22 @@ export default {
   }
 
   .card-actions {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
   }
 
   .card-actions .search-input {
-    width: 100%;
+    flex: 1 1 140px;
+    width: auto !important;
+  }
+
+  .card-actions .el-select,
+  .card-actions .filter-select {
+    flex: 1 1 140px;
+    width: auto !important;
+    margin-left: 0;
   }
 }
 </style>

@@ -15,59 +15,54 @@
 
       <el-table :data="tableData" stripe border style="width: 100%"
         :header-cell-style="{ background: 'var(--bg-header)', color: 'var(--text-primary)', fontWeight: '600', fontSize: '13px' }">
-        <el-table-column prop="id" label="ID" width="70" align="center" sortable>
-          <el-table-column prop="name" label="子域名" min-width="140" sortable>
-            <template slot-scope="scope">
-              <span class="text-primary">{{ scope.row.name }}</span>
-              <span class="text-muted">.{{ webvpnDomain }}</span>
+        <el-table-column prop="id" label="ID" width="70" align="center" sortable />
+        <el-table-column prop="name" label="子域名" min-width="140" sortable>
+          <template slot-scope="scope">
+            <span class="text-primary">{{ scope.row.name }}</span>
+            <span class="text-muted">.{{ webvpnDomain }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="note" label="名称" min-width="140" show-overflow-tooltip sortable />
+        <el-table-column prop="backend" label="后端地址" min-width="200" show-overflow-tooltip sortable />
+        <el-table-column label="授权用户" min-width="150">
+          <template slot-scope="scope">
+            <template v-if="scope.row.users && scope.row.users.length">
+              <el-tag v-for="u in scope.row.users" :key="u" size="mini" effect="plain" class="group-tag">{{ u }}</el-tag>
             </template>
-          </el-table-column>
-          <el-table-column prop="note" label="名称" min-width="140" show-overflow-tooltip sortable>
-            <el-table-column prop="backend" label="后端地址" min-width="200" show-overflow-tooltip sortable>
-              <el-table-column label="授权用户" min-width="150">
-                <template slot-scope="scope">
-                  <template v-if="scope.row.users && scope.row.users.length">
-                    <el-tag v-for="u in scope.row.users" :key="u" size="mini" effect="plain" class="group-tag">{{ u
-                    }}</el-tag>
-                  </template>
-                  <span v-else class="text-muted">全部用户</span>
-                </template>
-              </el-table-column>
-              <el-table-column label="授权用户组" min-width="150">
-                <template slot-scope="scope">
-                  <template v-if="scope.row.groups && scope.row.groups.length">
-                    <el-tag v-for="g in scope.row.groups" :key="g" size="mini" effect="plain" class="group-tag">{{ g
-                    }}</el-tag>
-                  </template>
-                  <span v-else class="text-muted">全部用户</span>
-                </template>
-              </el-table-column>
-              <el-table-column prop="host_rewrite" label="Host 改写" min-width="140" show-overflow-tooltip sortable>
-                <template slot-scope="scope">
-                  <span v-if="scope.row.host_rewrite" class="text-primary">{{ scope.row.host_rewrite }}</span>
-                  <span v-else class="text-muted">-</span>
-                </template>
-              </el-table-column>
-            </el-table-column>
-            <el-table-column label="状态" width="90" align="center">
-              <template slot-scope="scope">
-                <el-tag :type="scope.row.status === 1 ? 'success' : 'info'" size="small" effect="plain">
-                  {{ scope.row.status === 1 ? '启用' : '禁用' }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="170" align="center" fixed="right">
-              <template slot-scope="scope">
-                <div class="col-ops">
-                  <el-button type="text" size="mini" @click="handleEdit(scope.row)">编辑</el-button>
-                  <el-button type="text" size="mini" @click="handleStatus(scope.row)">
-                    {{ scope.row.status === 1 ? '禁用' : '启用' }}
-                  </el-button>
-                  <el-button type="text" size="mini" class="text-danger" @click="handleDelete(scope.row)">删除</el-button>
-                </div>
-              </template>
-            </el-table-column>
-          </el-table-column>
+            <span v-else class="text-muted">全部用户</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="授权用户组" min-width="150">
+          <template slot-scope="scope">
+            <template v-if="scope.row.groups && scope.row.groups.length">
+              <el-tag v-for="g in scope.row.groups" :key="g" size="mini" effect="plain" class="group-tag">{{ g }}</el-tag>
+            </template>
+            <span v-else class="text-muted">全部用户</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="host_rewrite" label="Host 改写" min-width="140" show-overflow-tooltip sortable>
+          <template slot-scope="scope">
+            <span v-if="scope.row.host_rewrite" class="text-primary">{{ scope.row.host_rewrite }}</span>
+            <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="90" align="center">
+          <template slot-scope="scope">
+            <el-tag :type="scope.row.status === 1 ? 'success' : 'info'" size="small" effect="plain">
+              {{ scope.row.status === 1 ? '启用' : '禁用' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="170" align="center" fixed="right">
+          <template slot-scope="scope">
+            <div class="col-ops">
+              <el-button type="text" size="mini" @click="handleEdit(scope.row)">编辑</el-button>
+              <el-button type="text" size="mini" @click="handleStatus(scope.row)">
+                {{ scope.row.status === 1 ? '禁用' : '启用' }}
+              </el-button>
+              <el-button type="text" size="mini" class="text-danger" @click="handleDelete(scope.row)">删除</el-button>
+            </div>
+          </template>
         </el-table-column>
       </el-table>
 

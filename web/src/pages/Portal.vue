@@ -2723,10 +2723,15 @@ export default {
   padding: 20px 0 32px;
   font-size: 12px;
   color: var(--text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 8px;
 }
 
 .footer-divider {
-  margin: 0 8px;
+  margin: 0;
   opacity: 0.4;
 }
 
@@ -2738,6 +2743,19 @@ export default {
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.6;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 8px;
+}
+
+/* 窄屏页脚换行后，竖线分隔符已无意义，隐藏避免孤立竖线 */
+@media (max-width: 480px) {
+  .portal-footer .footer-divider,
+  .portal-login-footer .footer-divider {
+    display: none;
+  }
 }
 
 .empty-hint {

@@ -186,27 +186,25 @@
           <i class="el-icon-info"></i> 暂无备份文件，点击「创建备份」按钮进行备份
         </div>
         <el-table v-else :data="backups" size="small" class="backup-table">
-          <el-table-column prop="name" label="文件名" min-width="280" sortable>
-            <el-table-column prop="type" label="类型" width="80" sortable>
-              <template slot-scope="scope">
-                <el-tag v-if="scope.row.type === 'full'" size="mini" type="primary">全量</el-tag>
-                <el-tag v-else size="mini">配置</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="大小" width="100">
-              <template slot-scope="scope">
-                {{ formatSize(scope.row.size) }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="mod_time" label="时间" width="160" sortable>
-            </el-table-column>
-            <el-table-column label="操作" width="160">
-              <template slot-scope="scope">
-                <el-button type="text" size="mini" @click="restoreBackup(scope.row)">还原</el-button>
-                <el-button type="text" size="mini" style="color:var(--color-danger)"
-                  @click="deleteBackup(scope.row)">删除</el-button>
-              </template>
-            </el-table-column>
+          <el-table-column prop="name" label="文件名" min-width="280" sortable />
+          <el-table-column prop="type" label="类型" width="80" sortable>
+            <template slot-scope="scope">
+              <el-tag v-if="scope.row.type === 'full'" size="mini" type="primary">全量</el-tag>
+              <el-tag v-else size="mini">配置</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="大小" width="100">
+            <template slot-scope="scope">
+              {{ formatSize(scope.row.size) }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="mod_time" label="时间" width="160" sortable />
+          <el-table-column label="操作" width="160">
+            <template slot-scope="scope">
+              <el-button type="text" size="mini" @click="restoreBackup(scope.row)">还原</el-button>
+              <el-button type="text" size="mini" style="color:var(--color-danger)"
+                @click="deleteBackup(scope.row)">删除</el-button>
+            </template>
           </el-table-column>
         </el-table>
       </el-tab-pane>

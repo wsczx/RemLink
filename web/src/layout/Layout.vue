@@ -262,20 +262,40 @@ export default {
 
 .layout-footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  height: 40px !important;
-  line-height: 40px;
+  gap: 6px 8px;
+  min-height: 40px;
+  height: auto !important;
+  padding: 8px 12px;
+  line-height: 1.5;
   font-size: 12px;
   color: var(--text-secondary);
   background: var(--footer-bg);
   border-top: 1px solid var(--border-color-light);
   flex-shrink: 0;
+  text-align: center;
 }
 
 .footer-divider {
   color: var(--border-color);
+}
+
+/* 自定义页脚（v-html 注入）内的徽章组在小屏可换行居中 */
+.layout-footer .footer-text {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 8px;
+}
+
+/* 窄屏页脚已换行，竖线分隔符无意义，隐藏避免孤立竖线 */
+@media (max-width: 480px) {
+  .layout-footer .footer-divider {
+    display: none;
+  }
 }
 
 .footer-link {

@@ -322,6 +322,10 @@ export default {
     this.getData(1);
     this.loadGroups();
     this.loadUsers();
+    window.addEventListener('resize', this.onResize);
+  },
+  beforeDestroy() {
+    window.removeEventListener('resize', this.onResize);
   },
   data() {
     return {
@@ -367,6 +371,8 @@ export default {
       allUsers: [],
       selectedUserIds: [],
       userSearch: '',
+      // 视口宽度，用于统计卡片列数自适应（避免手机端卡片被压成极窄一列）
+      windowWidth: typeof window !== 'undefined' ? window.innerWidth : 1280,
     }
   },
   computed: {
@@ -375,7 +381,12 @@ export default {
     statFakeDNS() { return this.tableData.filter(r => r.enable_fakedns).length },
     statBandwidth() { return this.tableData.filter(r => r.bandwidth > 0 || r.bandwidth_up > 0).length },
     statQuota() { return this.tableData.filter(r => r.traffic_quota > 0).length },
-    cardColumns() { return this.showFakeDNS ? 5 : 4 },
+    cardColumns() {
+      // 根据视口宽度自适应列数，避免窄屏下卡片被压得过窄
+      if (this.windowWidth <= 768) return 2
+      if (this.windowWidth <= 1200) return 3
+      return this.showFakeDNS ? 5 : 4
+    },
     filteredUsers() {
       if (!this.userSearch) return this.allUsers;
       const s = this.userSearch.toLowerCase();
@@ -386,6 +397,9 @@ export default {
     }
   },
   methods: {
+    onResize() {
+      this.windowWidth = window.innerWidth;
+    },
     getDefaultForm() {
       return {
         id: 0,

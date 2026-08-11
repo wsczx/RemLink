@@ -16,51 +16,45 @@
 
       <el-table :data="tableData" stripe border style="width: 100%"
         :header-cell-style="{ background: 'var(--bg-header)', color: 'var(--text-primary)', fontWeight: '600', fontSize: '13px' }">
-        <el-table-column prop="id" label="ID" width="70" align="center" sortable>
-          <el-table-column prop="username" label="用户" width="120" show-overflow-tooltip sortable>
-            <template slot-scope="scope">{{ scope.row.username || '-' }}</template>
-          </el-table-column>
-          <el-table-column prop="group_name" label="用户组" width="110" show-overflow-tooltip sortable>
-            <el-table-column prop="app_name" label="应用" width="120" show-overflow-tooltip sortable>
-              <el-table-column prop="method" label="方法" width="80" align="center" sortable>
-                <template slot-scope="scope">
-                  <el-tag size="mini" effect="plain">{{ scope.row.method }}</el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column prop="path" label="路径" min-width="220" show-overflow-tooltip sortable>
-                <el-table-column prop="status_code" label="状态码" width="90" align="center" sortable>
-                  <template slot-scope="scope">
-                    <el-tag :type="scope.row.status_code >= 400 ? 'danger' : 'success'" size="mini" effect="plain">
-                      {{ scope.row.status_code }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="risk_level" label="风险" width="90" align="center" sortable>
-                  <template slot-scope="scope">
-                    <el-tag
-                      :type="scope.row.risk_level === 2 ? 'danger' : scope.row.risk_level === 1 ? 'warning' : 'info'"
-                      size="mini" effect="plain">
-                      {{ scope.row.risk_level === 2 ? '高危' : scope.row.risk_level === 1 ? '可疑' : '正常' }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="bytes_sent" label="字节数" width="110" align="right" sortable>
-                  <template slot-scope="scope">{{ formatBytes(scope.row.bytes_sent) }}</template>
-                </el-table-column>
-                <el-table-column prop="client_ip" label="客户端 IP" width="140" sortable>
-                </el-table-column>
-                <el-table-column prop="created_at" label="时间" width="170" sortable>
-                </el-table-column>
-                <el-table-column label="操作" width="100" align="center" fixed="right">
-                  <template slot-scope="scope">
-                    <div class="col-ops">
-                      <el-button type="text" size="mini" @click="handleKick(scope.row)">踢出会话</el-button>
-                    </div>
-                  </template>
-                </el-table-column>
-              </el-table-column>
-            </el-table-column>
-          </el-table-column>
+        <el-table-column prop="id" label="ID" width="70" align="center" sortable />
+        <el-table-column prop="username" label="用户" width="120" show-overflow-tooltip sortable>
+          <template slot-scope="scope">{{ scope.row.username || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="group_name" label="用户组" width="110" show-overflow-tooltip sortable />
+        <el-table-column prop="app_name" label="应用" width="120" show-overflow-tooltip sortable />
+        <el-table-column prop="method" label="方法" width="80" align="center" sortable>
+          <template slot-scope="scope">
+            <el-tag size="mini" effect="plain">{{ scope.row.method }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="path" label="路径" min-width="220" show-overflow-tooltip sortable />
+        <el-table-column prop="status_code" label="状态码" width="90" align="center" sortable>
+          <template slot-scope="scope">
+            <el-tag :type="scope.row.status_code >= 400 ? 'danger' : 'success'" size="mini" effect="plain">
+              {{ scope.row.status_code }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="risk_level" label="风险" width="90" align="center" sortable>
+          <template slot-scope="scope">
+            <el-tag
+              :type="scope.row.risk_level === 2 ? 'danger' : scope.row.risk_level === 1 ? 'warning' : 'info'"
+              size="mini" effect="plain">
+              {{ scope.row.risk_level === 2 ? '高危' : scope.row.risk_level === 1 ? '可疑' : '正常' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="bytes_sent" label="字节数" width="110" align="right" sortable>
+          <template slot-scope="scope">{{ formatBytes(scope.row.bytes_sent) }}</template>
+        </el-table-column>
+        <el-table-column prop="client_ip" label="客户端 IP" width="140" sortable />
+        <el-table-column prop="created_at" label="时间" width="170" sortable />
+        <el-table-column label="操作" width="100" align="center" fixed="right">
+          <template slot-scope="scope">
+            <div class="col-ops">
+              <el-button type="text" size="mini" @click="handleKick(scope.row)">踢出会话</el-button>
+            </div>
+          </template>
         </el-table-column>
       </el-table>
 
@@ -176,4 +170,24 @@ export default {
 }
 </script>
 
-<style scoped></style>
+<style scoped>
+/* 手机端筛选行横向换行，避免日期选择器固定宽度溢出挤掉其它控件 */
+@media (max-width: 900px) {
+  .card-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .card-actions .search-input,
+  .card-actions .el-date-editor {
+    flex: 1 1 140px;
+    width: auto !important;
+  }
+
+  .card-actions .el-button {
+    margin-left: 0;
+  }
+}
+</style>

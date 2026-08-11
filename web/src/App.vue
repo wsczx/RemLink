@@ -200,6 +200,19 @@ body {
   background: var(--color-primary-bg) !important;
 }
 
+/* 排序箭头固定贴表头右侧、垂直居中，避免标题换行时箭头掉到下方 */
+.el-table th.el-table__cell.is-sortable .cell {
+  position: relative;
+  padding-right: 16px;
+}
+
+.el-table th.el-table__cell.is-sortable .caret-wrapper {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
 /* 卡片美化 */
 .el-card {
   border-radius: var(--card-radius) !important;
@@ -568,7 +581,7 @@ body {
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 900px) {
   .stats-row {
     grid-template-columns: repeat(2, 1fr);
     gap: 10px;
@@ -597,21 +610,32 @@ body {
     font-size: 13px;
   }
 
-  /* 搜索框铺满 */
+  /* 搜索框在移动端可伸缩，但不强制占满整行，避免把操作按钮挤到标题下方 */
   .search-input {
-    width: 100% !important;
+    flex: 1 1 150px;
+    width: auto !important;
+    min-width: 120px;
   }
 
-  /* 卡片标题区在移动端堆叠 */
+  /* 卡片标题与操作区在移动端保持同一行，避免按钮掉到标题下方；
+     操作区在右侧、内部自动换行 */
   .card-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+
+  .card-title {
+    flex-shrink: 0;
   }
 
   .card-actions {
+    flex: 1 1 auto;
     flex-wrap: wrap;
-    width: 100%;
+    justify-content: flex-end;
+    width: auto;
+    gap: 8px;
   }
 
   .card-actions .el-button {
