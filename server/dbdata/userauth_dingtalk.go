@@ -97,10 +97,12 @@ func (a *AuthDingtalk) SaveUsers(g *Group) error {
 
 	// 同步到本地 DB
 	syncedUsers := make(map[string]bool)
+	var added, updated, skipped int
 	for _, dtUser := range dtUserMap {
 		// 拒绝名单：同步时跳过
 		if a.CheckUserID(dtUser.UserId, blocked) != nil {
 			base.Warn("钉钉同步跳过拒绝用户:", dtUser.UserId)
+			skipped++
 			continue
 		}
 		syncedUsers[dtUser.UserId] = true
@@ -126,6 +128,7 @@ func (a *AuthDingtalk) SaveUsers(g *Group) error {
 					base.Error("新增钉钉用户失败", dtUser.UserId, err)
 					continue
 				}
+				added++
 				continue
 			}
 			base.Error("查询用户失败", dtUser.UserId, err)
@@ -133,6 +136,7 @@ func (a *AuthDingtalk) SaveUsers(g *Group) error {
 		}
 		if u.Type != "dingtalk" {
 			base.Warn("已存在本地同名用户:", dtUser.UserId)
+			skipped++
 			continue
 		}
 		// 更新现有钉钉用户字段
@@ -152,7 +156,12 @@ func (a *AuthDingtalk) SaveUsers(g *Group) error {
 		}
 		if err := Set(u); err != nil {
 			base.Error("更新钉钉用户失败", u.Username, err)
+		} else {
+			updated++
 		}
+	}
+	if len(dtUserMap) == 0 {
+		base.Warn("钉钉拉取到的用户列表为空（可能部门配置错误或 access_token 权限不足），组:", g.Name)
 	}
 
 	// 清理已不在钉钉部门中的本地 dingtalk 用户
@@ -207,8 +216,6 @@ func SyncDingtalkUsers() {
 		go func(g Group, a *AuthDingtalk) {
 			if err := a.SaveUsers(&g); err != nil {
 				base.Error("钉钉用户同步失败", g.Name, err)
-			} else {
-				base.Info("钉钉用户同步成功", g.Name)
 			}
 		}(g, authDt)
 	}

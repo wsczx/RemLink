@@ -68,6 +68,12 @@ func Start() error {
 	); err != nil {
 		base.Error("注册定时任务失败 (SyncFeishuUsers):", err)
 	}
+	if _, err := s.NewJob(
+		gocron.CronJob("0 0 * * *", false),
+		gocron.NewTask(dbdata.SyncDingtalkUsers),
+	); err != nil {
+		base.Error("注册定时任务失败 (SyncDingtalkUsers):", err)
+	}
 
 	s.Start()
 	return nil

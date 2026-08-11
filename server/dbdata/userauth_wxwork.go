@@ -90,10 +90,12 @@ func (a *AuthWXwork) SaveUsers(g *Group) error {
 
 	// 同步到本地 DB
 	syncedUsers := make(map[string]bool)
+	var added, updated, skipped int
 	for _, wxUser := range wxUserMap {
 		// 拒绝名单：同步时跳过
 		if a.CheckUserID(wxUser.UserID, blocked) {
 			base.Debug("企微同步跳过拒绝用户:", wxUser.UserID)
+			skipped++
 			continue
 		}
 		syncedUsers[wxUser.UserID] = true
@@ -120,6 +122,7 @@ func (a *AuthWXwork) SaveUsers(g *Group) error {
 					base.Error("新增企微用户失败", wxUser.UserID, err)
 					continue
 				}
+				added++
 				continue
 			}
 			base.Error("查询用户失败", wxUser.UserID, err)
@@ -127,6 +130,7 @@ func (a *AuthWXwork) SaveUsers(g *Group) error {
 		}
 		if u.Type != "wxwork" {
 			base.Warn("已存在本地同名用户:", wxUser.UserID)
+			skipped++
 			continue
 		}
 		// 更新现有企微用户字段
@@ -146,7 +150,12 @@ func (a *AuthWXwork) SaveUsers(g *Group) error {
 		}
 		if err := Set(u); err != nil {
 			base.Error("更新企微用户失败", u.Username, err)
+		} else {
+			updated++
 		}
+	}
+	if len(wxUserMap) == 0 {
+		base.Warn("企微拉取到的用户列表为空（可能部门配置错误或 access_token 权限不足），组:", g.Name)
 	}
 
 	// 清理已不在企微部门中的本地 wxwork 用户
@@ -201,8 +210,6 @@ func SyncWXworkUsers() {
 		go func(g Group, a *AuthWXwork) {
 			if err := a.SaveUsers(&g); err != nil {
 				base.Error("企微用户同步失败", g.Name, err)
-			} else {
-				base.Info("企微用户同步成功", g.Name)
 			}
 		}(g, authWx)
 	}

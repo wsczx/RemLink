@@ -375,9 +375,7 @@ func ProviderSyncUsers(w http.ResponseWriter, r *http.Request) {
 		}
 		go func() {
 			if err := authWx.SaveUsers(g); err != nil {
-				base.Error("企微用户同步失败:", err)
-			} else {
-				base.Info("企微用户同步成功")
+				base.Error("企微用户同步失败, 组:", g.Name, ", err:", err)
 			}
 		}()
 		dbdata.AdminLog("用户组管理", req.GroupName, "同步企微用户", r.RemoteAddr)
@@ -394,9 +392,7 @@ func ProviderSyncUsers(w http.ResponseWriter, r *http.Request) {
 		}
 		go func() {
 			if err := authDt.SaveUsers(g); err != nil {
-				base.Error("钉钉用户同步失败:", err)
-			} else {
-				base.Info("钉钉用户同步成功")
+				base.Error("钉钉用户同步失败, 组:", g.Name, ", err:", err)
 			}
 		}()
 		dbdata.AdminLog("用户组管理", req.GroupName, "同步钉钉用户", r.RemoteAddr)
@@ -412,9 +408,7 @@ func ProviderSyncUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	go func() {
 		if err := authFs.SaveUsers(g); err != nil {
-			base.Error("飞书用户同步失败:", err)
-		} else {
-			base.Info("飞书用户同步成功")
+			base.Error("飞书用户同步失败, 组:", g.Name, ", err:", err)
 		}
 	}()
 	dbdata.AdminLog("用户组管理", req.GroupName, "同步飞书用户", r.RemoteAddr)

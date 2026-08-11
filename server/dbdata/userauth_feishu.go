@@ -99,10 +99,12 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 
 	// 同步到本地 DB
 	syncedUsers := make(map[string]bool)
+	var added, updated, skipped int
 	for _, feishuUser := range feishuUserMap {
 		// 拒绝名单：同步时跳过
 		if a.CheckUserID(feishuUser.UserID, blocked) != nil {
 			base.Debug("飞书同步跳过拒绝用户:", feishuUser.UserID)
+			skipped++
 			continue
 		}
 		syncedUsers[feishuUser.UserID] = true
@@ -112,6 +114,8 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 				mobile = detail.Data.Mobile
 			}
 			email = detail.Data.Email
+		} else {
+			base.Debug("飞书获取用户明细失败:", feishuUser.UserID, derr)
 		}
 
 		newUser := &User{
@@ -135,6 +139,7 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 					base.Error("新增飞书用户失败", feishuUser.UserID, err)
 					continue
 				}
+				added++
 				continue
 			}
 			base.Error("查询用户失败", feishuUser.UserID, err)
@@ -142,6 +147,7 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 		}
 		if u.Type != "feishu" {
 			base.Warn("已存在本地同名用户:", feishuUser.UserID)
+			skipped++
 			continue
 		}
 		// 更新现有飞书用户字段
@@ -161,7 +167,12 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 		}
 		if err := Set(u); err != nil {
 			base.Error("更新飞书用户失败", u.Username, err)
+		} else {
+			updated++
 		}
+	}
+	if len(feishuUserMap) == 0 {
+		base.Warn("飞书拉取到的用户列表为空（可能部门配置错误或 access_token 权限不足），组:", g.Name)
 	}
 
 	// 清理已不在飞书部门中的本地 feishu 用户
@@ -216,8 +227,6 @@ func SyncFeishuUsers() {
 		go func(g Group, a *AuthFeishu) {
 			if err := a.SaveUsers(&g); err != nil {
 				base.Error("飞书用户同步失败", g.Name, err)
-			} else {
-				base.Info("飞书用户同步成功", g.Name)
 			}
 		}(g, authFs)
 	}
