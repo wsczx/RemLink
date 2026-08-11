@@ -61,7 +61,7 @@
       <el-table ref="multipleTable" :data="tableData" border stripe highlight-current-row style="width:100%"
         :header-cell-style="{ background: 'var(--bg-header)', color: 'var(--text-primary)', fontWeight: '600', fontSize: '13px' }">
         <el-table-column sortable prop="id" label="ID" width="70" align="center"></el-table-column>
-        <el-table-column prop="name" label="策略名称" min-width="140">
+        <el-table-column prop="name" label="策略名称" min-width="140" sortable>
           <template slot-scope="scope">
             <div class="policy-name-cell">
               <span class="policy-name">{{ scope.row.name }}</span>
@@ -70,13 +70,13 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="allow_lan" label="本地网络" width="95" align="center">
+        <el-table-column prop="allow_lan" label="本地网络" width="95" align="center" sortable>
           <template slot-scope="scope">
             <el-switch v-model="scope.row.allow_lan" disabled></el-switch>
           </template>
         </el-table-column>
 
-        <el-table-column prop="bandwidth" label="下行" width="100" align="center">
+        <el-table-column prop="bandwidth" label="下行" width="100" align="center" sortable>
           <template slot-scope="scope">
             <span v-if="scope.row.bandwidth > 0" class="bandwidth-badge">
               {{ convertBandwidth(scope.row.bandwidth, 'BYTE', 'Mbps') }} Mbps
@@ -85,7 +85,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="bandwidth_up" label="上行" width="100" align="center">
+        <el-table-column prop="bandwidth_up" label="上行" width="100" align="center" sortable>
           <template slot-scope="scope">
             <span v-if="scope.row.bandwidth_up > 0" class="bandwidth-badge">
               {{ convertBandwidth(scope.row.bandwidth_up, 'BYTE', 'Mbps') }} Mbps
@@ -94,7 +94,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="traffic_quota" label="流量配额" width="130" align="center">
+        <el-table-column prop="traffic_quota" label="流量配额" width="130" align="center" sortable>
           <template slot-scope="scope">
             <span v-if="scope.row.traffic_quota > 0" class="quota-badge">
               {{ convertTraffic(scope.row.traffic_quota, 'BYTE', 'GB') }} GB
@@ -104,7 +104,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column v-if="showFakeDNS" prop="enable_fakedns" label="FakeDNS" width="100" align="center">
+        <el-table-column v-if="showFakeDNS" prop="enable_fakedns" label="FakeDNS" width="100" align="center" sortable>
           <template slot-scope="scope">
             <el-tag v-if="scope.row.enable_fakedns" type="success" size="small" effect="plain">启用</el-tag>
             <el-tag v-else type="info" size="small" effect="plain">禁用</el-tag>
@@ -129,7 +129,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="status" label="状态" width="90" align="center">
+        <el-table-column prop="status" label="状态" width="90" align="center" sortable>
           <template slot-scope="scope">
             <span v-if="scope.row.status === 1" class="status-dot status-dot-online"></span>
             <span v-else class="status-dot status-dot-offline"></span>
@@ -139,7 +139,8 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="updated_at" label="更新时间" :formatter="tableDateFormat" width="165"></el-table-column>
+        <el-table-column prop="updated_at" label="更新时间" :formatter="tableDateFormat" width="165"
+          sortable></el-table-column>
 
         <el-table-column label="操作" width="100" fixed="right" align="center">
           <template slot-scope="scope">
@@ -237,7 +238,7 @@
           <div class="route-count-hint">
             <i class="el-icon-info"></i>
             当前共 <b>{{aclEditForm.acl_list.trim() === '' ? 0 : aclEditForm.acl_list.trim().split('\n').filter(l =>
-              l.trim()).length }}</b> 条规则
+              l.trim()).length}}</b> 条规则
           </div>
         </el-form-item>
         <el-form-item>
@@ -430,14 +431,14 @@ export default {
         this.allGroups = (resp.data.data.datas || []).map(g => ({
           id: g.id, name: g.name, policy_id: g.policy_id
         }));
-      }).catch(() => {});
+      }).catch(() => { });
     },
     loadUsers() {
       axios.get('/user/list', { params: { page: 1, page_size: 9999 } }).then(resp => {
         this.allUsers = (resp.data.data.datas || []).map(u => ({
           id: u.id, username: u.username, nickname: u.nickname, policy_id: u.policy_id
         }));
-      }).catch(() => {});
+      }).catch(() => { });
     },
     pageChange(p) { this.getData(p) },
 
@@ -755,7 +756,7 @@ export default {
     },
     // 流量单位换算，基于 1024（IEC 标准）
     convertTraffic(bytes, fromUnit, toUnit) {
-      const units = { BYTE: 1, KB: 1024, MB: 1024*1024, GB: 1024*1024*1024, TB: 1024*1024*1024*1024 };
+      const units = { BYTE: 1, KB: 1024, MB: 1024 * 1024, GB: 1024 * 1024 * 1024, TB: 1024 * 1024 * 1024 * 1024 };
       const result = bytes * units[fromUnit] / units[toUnit];
       return parseFloat(result.toFixed(2));
     },
@@ -807,6 +808,7 @@ export default {
   background: var(--danger-bg);
   color: var(--color-danger);
 }
+
 .stat-icon-quota {
   background: var(--info-bg);
   color: var(--color-primary);
@@ -860,6 +862,7 @@ export default {
   font-weight: 500;
   white-space: nowrap;
 }
+
 .quota-reset {
   font-size: 11px;
   opacity: 0.7;
@@ -1118,14 +1121,17 @@ export default {
   .edit-basic-row {
     grid-template-columns: 1fr;
   }
+
   /* 编辑弹窗宽度随屏幕缩小 */
   .policy-edit-dialog ::v-deep .el-dialog {
     width: 95% !important;
     margin: 0 auto;
   }
+
   .policy-edit-dialog ::v-deep .el-dialog__body {
     padding: 16px 16px 8px;
   }
+
   /* 统计卡片改为3列 */
   .stats-row {
     grid-template-columns: repeat(3, 1fr) !important;
@@ -1133,32 +1139,39 @@ export default {
 }
 
 @media (max-width: 600px) {
+
   /* 统计卡片改为2列 */
   .stats-row {
     grid-template-columns: repeat(2, 1fr) !important;
   }
+
   .stat-card {
     padding: 10px 8px;
   }
+
   .stat-icon {
     width: 32px;
     height: 32px;
     font-size: 16px;
   }
+
   .stat-value {
     font-size: 18px;
   }
+
   .stat-label {
     font-size: 11px;
   }
 }
 
 @media (max-width: 720px) {
+
   /* 编辑弹窗表单标签上置 */
   .policy-edit-dialog ::v-deep .el-form-item {
     display: block;
     margin-bottom: 14px;
   }
+
   .policy-edit-dialog ::v-deep .el-form-item__label {
     width: auto !important;
     text-align: left;
@@ -1166,6 +1179,7 @@ export default {
     line-height: 1.4;
     float: none;
   }
+
   .policy-edit-dialog ::v-deep .el-form-item__content {
     margin-left: 0 !important;
     display: block;
@@ -1175,6 +1189,7 @@ export default {
     flex-direction: column;
     gap: 8px;
   }
+
   .dialog-footer .el-button {
     width: 100%;
     margin-left: 0 !important;
@@ -1184,6 +1199,7 @@ export default {
   .valgin-dialog ::v-deep .el-dialog {
     width: 95% !important;
   }
+
   .apply-dialog ::v-deep .el-dialog {
     width: 95% !important;
   }
@@ -1193,6 +1209,7 @@ export default {
   .policy-edit-dialog ::v-deep .el-dialog {
     width: 98% !important;
   }
+
   .policy-edit-dialog ::v-deep .el-dialog__body {
     padding: 12px 10px 6px;
   }

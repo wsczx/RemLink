@@ -36,20 +36,20 @@
       <div class="provider-table-wrap">
         <el-table :data="tableData" stripe highlight-current-row style="width:100%" border
           :header-cell-style="{ background: 'var(--bg-header)', color: 'var(--text-primary)', fontWeight: '600', fontSize: '13px' }">
-          <el-table-column prop="id" label="ID" width="65" align="center"></el-table-column>
-          <el-table-column prop="name" label="名称" min-width="150">
+          <el-table-column prop="id" label="ID" width="65" align="center" sortable></el-table-column>
+          <el-table-column prop="name" label="名称" min-width="150" sortable>
             <template slot-scope="scope">
               <span class="provider-name">{{ scope.row.name }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="type" label="类型" width="100" align="center">
+          <el-table-column prop="type" label="类型" width="100" align="center" sortable>
             <template slot-scope="scope">
               <el-tag :type="getTypeTagType(scope.row.type)" size="small" effect="plain">
                 {{ getTypeLabel(scope.row.type) }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="status" label="状态" width="80" align="center">
+          <el-table-column prop="status" label="状态" width="80" align="center" sortable>
             <template slot-scope="scope">
               <span :class="scope.row.status === 1 ? 'status-dot-online' : 'status-dot-offline'"
                 class="status-dot"></span>
@@ -58,7 +58,8 @@
               </span>
             </template>
           </el-table-column>
-          <el-table-column prop="updated_at" label="更新时间" :formatter="tableDateFormat" width="165"></el-table-column>
+          <el-table-column prop="updated_at" label="更新时间" :formatter="tableDateFormat" width="165"
+            sortable></el-table-column>
           <el-table-column label="操作" width="120" class-name="col-ops" min-width="120" align="center">
             <template slot-scope="scope">
               <el-dropdown trigger="click" @command="(cmd) => handleRowCmd(scope.row, cmd)">
@@ -734,7 +735,7 @@ export default {
         axios.post('/provider/sync_users', {
           id: this.ruleForm.id, group_name: this.syncForm.group_name,
         }).then(resp => {
-          if (resp.data.code === 0) { this.$message.success(resp.data.data || '同步成功'); this.syncUsersDialog = false; }
+          if (resp.data.code === 0) { this.$message.success(resp.data.data || '正在后台同步，请查看后台日志确认同步结果'); this.syncUsersDialog = false; }
           else { this.$message.error(resp.data.msg); }
         }).catch(() => this.$message.error('同步失败'))
           .finally(() => { this.syncDoLoading = false; });

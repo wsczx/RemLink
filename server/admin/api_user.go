@@ -28,6 +28,9 @@ func UserList(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	prefix := r.FormValue("prefix")
 	prefix = strings.TrimSpace(prefix)
+	userType := strings.TrimSpace(r.FormValue("type"))
+	group := strings.TrimSpace(r.FormValue("group"))
+	status := strings.TrimSpace(r.FormValue("status"))
 	pageS := r.FormValue("page")
 	page, _ := strconv.Atoi(pageS)
 	if page < 1 {
@@ -46,13 +49,32 @@ func UserList(w http.ResponseWriter, r *http.Request) {
 		err   error
 	)
 
-	// 查询前缀匹配
+	// 查询前缀匹配 + 类型 / 用户组 / 状态 筛选
+	var wheres []string
+	var args []any
 	if len(prefix) > 0 {
 		fuzzy := "%" + prefix + "%"
-		where := "username LIKE ? OR nickname LIKE ? OR email LIKE ? OR type LIKE ?"
+		wheres = append(wheres, "(username LIKE ? OR nickname LIKE ? OR email LIKE ? OR type LIKE ?)")
+		args = append(args, fuzzy, fuzzy, fuzzy, fuzzy)
+	}
+	if userType != "" {
+		wheres = append(wheres, "type = ?")
+		args = append(args, userType)
+	}
+	if group != "" {
+		// groups 字段按成员名模糊匹配
+		wheres = append(wheres, "groups LIKE ?")
+		args = append(args, "%"+group+"%")
+	}
+	if status != "" {
+		wheres = append(wheres, "status = ?")
+		args = append(args, status)
+	}
 
-		count = dbdata.FindWhereCount(&dbdata.User{}, where, fuzzy, fuzzy, fuzzy, fuzzy)
-		err = dbdata.FindWhere(&datas, pageSize, page, where, fuzzy, fuzzy, fuzzy, fuzzy)
+	if len(wheres) > 0 {
+		where := strings.Join(wheres, " AND ")
+		count = dbdata.FindWhereCount(&dbdata.User{}, where, args...)
+		err = dbdata.FindWhere(&datas, pageSize, page, where, args...)
 	} else {
 		count = dbdata.CountAll(&dbdata.User{})
 		err = dbdata.Find(&datas, pageSize, page)
@@ -68,13 +90,66 @@ func UserList(w http.ResponseWriter, r *http.Request) {
 		datas = []dbdata.User{}
 	}
 
+	// 统计卡片按"当前筛选条件下的全量数据"聚合，不受分页影响
+	stats, err := userListStats(wheres, args)
+	if err != nil && !dbdata.CheckErrNotFound(err) {
+		RespError(w, RespInternalErr, err)
+		return
+	}
+
 	data := map[string]any{
-		"count":     count,
-		"page_size": pageSize,
-		"datas":     datas,
+		"count":          count,
+		"page_size":      pageSize,
+		"datas":          datas,
+		"stats_total":    stats.total,
+		"stats_local":    stats.local,
+		"stats_ldap":     stats.ldap,
+		"stats_external": stats.external,
+		"stats_active":   stats.active,
+		"stats_disable":  stats.disable,
 	}
 
 	RespSucess(w, data)
+}
+
+// userListStats 在不分页的前提下，对当前筛选条件做聚合统计。
+// 统计卡片据此展示全量数据，而非当前页数据。
+func userListStats(wheres []string, args []any) (struct {
+	total, local, ldap, external, active, disable int
+}, error) {
+	var (
+		all []dbdata.User
+		ret struct {
+			total, local, ldap, external, active, disable int
+		}
+	)
+	if len(wheres) > 0 {
+		where := strings.Join(wheres, " AND ")
+		if err := dbdata.FindWhere(&all, 0, 0, where, args...); err != nil {
+			return ret, err
+		}
+	} else {
+		if err := dbdata.Find(&all, 0, 0); err != nil {
+			return ret, err
+		}
+	}
+	ret.total = len(all)
+	for _, u := range all {
+		switch u.Type {
+		case "local":
+			ret.local++
+		case "ldap":
+			ret.ldap++
+		case "external":
+			ret.external++
+		}
+		if u.Status == 1 {
+			ret.active++
+		} else {
+			ret.disable++
+		}
+	}
+	return ret, nil
 }
 
 func UserDetail(w http.ResponseWriter, r *http.Request) {
@@ -364,12 +439,19 @@ func UserBatchDelete(w http.ResponseWriter, r *http.Request) {
 
 	successCount := 0
 	failCount := 0
+	skipCount := 0
 
 	for _, userId := range req.UserIds {
 		user := &dbdata.User{}
 		err := dbdata.One("Id", userId, user)
 		if err != nil {
-			failCount++
+			// 用户已不存在（可能已被并发删除/页面刷新后重复提交），视为跳过而非失败
+			if errors.Is(err, dbdata.ErrNotFound) {
+				skipCount++
+			} else {
+				base.Error("批量删除用户-查询失败:", userId, err)
+				failCount++
+			}
 			continue
 		}
 
@@ -384,14 +466,18 @@ func UserBatchDelete(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	msg := fmt.Sprintf("批量删除完成，成功：%d，失败：%d", successCount, failCount)
 	dbdata.AdminLog("用户管理", "批量操作", "批量删除了"+strconv.Itoa(successCount)+"个用户", r.RemoteAddr)
 
-	if successCount > 0 {
-		RespSucess(w, msg)
-	} else {
-		RespError(w, RespInternalErr, errors.New(msg))
+	// 已删除（跳过）的用户不计入失败，避免整批被误报为“删除失败”
+	if successCount == 0 && failCount == 0 {
+		RespSucess(w, "所选用户均不存在，无需删除")
+		return
 	}
+	if failCount == 0 {
+		RespSucess(w, fmt.Sprintf("批量删除完成，成功：%d，跳过：%d（已不存在）", successCount, skipCount))
+		return
+	}
+	RespError(w, RespInternalErr, fmt.Errorf("批量删除完成，成功：%d，失败：%d，跳过：%d（已不存在）", successCount, failCount, skipCount))
 }
 
 type userAccountMailData struct {

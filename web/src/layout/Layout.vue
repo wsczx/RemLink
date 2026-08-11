@@ -5,7 +5,7 @@
 
     <!-- 侧边栏菜单 -->
     <el-aside :width="asideWidth" class="layout-aside-wrap" :class="asideClasses">
-      <LayoutAside :is_active="is_active" :route_path="route_path" />
+      <LayoutAside :is_active="is_active" />
     </el-aside>
 
     <el-container class="layout-main">
@@ -17,7 +17,7 @@
 
       <!-- 内容区域 -->
       <el-main class="layout-content">
-        <router-view :route_path.sync="route_path" :route_name.sync="route_name"></router-view>
+        <router-view :route_name.sync="route_name"></router-view>
       </el-main>
 
       <!-- 底部 -->
@@ -48,7 +48,6 @@ export default {
       is_active: true,
       mobile_open: false,
       is_mobile: false,
-      route_path: '/index',
       route_name: ['仪表盘'],
       brand: { footer: "" },
       system_warning_prompt_shown: false,

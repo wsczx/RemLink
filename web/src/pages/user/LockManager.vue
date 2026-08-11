@@ -50,20 +50,20 @@
       </div>
 
       <el-table :data="locksInfo" stripe highlight-current-row style="width:100%" border
-        :header-cell-style="{ background:'var(--bg-header)', color:'var(--text-primary)', fontWeight:'600', fontSize:'13px' }">
+        :header-cell-style="{ background: 'var(--bg-header)', color: 'var(--text-primary)', fontWeight: '600', fontSize: '13px' }">
         <el-table-column type="index" label="#" width="50" align="center"></el-table-column>
-        <el-table-column prop="description" label="描述" min-width="140">
+        <el-table-column prop="description" label="描述" min-width="140" sortable>
           <template slot-scope="scope">
             <span class="lock-desc">{{ scope.row.description || '-' }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="username" label="用户名" width="120">
+        <el-table-column prop="username" label="用户名" width="120" sortable>
           <template slot-scope="scope">
             <span class="lock-user">{{ scope.row.username || '-' }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="ip" label="IP地址" width="140"></el-table-column>
-        <el-table-column prop="state.locked" label="状态" width="95" align="center">
+        <el-table-column prop="ip" label="IP地址" width="140" sortable></el-table-column>
+        <el-table-column prop="state.locked" label="状态" width="95" align="center" sortable>
           <template slot-scope="scope">
             <span :class="scope.row.state.locked ? 'status-dot-locked' : 'status-dot-free'" class="status-dot"></span>
             <span class="status-text" :class="scope.row.state.locked ? 'text-danger' : 'text-success'">
@@ -71,23 +71,23 @@
             </span>
           </template>
         </el-table-column>
-        <el-table-column prop="state.attempts" label="失败次数" width="90" align="center">
+        <el-table-column prop="state.attempts" label="失败次数" width="90" align="center" sortable>
           <template slot-scope="scope">
             <span class="attempts-count" :class="scope.row.state.attempts > 3 ? 'attempts-high' : ''">
               {{ scope.row.state.attempts }}
             </span>
           </template>
         </el-table-column>
-        <el-table-column prop="state.lock_time" label="锁定截止" width="165">
+        <el-table-column prop="state.lock_time" label="锁定截止" width="165" sortable>
           <template slot-scope="scope">{{ formatDate(scope.row.state.lock_time) }}</template>
         </el-table-column>
-        <el-table-column prop="state.lastAttempt" label="最后尝试" width="165">
+        <el-table-column prop="state.lastAttempt" label="最后尝试" width="165" sortable>
           <template slot-scope="scope">{{ formatDate(scope.row.state.lastAttempt) }}</template>
         </el-table-column>
         <el-table-column label="操作" width="90" fixed="right" align="center">
           <template slot-scope="scope">
-            <el-button v-if="scope.row.state.locked" size="mini" type="danger"
-              @click="unlock(scope.row)" icon="el-icon-unlock">解锁</el-button>
+            <el-button v-if="scope.row.state.locked" size="mini" type="danger" @click="unlock(scope.row)"
+              icon="el-icon-unlock">解锁</el-button>
             <el-button v-else size="mini" type="info" disabled>正常</el-button>
           </template>
         </el-table-column>
@@ -143,7 +143,7 @@ export default {
         }).catch(() => {
           this.$message.error('解锁失败');
         });
-      }).catch(() => {});
+      }).catch(() => { });
     },
     formatDate(dateString) {
       if (!dateString) return '-';
@@ -160,27 +160,87 @@ export default {
 
 <style scoped>
 /* ========== 页面整体 ========== */
-.lock-page { padding: 4px 0; }
+.lock-page {
+  padding: 4px 0;
+}
 
 /* ========== 统计卡片 ========== */
-.stat-icon-total    { background: var(--color-primary-bg); color: var(--color-primary); }
-.stat-icon-active   { background: var(--danger-bg); color: var(--color-danger); }
-.stat-icon-attempts { background: var(--warning-bg); color: var(--color-warning); }
-.stat-icon-user     { background: var(--success-bg); color: var(--color-success); }
+.stat-icon-total {
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+}
+
+.stat-icon-active {
+  background: var(--danger-bg);
+  color: var(--color-danger);
+}
+
+.stat-icon-attempts {
+  background: var(--warning-bg);
+  color: var(--color-warning);
+}
+
+.stat-icon-user {
+  background: var(--success-bg);
+  color: var(--color-success);
+}
 
 /* 表格卡片（全局已提供） */
 
 /* 表格内 */
-.lock-desc { font-size: 13px; color: var(--text-primary); }
-.lock-user { font-weight: 600; color: var(--text-primary); }
-.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
-.status-dot-locked { background: var(--color-danger); box-shadow: 0 0 0 2px rgba(245,108,108,0.2); }
-.status-dot-free   { background: var(--color-success); box-shadow: 0 0 0 2px rgba(103,194,58,0.2); }
-.status-text { font-size: 12px; vertical-align: middle; }
-.text-success { color: var(--color-success); font-weight: 500; }
-.text-danger  { color: var(--color-danger); font-weight: 500; }
-.attempts-count { font-weight: 600; font-size: 13px; color: var(--text-primary); }
-.attempts-high { color: var(--color-danger); }
+.lock-desc {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.lock-user {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+.status-dot-locked {
+  background: var(--color-danger);
+  box-shadow: 0 0 0 2px rgba(245, 108, 108, 0.2);
+}
+
+.status-dot-free {
+  background: var(--color-success);
+  box-shadow: 0 0 0 2px rgba(103, 194, 58, 0.2);
+}
+
+.status-text {
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+.text-success {
+  color: var(--color-success);
+  font-weight: 500;
+}
+
+.text-danger {
+  color: var(--color-danger);
+  font-weight: 500;
+}
+
+.attempts-count {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.attempts-high {
+  color: var(--color-danger);
+}
 
 /* 响应式已由全局样式处理 */
 </style>

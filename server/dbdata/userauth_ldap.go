@@ -61,8 +61,8 @@ func (a *AuthLdap) SaveUsers(g *Group) error {
 	sr, err := a.SearchUsers(l, "", []string{
 		"displayName",
 		"mail",
-		"telephoneNumber",  // AD/OpenLDAP 手机号（标准 AD 用此属性）
-		"mobile",           // 兼容装了 Exchange / 加了 schema 扩展的 AD、以及 OpenLDAP inetOrgPerson
+		"telephoneNumber",    // AD/OpenLDAP 手机号（标准 AD 用此属性）
+		"mobile",             // 兼容装了 Exchange / 加了 schema 扩展的 AD、以及 OpenLDAP inetOrgPerson
 		"userAccountControl", // AD用户状态
 		"accountExpires",     // AD账号过期时间
 		"shadowExpire",       // Linux LDAP用户状态
@@ -140,6 +140,10 @@ func (a *AuthLdap) SaveUsers(g *Group) error {
 			return fmt.Errorf("更新ldap用户%s失败:%v", u.Username, err.Error())
 		}
 	}
+	if len(sr.Entries) == 0 {
+		return fmt.Errorf("LDAP 搜索到的用户列表为空（可能连接失败、base DN 配置错误或搜索权限不足），组: %s", g.Name)
+	}
+
 	// 查询本地LDAP用户
 	var localLdapUsers []User
 	if err := FindWhere(&localLdapUsers, 0, 0, "type = 'ldap'"); err != nil {

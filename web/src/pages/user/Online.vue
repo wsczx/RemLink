@@ -53,40 +53,38 @@
             <el-option label="IP地址" value="ip"></el-option>
             <el-option label="远端地址" value="remote_addr"></el-option>
           </el-select>
-          <el-input v-model="searchText" placeholder="搜索..." size="small"
-            prefix-icon="el-icon-search" clearable class="search-input"
-            @input="handleSearch" @clear="handleSearch" />
+          <el-input v-model="searchText" placeholder="搜索..." size="small" prefix-icon="el-icon-search" clearable
+            class="search-input" @input="handleSearch" @clear="handleSearch" />
           <span class="toggle-label">显示休眠：</span>
           <el-switch v-model="showSleeper" size="small" @change="handleSearch" />
         </div>
       </div>
 
       <div class="online-table-wrap">
-        <el-table ref="multipleTable" :data="tableData" stripe highlight-current-row border
-          style="width:100%"
-          :header-cell-style="{ background:'#fafafa', color:'#303133', fontWeight:'600', fontSize:'13px' }">
+        <el-table ref="multipleTable" :data="tableData" stripe highlight-current-row border style="width:100%"
+          :header-cell-style="{ background: '#fafafa', color: '#303133', fontWeight: '600', fontSize: '13px' }">
           <el-table-column sortable type="index" label="#" width="50" align="center"></el-table-column>
-          <el-table-column prop="username" label="用户名" width="120">
+          <el-table-column prop="username" label="用户名" width="120" sortable>
             <template slot-scope="scope">
               <span class="online-username">{{ scope.row.nickname || scope.row.username }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="group" label="登录组" width="100" align="center">
+          <el-table-column prop="group" label="登录组" width="100" align="center" sortable>
             <template slot-scope="scope">
               <el-tag v-if="scope.row.group" size="mini" effect="plain">{{ scope.row.group }}</el-tag>
               <span v-else class="text-muted">-</span>
             </template>
           </el-table-column>
-          <el-table-column prop="mac_addr" label="MAC地址" width="150" show-overflow-tooltip></el-table-column>
-          <el-table-column prop="unique_mac" label="唯一MAC" width="85" align="center">
+          <el-table-column prop="mac_addr" label="MAC地址" width="150" show-overflow-tooltip sortable></el-table-column>
+          <el-table-column prop="unique_mac" label="唯一MAC" width="85" align="center" sortable>
             <template slot-scope="scope">
               <el-tag v-if="scope.row.unique_mac" type="success" size="mini" effect="plain">是</el-tag>
               <el-tag v-else type="info" size="mini" effect="plain">否</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="ip" label="IP地址" width="140"></el-table-column>
-          <el-table-column prop="remote_addr" label="远端地址" width="140" show-overflow-tooltip></el-table-column>
-          <el-table-column prop="transport_protocol" label="传输协议" width="90" align="center">
+          <el-table-column prop="ip" label="IP地址" width="140" sortable></el-table-column>
+          <el-table-column prop="remote_addr" label="远端地址" width="140" show-overflow-tooltip sortable></el-table-column>
+          <el-table-column prop="transport_protocol" label="传输协议" width="90" align="center" sortable>
             <template slot-scope="scope">
               <el-tag size="mini" effect="plain" type="info">{{ scope.row.transport_protocol || '-' }}</el-tag>
             </template>
@@ -117,12 +115,14 @@
                 <span class="quota-used">{{ scope.row.traffic_used }}</span>
                 <span class="quota-divider">/</span>
                 <span class="quota-total">{{ scope.row.traffic_quota }}</span>
-                <span class="quota-reset" v-if="scope.row.traffic_reset">{{ resetLabel(scope.row.traffic_reset) }}</span>
+                <span class="quota-reset" v-if="scope.row.traffic_reset">{{ resetLabel(scope.row.traffic_reset)
+                }}</span>
               </span>
               <span v-else class="text-muted">不限</span>
             </template>
           </el-table-column>
-          <el-table-column prop="last_login" label="登录时间" :formatter="tableDateFormat" min-width="165"></el-table-column>
+          <el-table-column prop="last_login" label="登录时间" :formatter="tableDateFormat" min-width="165"
+            sortable></el-table-column>
           <el-table-column label="操作" width="120" class-name="col-ops" min-width="120" align="center">
             <template slot-scope="scope">
               <el-dropdown trigger="click" @command="(cmd) => handleRowCmd(scope.row, cmd)">
@@ -132,7 +132,8 @@
                 <el-dropdown-menu slot="dropdown">
                   <el-dropdown-item command="reline" icon="el-icon-refresh"
                     :disabled="!scope.row.remote_addr">重连</el-dropdown-item>
-                  <el-dropdown-item command="offline" icon="el-icon-switch-button" divided class="dropdown-danger">下线</el-dropdown-item>
+                  <el-dropdown-item command="offline" icon="el-icon-switch-button" divided
+                    class="dropdown-danger">下线</el-dropdown-item>
                 </el-dropdown-menu>
               </el-dropdown>
             </template>
@@ -198,9 +199,9 @@ export default {
     tableDateFormat(row, col, val) {
       if (!val) return '';
       const d = new Date(val);
-      return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' +
-        String(d.getDate()).padStart(2,'0') + ' ' + String(d.getHours()).padStart(2,'0') + ':' +
-        String(d.getMinutes()).padStart(2,'0') + ':' + String(d.getSeconds()).padStart(2,'0');
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0') + ' ' + String(d.getHours()).padStart(2, '0') + ':' +
+        String(d.getMinutes()).padStart(2, '0') + ':' + String(d.getSeconds()).padStart(2, '0');
     },
     resetLabel(period) {
       switch (period) {
@@ -224,45 +225,145 @@ export default {
 
 <style scoped>
 /* ========== 页面整体 ========== */
-.online-page { padding: 4px 0; }
+.online-page {
+  padding: 4px 0;
+}
 
 /* ========== 统计卡片 ========== */
-.stat-icon-online  { background: var(--color-primary-bg); color: var(--color-primary); }
-.stat-icon-mobile  { background: var(--warning-bg); color: var(--color-warning); }
-.stat-icon-desktop { background: var(--success-bg); color: var(--color-success); }
-.stat-icon-sleeper { background: var(--info-bg); color: var(--color-info); }
+.stat-icon-online {
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+}
+
+.stat-icon-mobile {
+  background: var(--warning-bg);
+  color: var(--color-warning);
+}
+
+.stat-icon-desktop {
+  background: var(--success-bg);
+  color: var(--color-success);
+}
+
+.stat-icon-sleeper {
+  background: var(--info-bg);
+  color: var(--color-info);
+}
 
 /* 页面特有 */
-.auto-refresh-tip { font-size: 11px; color: var(--text-placeholder); margin-right: 4px; }
-.search-input { width: 170px; }
-.toggle-label { font-size: 12px; color: var(--text-secondary); }
+.auto-refresh-tip {
+  font-size: 11px;
+  color: var(--text-placeholder);
+  margin-right: 4px;
+}
+
+.search-input {
+  width: 170px;
+}
+
+.toggle-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
 
 /* 表格内 */
-.online-username { font-weight: 600; color: var(--text-primary); font-size: 13px; }
-.text-muted { color: var(--text-placeholder); font-size: 12px; }
-.client-mobile { font-size: 20px; color: var(--color-danger); }
-.client-desktop { font-size: 20px; color: var(--color-primary); }
+.online-username {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 13px;
+}
 
-.bw-up, .bw-down { font-size: 12px; font-weight: 500; }
-.bw-up { color: var(--color-success); }
-.bw-down { color: var(--text-secondary); }
-.bw-total-up, .bw-total-down { font-size: 12px; font-weight: 600; }
-.bw-total-up { color: var(--color-success); }
-.bw-total-down { color: var(--text-regular); }
-.bw-divider { color: var(--border-base); margin: 0 4px; font-size: 11px; }
+.text-muted {
+  color: var(--text-placeholder);
+  font-size: 12px;
+}
 
-.quota-cell { display: inline-flex; align-items: center; gap: 2px; }
-.quota-used { color: var(--color-primary); font-weight: 600; font-size: 12px; }
-.quota-total { color: var(--text-secondary); font-size: 12px; }
-.quota-reset { color: var(--text-placeholder); font-size: 11px; margin-left: 2px; }
+.client-mobile {
+  font-size: 20px;
+  color: var(--color-danger);
+}
+
+.client-desktop {
+  font-size: 20px;
+  color: var(--color-primary);
+}
+
+.bw-up,
+.bw-down {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.bw-up {
+  color: var(--color-success);
+}
+
+.bw-down {
+  color: var(--text-secondary);
+}
+
+.bw-total-up,
+.bw-total-down {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.bw-total-up {
+  color: var(--color-success);
+}
+
+.bw-total-down {
+  color: var(--text-regular);
+}
+
+.bw-divider {
+  color: var(--border-base);
+  margin: 0 4px;
+  font-size: 11px;
+}
+
+.quota-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.quota-used {
+  color: var(--color-primary);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.quota-total {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.quota-reset {
+  color: var(--text-placeholder);
+  font-size: 11px;
+  margin-left: 2px;
+}
 
 .action-more-btn {
-  padding: 5px 10px; border-radius: 6px; font-size: 12px;
-  border: 1px solid var(--border-base); background: var(--bg-card); color: var(--text-regular);
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  border: 1px solid var(--border-base);
+  background: var(--bg-card);
+  color: var(--text-regular);
   transition: all 0.2s;
 }
-.action-more-btn:hover { color: var(--color-primary); border-color: var(--color-primary-light); background: var(--color-primary-bg); }
-.dropdown-danger { color: var(--color-danger) !important; }
+
+.action-more-btn:hover {
+  color: var(--color-primary);
+  border-color: var(--color-primary-light);
+  background: var(--color-primary-bg);
+}
+
+.dropdown-danger {
+  color: var(--color-danger) !important;
+}
 
 /* 表格滚动容器 */
 .online-table-wrap {
@@ -282,17 +383,21 @@ export default {
     flex-wrap: wrap;
     gap: 8px;
   }
+
   .card-actions {
     flex-wrap: wrap;
     gap: 6px;
     width: 100%;
   }
+
   .card-actions .search-input {
     width: 140px;
   }
+
   .auto-refresh-tip {
     display: none;
   }
+
   .toggle-label {
     font-size: 11px;
   }
@@ -302,10 +407,12 @@ export default {
   .online-table-wrap ::v-deep .col-ops {
     min-width: 140px;
   }
+
   .card-actions {
     flex-direction: column;
     align-items: stretch;
   }
+
   .card-actions .search-input {
     width: 100%;
   }

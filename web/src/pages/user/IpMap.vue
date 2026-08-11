@@ -71,43 +71,43 @@
       </div>
 
       <div class="ipmap-table-wrap">
-        <el-table ref="multipleTable" :data="tableData" stripe highlight-current-row border
-          style="width:100%"
+        <el-table ref="multipleTable" :data="tableData" stripe highlight-current-row border style="width:100%"
           @selection-change="handleSelectionChange"
-          :header-cell-style="{ background:'#fafafa', color:'#303133', fontWeight:'600', fontSize:'13px' }">
+          :header-cell-style="{ background: '#fafafa', color: '#303133', fontWeight: '600', fontSize: '13px' }">
           <el-table-column type="selection" width="45" align="center"></el-table-column>
           <el-table-column sortable prop="id" label="ID" width="65" align="center"></el-table-column>
-          <el-table-column prop="ip_addr" label="IP地址" width="150">
+          <el-table-column prop="ip_addr" label="IP地址" width="150" sortable>
             <template slot-scope="scope">
               <span class="ip-addr">{{ scope.row.ip_addr }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="mac_addr" label="MAC地址" width="160" show-overflow-tooltip></el-table-column>
-          <el-table-column prop="unique_mac" label="唯一MAC" width="85" align="center">
+          <el-table-column prop="mac_addr" label="MAC地址" width="160" show-overflow-tooltip sortable></el-table-column>
+          <el-table-column prop="unique_mac" label="唯一MAC" width="85" align="center" sortable>
             <template slot-scope="scope">
               <el-tag v-if="scope.row.unique_mac" type="success" size="mini" effect="plain">是</el-tag>
               <el-tag v-else type="info" size="mini" effect="plain">否</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="group" label="组/出口" width="120">
+          <el-table-column prop="group" label="组/出口" width="120" sortable>
             <template slot-scope="scope">
               <span v-if="scope.row.group" class="group-tag">{{ scope.row.group }}</span>
               <span v-else class="text-muted">全局</span>
             </template>
           </el-table-column>
-          <el-table-column prop="username" label="用户名" min-width="120">
+          <el-table-column prop="username" label="用户名" min-width="120" sortable>
             <template slot-scope="scope">
               <span v-if="scope.row.username" class="bound-user">{{ scope.row.username }}</span>
               <span v-else class="text-muted">未绑定</span>
             </template>
           </el-table-column>
-          <el-table-column prop="keep" label="IP保留" width="85" align="center">
+          <el-table-column prop="keep" label="IP保留" width="85" align="center" sortable>
             <template slot-scope="scope">
               <el-switch disabled v-model="scope.row.keep" active-color="#13ce66" />
             </template>
           </el-table-column>
-          <el-table-column prop="note" label="备注" min-width="120" show-overflow-tooltip></el-table-column>
-          <el-table-column prop="last_login" label="最后登录" :formatter="tableDateFormat" width="165"></el-table-column>
+          <el-table-column prop="note" label="备注" min-width="120" show-overflow-tooltip sortable></el-table-column>
+          <el-table-column prop="last_login" label="最后登录" :formatter="tableDateFormat" width="165"
+            sortable></el-table-column>
           <el-table-column label="操作" width="110" class-name="col-ops" min-width="110" align="center">
             <template slot-scope="scope">
               <el-dropdown trigger="click" @command="(cmd) => handleRowCmd(scope.row, cmd)">
@@ -116,7 +116,8 @@
                 </el-button>
                 <el-dropdown-menu slot="dropdown">
                   <el-dropdown-item command="edit" icon="el-icon-edit">编辑映射</el-dropdown-item>
-                  <el-dropdown-item command="delete" icon="el-icon-delete" divided class="dropdown-danger">删除映射</el-dropdown-item>
+                  <el-dropdown-item command="delete" icon="el-icon-delete" divided
+                    class="dropdown-danger">删除映射</el-dropdown-item>
                 </el-dropdown-menu>
               </el-dropdown>
             </template>
@@ -125,16 +126,14 @@
       </div>
 
       <div class="pagination-wrap">
-        <el-pagination background layout="prev,pager,next" :pager-count="9"
-          @current-change="pageChange" :total="count" />
+        <el-pagination background layout="prev,pager,next" :pager-count="9" @current-change="pageChange"
+          :total="count" />
       </div>
     </el-card>
 
     <!-- 编辑弹窗 -->
-    <el-dialog :close-on-click-modal="false"
-      :title="ruleForm.id ? '编辑 IP 映射' : '新增 IP 映射'"
-      :visible.sync="user_edit_dialog" width="580px" top="6vh"
-      @close="disVisible" class="ipmap-edit-dialog">
+    <el-dialog :close-on-click-modal="false" :title="ruleForm.id ? '编辑 IP 映射' : '新增 IP 映射'"
+      :visible.sync="user_edit_dialog" width="580px" top="6vh" @close="disVisible" class="ipmap-edit-dialog">
       <el-form :model="ruleForm" :rules="rules" ref="ruleForm" label-width="100px">
         <el-form-item label="ID" prop="id" v-if="ruleForm.id">
           <el-input v-model="ruleForm.id" disabled></el-input>
@@ -204,16 +203,16 @@ export default {
           this.$confirm('确定要删除该IP映射吗？', '删除确认', {
             confirmButtonText: '确定删除', cancelButtonText: '取消',
             type: 'warning', confirmButtonClass: 'el-button--danger',
-          }).then(() => this.handleDel(row)).catch(() => {});
+          }).then(() => this.handleDel(row)).catch(() => { });
           break;
       }
     },
     tableDateFormat(row, col, val) {
       if (!val) return '';
       const d = new Date(val);
-      return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' +
-        String(d.getDate()).padStart(2,'0') + ' ' + String(d.getHours()).padStart(2,'0') + ':' +
-        String(d.getMinutes()).padStart(2,'0') + ':' + String(d.getSeconds()).padStart(2,'0');
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0') + ' ' + String(d.getHours()).padStart(2, '0') + ':' +
+        String(d.getMinutes()).padStart(2, '0') + ':' + String(d.getSeconds()).padStart(2, '0');
     },
     getData(p) {
       this.loading = true;
@@ -303,34 +302,103 @@ export default {
 
 <style scoped>
 /* ========== 页面整体 ========== */
-.ipmap-page { padding: 4px 0; }
+.ipmap-page {
+  padding: 4px 0;
+}
 
 /* ========== 统计卡片 ========== */
-.stat-icon-total { background: var(--color-primary-bg); color: var(--color-primary); }
-.stat-icon-keep  { background: #f0f9eb; color: #67c23a; }
-.stat-icon-mac   { background: #fdf6ec; color: #e6a23c; }
-.stat-icon-user  { background: #ecf5ff; color: #409eff; }
+.stat-icon-total {
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+}
+
+.stat-icon-keep {
+  background: #f0f9eb;
+  color: #67c23a;
+}
+
+.stat-icon-mac {
+  background: #fdf6ec;
+  color: #e6a23c;
+}
+
+.stat-icon-user {
+  background: #ecf5ff;
+  color: #409eff;
+}
 
 /* 表格卡片（全局已提供） */
 
 /* 表格内 */
-.ip-addr { font-weight: 600; color: #303133; font-size: 13px; font-family: monospace; }
-.group-tag { font-weight: 500; color: #409eff; font-size: 12px; background: #ecf5ff; padding: 2px 8px; border-radius: 4px; }
-.bound-user { font-weight: 500; color: #303133; }
-.text-muted { color: #c0c4cc; font-size: 12px; }
+.ip-addr {
+  font-weight: 600;
+  color: #303133;
+  font-size: 13px;
+  font-family: monospace;
+}
+
+.group-tag {
+  font-weight: 500;
+  color: #409eff;
+  font-size: 12px;
+  background: #ecf5ff;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.bound-user {
+  font-weight: 500;
+  color: #303133;
+}
+
+.text-muted {
+  color: #c0c4cc;
+  font-size: 12px;
+}
+
 .action-more-btn {
-  padding: 5px 10px; border-radius: 6px; font-size: 12px;
-  border: 1px solid var(--border-base); background: var(--bg-card); color: var(--text-regular);
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  border: 1px solid var(--border-base);
+  background: var(--bg-card);
+  color: var(--text-regular);
   transition: all 0.2s;
 }
-.action-more-btn:hover { color: var(--color-primary); border-color: #c6e2ff; background: var(--color-primary-bg); }
-.dropdown-danger { color: #f56c6c !important; }
-.pagination-wrap { display: flex; justify-content: flex-end; padding-top: 16px; }
+
+.action-more-btn:hover {
+  color: var(--color-primary);
+  border-color: #c6e2ff;
+  background: var(--color-primary-bg);
+}
+
+.dropdown-danger {
+  color: #f56c6c !important;
+}
+
+.pagination-wrap {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 16px;
+}
 
 /* ========== 编辑弹窗 ========== */
-.ipmap-edit-dialog ::v-deep .el-dialog__body { padding: 16px 24px 10px; }
-.form-tip { font-size: 12px; color: #909399; margin-left: 8px; }
-.dialog-footer { display: flex; justify-content: flex-end; gap: 10px; padding-top: 8px; }
+.ipmap-edit-dialog ::v-deep .el-dialog__body {
+  padding: 16px 24px 10px;
+}
+
+.form-tip {
+  font-size: 12px;
+  color: #909399;
+  margin-left: 8px;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 8px;
+}
 
 /* 表格滚动容器 */
 .ipmap-table-wrap {

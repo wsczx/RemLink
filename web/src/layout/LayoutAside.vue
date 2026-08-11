@@ -9,7 +9,7 @@
     </div>
 
     <!-- 菜单 -->
-    <el-menu :collapse="!is_active" :default-active="route_path" class="layout-menu" :collapse-transition="false"
+    <el-menu :collapse="!is_active" :default-active="$route.path" class="layout-menu" :collapse-transition="false"
       background-color="transparent" text-color="#969db8" active-text-color="#fff" router>
 
       <!-- 仪表盘 -->
@@ -96,7 +96,7 @@ export default {
       brand: { title: "", logo: "" },
     }
   },
-  props: ['is_active', 'route_path'],
+  props: ['is_active'],
   mounted() {
     this.loadBrand();
     // 监听品牌更新事件：管理后台保存品牌配置后，立即重新加载并应用（无需刷新页面）

@@ -234,8 +234,8 @@
                   :header-cell-style="{ background: 'var(--bg-header)', color: 'var(--text-primary)', fontWeight: '600', fontSize: '13px' }"
                   @selection-change="handleSelectionChange">
                   <el-table-column type="selection" width="45" align="center"></el-table-column>
-                  <el-table-column prop="username" label="用户名" width="115"></el-table-column>
-                  <el-table-column prop="groupname" label="用户组" width="100"></el-table-column>
+                  <el-table-column prop="username" label="用户名" width="115" sortable></el-table-column>
+                  <el-table-column prop="groupname" label="用户组" width="100" sortable></el-table-column>
                   <el-table-column label="设备绑定" width="75" align="center">
                     <template slot-scope="scope">
                       <el-tag :type="scope.row.device_binding_enabled ? 'success' : 'info'" size="small"
@@ -265,8 +265,10 @@
                         class="edit-link">改</el-button>
                     </template>
                   </el-table-column>
-                  <el-table-column prop="created_at" label="创建时间" :formatter="dateFormat" width="140"></el-table-column>
-                  <el-table-column prop="not_after" label="过期时间" :formatter="dateFormat" width="140"></el-table-column>
+                  <el-table-column prop="created_at" label="创建时间" :formatter="dateFormat" width="140"
+                    sortable></el-table-column>
+                  <el-table-column prop="not_after" label="过期时间" :formatter="dateFormat" width="140"
+                    sortable></el-table-column>
                   <el-table-column label="状态" width="65" align="center">
                     <template slot-scope="scope">
                       <el-tag :type="getStatusType(scope.row.status)" size="small">

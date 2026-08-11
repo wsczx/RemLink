@@ -45,11 +45,28 @@
       <div slot="header" class="card-header">
         <span class="card-title"><i class="el-icon-s-custom"></i> 用户列表</span>
         <div class="card-actions">
-          <el-input v-model="searchData" placeholder="用户名/姓名/邮箱/手机号/类型"
-            size="small" prefix-icon="el-icon-search" clearable
-            class="search-input" @keydown.enter.native="handleSearch" @clear="handleSearch" />
-          <el-upload accept=".xlsx,.xls" :http-request="upLoadUser" :limit="1"
-            :show-file-list="false" class="inline-upload">
+          <el-input v-model="searchData" placeholder="用户名/姓名/邮箱/手机号/类型" size="small" prefix-icon="el-icon-search"
+            clearable class="search-input" @keydown.enter.native="handleSearch" @clear="handleSearch" />
+          <el-select v-model="filterType" placeholder="类型" size="small" clearable class="filter-select"
+            @change="handleSearch">
+            <el-option label="本地" value="local"></el-option>
+            <el-option label="LDAP" value="ldap"></el-option>
+            <el-option label="RADIUS" value="radius"></el-option>
+            <el-option label="企微" value="wxwork"></el-option>
+            <el-option label="飞书" value="feishu"></el-option>
+            <el-option label="钉钉" value="dingtalk"></el-option>
+          </el-select>
+          <el-select v-model="filterGroup" placeholder="用户组" size="small" clearable class="filter-select" filterable
+            @change="handleSearch">
+            <el-option v-for="g in groupNames" :key="g" :label="g" :value="g"></el-option>
+          </el-select>
+          <el-select v-model="filterStatus" placeholder="状态" size="small" clearable class="filter-select"
+            @change="handleSearch">
+            <el-option label="启用" value="1"></el-option>
+            <el-option label="停用" value="0"></el-option>
+          </el-select>
+          <el-upload accept=".xlsx,.xls" :http-request="upLoadUser" :limit="1" :show-file-list="false"
+            class="inline-upload">
             <el-button size="small" icon="el-icon-upload2">批量导入</el-button>
           </el-upload>
           <el-button size="small" icon="el-icon-download" @click="downloadTemplate">下载模版</el-button>
@@ -69,9 +86,8 @@
       </div>
 
       <div class="user-table-wrap">
-        <el-table ref="multipleTable" :data="tableData" stripe highlight-current-row border
-          style="width:100%"
-          :header-cell-style="{ background:'var(--bg-header)', color:'var(--text-primary)', fontWeight:'600', fontSize:'13px' }"
+        <el-table ref="multipleTable" :data="tableData" stripe highlight-current-row border style="width:100%"
+          :header-cell-style="{ background: 'var(--bg-header)', color: 'var(--text-primary)', fontWeight: '600', fontSize: '13px' }"
           @selection-change="handleSelectionChange">
           <el-table-column type="selection" width="50" align="center"></el-table-column>
           <el-table-column sortable prop="id" label="ID" width="65" align="center"></el-table-column>
@@ -96,8 +112,8 @@
           <el-table-column prop="phone" label="手机号" width="140" show-overflow-tooltip></el-table-column>
           <el-table-column prop="otp_secret" label="OTP" width="90" align="center">
             <template slot-scope="scope">
-              <el-button v-if="!scope.row.disable_otp && scope.row.otp_secret"
-                type="text" size="mini" @click="getOtpImg(scope.row)">
+              <el-button v-if="!scope.row.disable_otp && scope.row.otp_secret" type="text" size="mini"
+                @click="getOtpImg(scope.row)">
                 <i class="el-icon-view"></i>
                 {{ scope.row.otp_secret.substring(0, 6) }}
               </el-button>
@@ -108,25 +124,26 @@
           <el-table-column prop="groups" label="用户组" width="140">
             <template slot-scope="scope">
               <div v-if="scope.row.groups && scope.row.groups.length" class="group-tags">
-                <el-tag v-for="g in scope.row.groups" :key="g" size="mini" effect="plain"
-                  class="group-tag">{{ g }}</el-tag>
+                <el-tag v-for="g in scope.row.groups" :key="g" size="mini" effect="plain" class="group-tag">{{ g
+                }}</el-tag>
               </div>
               <span v-else class="text-muted">-</span>
             </template>
           </el-table-column>
           <el-table-column prop="status" label="状态" width="95" align="center">
             <template slot-scope="scope">
-              <el-tag :type="getStatusTagType(scope.row)" :class="getStatusTagClass(scope.row)"
-                size="small" disable-transitions>
+              <el-tag :type="getStatusTagType(scope.row)" :class="getStatusTagClass(scope.row)" size="small"
+                disable-transitions>
                 {{ getStatusLabel(scope.row) }}
               </el-tag>
-              <el-tag v-if="scope.row.change_pwd" type="warning" size="mini"
-                class="force-pwd-tag" disable-transitions>需改密</el-tag>
+              <el-tag v-if="scope.row.change_pwd" type="warning" size="mini" class="force-pwd-tag"
+                disable-transitions>需改密</el-tag>
             </template>
           </el-table-column>
           <el-table-column label="已用流量" width="120" align="center">
             <template slot-scope="scope">
-              <span v-if="scope.row.traffic_used > 0" class="traffic-used">{{ formatTraffic(scope.row.traffic_used) }}</span>
+              <span v-if="scope.row.traffic_used > 0" class="traffic-used">{{ formatTraffic(scope.row.traffic_used)
+              }}</span>
               <span v-else class="text-muted">-</span>
             </template>
           </el-table-column>
@@ -139,9 +156,11 @@
                 </el-button>
                 <el-dropdown-menu slot="dropdown">
                   <el-dropdown-item command="edit" icon="el-icon-edit">编辑用户</el-dropdown-item>
-                  <el-dropdown-item command="otp" icon="el-icon-view" v-if="!scope.row.disable_otp">查看OTP</el-dropdown-item>
+                  <el-dropdown-item command="otp" icon="el-icon-view"
+                    v-if="!scope.row.disable_otp">查看OTP</el-dropdown-item>
                   <el-dropdown-item command="resetTraffic" icon="el-icon-refresh-right">重置流量配额</el-dropdown-item>
-                  <el-dropdown-item command="delete" icon="el-icon-delete" divided class="dropdown-danger">删除用户</el-dropdown-item>
+                  <el-dropdown-item command="delete" icon="el-icon-delete" divided
+                    class="dropdown-danger">删除用户</el-dropdown-item>
                 </el-dropdown-menu>
               </el-dropdown>
             </template>
@@ -150,10 +169,9 @@
       </div>
 
       <div class="pagination-wrap">
-        <el-pagination background layout="total,sizes,prev,pager,next,jumper"
-          :pager-count="9" :current-page="page" :page-sizes="[10,20,50,100,200,500]"
-          :page-size="pageSize" :total="count"
-          @size-change="handleSizeChange" @current-change="pageChange" />
+        <el-pagination background layout="total,sizes,prev,pager,next,jumper" :pager-count="9" :current-page="page"
+          :page-sizes="[10, 20, 50, 100, 200, 500]" :page-size="pageSize" :total="count" @size-change="handleSizeChange"
+          @current-change="pageChange" />
       </div>
     </el-card>
 
@@ -167,10 +185,8 @@
     </el-dialog>
 
     <!-- 编辑弹窗 -->
-    <el-dialog :close-on-click-modal="false"
-      :title="ruleForm.id ? '编辑用户' : '新增用户'"
-      :visible.sync="user_edit_dialog" width="750px" top="4vh"
-      @close="disVisible" class="user-edit-dialog">
+    <el-dialog :close-on-click-modal="false" :title="ruleForm.id ? '编辑用户' : '新增用户'" :visible.sync="user_edit_dialog"
+      width="750px" top="4vh" @close="disVisible" class="user-edit-dialog">
       <el-form :model="ruleForm" :rules="rules" ref="ruleForm" label-width="100px">
         <div class="section-label"><i class="el-icon-user"></i> 基本信息</div>
         <div class="edit-basic-row">
@@ -181,13 +197,16 @@
             <el-input v-model="ruleForm.type" disabled size="small"></el-input>
           </el-form-item>
           <el-form-item label="用户名" prop="username" class="form-item-compact">
-            <el-input v-model="ruleForm.username" :disabled="ruleForm.id > 0" placeholder="请输入用户名" size="small"></el-input>
+            <el-input v-model="ruleForm.username" :disabled="ruleForm.id > 0" placeholder="请输入用户名"
+              size="small"></el-input>
           </el-form-item>
           <el-form-item label="密码" prop="pin_code" class="form-item-compact">
-            <el-input v-model="ruleForm.pin_code" :disabled="isExternalUser" placeholder="留空由系统自动生成" size="small"></el-input>
+            <el-input v-model="ruleForm.pin_code" :disabled="isExternalUser" placeholder="留空由系统自动生成"
+              size="small"></el-input>
           </el-form-item>
           <el-form-item label="姓名" prop="nickname" class="form-item-compact">
-            <el-input v-model="ruleForm.nickname" :disabled="isExternalUser" placeholder="请输入姓名" size="small"></el-input>
+            <el-input v-model="ruleForm.nickname" :disabled="isExternalUser" placeholder="请输入姓名"
+              size="small"></el-input>
           </el-form-item>
           <el-form-item label="邮箱" prop="email" class="form-item-compact">
             <el-input v-model="ruleForm.email" placeholder="请输入邮箱" size="small"></el-input>
@@ -211,10 +230,10 @@
           <!-- OTP 独占一行，秘钥框拉长对齐 -->
           <el-form-item label="OTP验证" class="form-item-compact form-item-full form-item-otp">
             <div class="otp-row">
-              <el-switch v-model="ruleForm.disable_otp"
-                :active-value="false" :inactive-value="true"
+              <el-switch v-model="ruleForm.disable_otp" :active-value="false" :inactive-value="true"
                 active-color="#13ce66" inactive-color="#909399" />
-              <el-input v-if="!ruleForm.disable_otp" v-model="ruleForm.otp_secret" placeholder="留空由系统自动生成" size="small" class="otp-secret-input" />
+              <el-input v-if="!ruleForm.disable_otp" v-model="ruleForm.otp_secret" placeholder="留空由系统自动生成" size="small"
+                class="otp-secret-input" />
               <el-tooltip content="开启OTP后用户密码为密码+动态码双因素认证" placement="top">
                 <i class="el-icon-question help-icon"></i>
               </el-tooltip>
@@ -223,9 +242,8 @@
           <!-- 下次登录强制修改密码（仅本地用户生效） -->
           <el-form-item label="强制改密" class="form-item-compact form-item-full">
             <div class="otp-row">
-              <el-switch v-model="ruleForm.change_pwd"
-                :disabled="isExternalUser"
-                active-color="#e6a23c" inactive-color="#909399" />
+              <el-switch v-model="ruleForm.change_pwd" :disabled="isExternalUser" active-color="#e6a23c"
+                inactive-color="#909399" />
               <el-tooltip content="开启后该用户下次登录时必须先修改密码（仅本地用户生效）" placement="top">
                 <i class="el-icon-question help-icon"></i>
               </el-tooltip>
@@ -236,10 +254,8 @@
           <!-- 过期时间 + 发送邮件 一行 -->
           <div class="edit-adv-row">
             <el-form-item label="过期时间" prop="limittime" class="form-item-compact">
-              <el-date-picker v-model="ruleForm.limittime" type="datetime" size="small"
-                format="yyyy-MM-dd HH:mm"
-                placeholder="选择日期时间" :picker-options="pickerOptions" :disabled="isExternalUser"
-                style="width:200px" />
+              <el-date-picker v-model="ruleForm.limittime" type="datetime" size="small" format="yyyy-MM-dd HH:mm"
+                placeholder="选择日期时间" :picker-options="pickerOptions" :disabled="isExternalUser" style="width:200px" />
             </el-form-item>
             <el-form-item label="发送邮件" prop="send_email" class="form-item-compact">
               <el-switch v-model="ruleForm.send_email" />
@@ -248,8 +264,10 @@
           <!-- 状态 单独一行 -->
           <el-form-item label="状态" prop="status" class="form-item-compact form-item-full">
             <el-radio-group v-model="ruleForm.status" :disabled="isExternalUser" size="small" class="user-status-radio">
-              <el-radio-button :label="1" class="status-radio-enabled"><i class="el-icon-circle-check"></i> 启用</el-radio-button>
-              <el-radio-button :label="0" class="status-radio-disabled"><i class="el-icon-remove"></i> 停用</el-radio-button>
+              <el-radio-button :label="1" class="status-radio-enabled"><i class="el-icon-circle-check"></i>
+                启用</el-radio-button>
+              <el-radio-button :label="0" class="status-radio-disabled"><i class="el-icon-remove"></i>
+                停用</el-radio-button>
             </el-radio-group>
           </el-form-item>
         </div>
@@ -262,12 +280,9 @@
                 <span class="group-picker-title">已选择 {{ ruleForm.groups.length }} / {{ groupNames.length }}</span>
               </div>
               <div v-if="groupNames.length" class="group-options">
-                <button v-for="item in groupNames" :key="item" type="button"
-                  class="group-option"
-                  :class="{ 'group-option--active': ruleForm.groups.includes(item) }"
-                  :title="item"
-                  :disabled="isExternalUser"
-                  @click="toggleGroup(item)">
+                <button v-for="item in groupNames" :key="item" type="button" class="group-option"
+                  :class="{ 'group-option--active': ruleForm.groups.includes(item) }" :title="item"
+                  :disabled="isExternalUser" @click="toggleGroup(item)">
                   <span class="group-option-name">{{ item }}</span>
                   <span class="group-option-check">
                     <i class="el-icon-check"></i>
@@ -290,7 +305,8 @@
 
         <div class="dialog-footer">
           <el-button @click="disVisible" icon="el-icon-close">取消</el-button>
-          <el-button type="primary" icon="el-icon-check" :loading="isSubmitting" :disabled="isSubmitting" @click="submitForm('ruleForm')">保存用户</el-button>
+          <el-button type="primary" icon="el-icon-check" :loading="isSubmitting" :disabled="isSubmitting"
+            @click="submitForm('ruleForm')">保存用户</el-button>
         </div>
       </el-form>
     </el-dialog>
@@ -320,6 +336,13 @@ export default {
       policyList: [],
       tableData: [],
       count: 0,
+      // 统计卡片（后端按当前筛选条件全量聚合，不受分页影响）
+      statsTotal: 0,
+      statsLocal: 0,
+      statsLdap: 0,
+      statsExternal: 0,
+      statsActive: 0,
+      statsDisable: 0,
       multipleSelection: [],
       pickerOptions: {
         disabledDate(time) {
@@ -327,6 +350,9 @@ export default {
         }
       },
       searchData: '',
+      filterType: '',
+      filterGroup: '',
+      filterStatus: '',
       otpImgData: { visible: false, username: '', nickname: '', base64Img: '' },
       ruleForm: {
         id: 0,
@@ -365,10 +391,11 @@ export default {
     }
   },
   computed: {
-    statTotal() { return this.count },
-    statLocal() { return this.tableData.filter(r => r.type === 'local').length },
-    statExternal() { return this.tableData.filter(r => r.type !== 'local').length },
-    statActive() { return this.tableData.filter(r => Number(r.status) === 1).length },
+    // 统计卡片按"当前筛选条件下全量数据"聚合，由后端返回，不受当前分页影响
+    statTotal() { return this.statsTotal },
+    statLocal() { return this.statsLocal },
+    statExternal() { return this.statsExternal },
+    statActive() { return this.statsActive },
     isExternalUser() {
       return this.ruleForm.type === 'ldap' || this.ruleForm.type === 'wxwork' || this.ruleForm.type === 'feishu';
     },
@@ -419,7 +446,7 @@ export default {
                 this.$message.error(resp.data.msg);
               }
             }).catch(() => this.$message.error('请求出错'));
-          }).catch(() => {});
+          }).catch(() => { });
           break;
         case 'delete':
           this.$confirm('确定要删除该用户吗？删除后不可恢复。', '删除确认', {
@@ -427,7 +454,7 @@ export default {
             cancelButtonText: '取消',
             type: 'warning',
             confirmButtonClass: 'el-button--danger',
-          }).then(() => this.handleDel(row)).catch(() => {});
+          }).then(() => this.handleDel(row)).catch(() => { });
           break;
       }
     },
@@ -542,12 +569,16 @@ export default {
       }).then(() => {
         const userIds = this.multipleSelection.map(u => u.id);
         axios.post('/user/batch/delete', { user_ids: userIds }).then(resp => {
-          if (resp.data.code === 0) {
-            this.$message.success('批量删除成功');
+          const data = resp.data || {};
+          if (data.code === 0) {
+            this.$message.success(data.msg || '批量删除成功');
             this.getData(this.page);
             this.$refs.multipleTable.clearSelection();
           } else {
-            this.$message.error(resp.data.msg);
+            // 部分成功/失败：后端 msg 已含成功/失败/跳过数量，直接提示
+            this.$message({ type: 'warning', message: data.msg || '批量删除失败', duration: 4000 });
+            this.getData(this.page);
+            this.$refs.multipleTable.clearSelection();
           }
         }).catch(() => this.$message.error('批量删除失败'));
       });
@@ -559,11 +590,24 @@ export default {
       this.page = page;
       this.loading = true;
       axios.get('/user/list', {
-        params: { page, prefix: prefix || '', page_size: this.pageSize }
+        params: {
+          page,
+          prefix: prefix || '',
+          type: this.filterType || '',
+          group: this.filterGroup || '',
+          status: this.filterStatus || '',
+          page_size: this.pageSize
+        }
       }).then(resp => {
         const data = resp.data.data || {};
         this.tableData = data.datas || [];
         this.count = data.count || 0;
+        this.statsTotal = data.stats_total || 0;
+        this.statsLocal = data.stats_local || 0;
+        this.statsLdap = data.stats_ldap || 0;
+        this.statsExternal = data.stats_external || 0;
+        this.statsActive = data.stats_active || 0;
+        this.statsDisable = data.stats_disable || 0;
       }).catch(() => {
         this.$message.error('请求出错');
       }).finally(() => {
@@ -614,7 +658,7 @@ export default {
         if (resp.data.code === 0) {
           this.policyList = resp.data.data.datas || [];
         }
-      }).catch(() => {});
+      }).catch(() => { });
     },
     submitForm(formName) {
       this.$refs[formName].validate((valid) => {
@@ -642,42 +686,86 @@ export default {
 
 <style scoped>
 /* ========== 页面整体 ========== */
-.user-page { padding: 4px 0; }
+.user-page {
+  padding: 4px 0;
+}
 
 /* ========== 统计卡片 ========== */
-.stat-icon-total  { background: var(--color-primary-bg); color: var(--color-primary); }
-.stat-icon-local  { background: var(--success-bg); color: var(--color-success); }
-.stat-icon-ldap   { background: var(--warning-bg); color: var(--color-warning); }
-.stat-icon-active { background: var(--danger-bg); color: var(--color-danger); }
+.stat-icon-total {
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+}
+
+.stat-icon-local {
+  background: var(--success-bg);
+  color: var(--color-success);
+}
+
+.stat-icon-ldap {
+  background: var(--warning-bg);
+  color: var(--color-warning);
+}
+
+.stat-icon-active {
+  background: var(--danger-bg);
+  color: var(--color-danger);
+}
 
 /* 页面特有 */
-.inline-upload { display: inline-block; }
+.inline-upload {
+  display: inline-block;
+}
 
 /* ========== 表格内样式 ========== */
-.user-name { font-weight: 600; color: var(--text-primary); font-size: 13px; }
-.user-nickname { font-size: 12px; color: var(--text-secondary); margin-left: 4px; }
-.group-tags { display: flex; flex-wrap: wrap; gap: 3px; }
-.group-tag { font-size: 11px !important; }
-.text-muted { color: var(--text-placeholder); font-size: 12px; }
+.user-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.user-nickname {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-left: 4px;
+}
+
+.group-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.group-tag {
+  font-size: 11px !important;
+}
+
+.text-muted {
+  color: var(--text-placeholder);
+  font-size: 12px;
+}
 
 .user-status-tag {
   min-width: 44px;
 }
+
 .force-pwd-tag {
   display: block;
   width: fit-content;
   margin: 4px auto 0;
 }
+
 .user-status-tag--enabled {
   color: var(--color-success) !important;
   background: var(--success-bg) !important;
   border-color: #c2e7b0 !important;
 }
+
 .user-status-tag--disabled {
   color: var(--color-danger) !important;
   background: var(--danger-bg) !important;
   border-color: #fbc4c4 !important;
 }
+
 .user-status-tag--expired {
   color: var(--color-warning) !important;
   background: var(--warning-bg) !important;
@@ -694,11 +782,23 @@ export default {
   color: var(--text-regular);
   transition: all 0.2s;
 }
-.action-more-btn:hover { color: var(--color-primary); border-color: var(--color-primary-light); background: var(--color-primary-bg); }
-.dropdown-danger { color: var(--color-danger) !important; }
+
+.action-more-btn:hover {
+  color: var(--color-primary);
+  border-color: var(--color-primary-light);
+  background: var(--color-primary-bg);
+}
+
+.dropdown-danger {
+  color: var(--color-danger) !important;
+}
 
 /* 分页 */
-.pagination-wrap { display: flex; justify-content: flex-end; padding-top: 16px; }
+.pagination-wrap {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 16px;
+}
 
 /* 表格滚动容器 */
 .user-table-wrap {
@@ -707,25 +807,81 @@ export default {
 }
 
 /* ========== OTP 弹窗 ========== */
-.otp-dialog-content { text-align: center; }
-.otp-user-info { font-size: 14px; color: var(--text-primary); margin-bottom: 12px; }
-.otp-qr-img { max-width: 200px; border: 1px solid var(--border-color-light); border-radius: 8px; padding: 8px; }
-.otp-tip { font-size: 12px; color: var(--text-secondary); margin-top: 10px; }
+.otp-dialog-content {
+  text-align: center;
+}
+
+.otp-user-info {
+  font-size: 14px;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.otp-qr-img {
+  max-width: 200px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.otp-tip {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 10px;
+}
 
 /* ========== 编辑弹窗 ========== */
-.user-edit-dialog ::v-deep .el-dialog__body { padding: 20px 30px 10px; }
+.user-edit-dialog ::v-deep .el-dialog__body {
+  padding: 20px 30px 10px;
+}
+
 .section-label {
-  font-size: 13px; font-weight: 600; color: var(--text-primary);
-  margin: 4px 0 14px; padding-left: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 4px 0 14px;
+  padding-left: 10px;
   border-left: 3px solid var(--color-primary);
 }
-.section-label i { margin-right: 6px; color: var(--color-primary); font-size: 14px; }
-.help-icon { color: var(--text-placeholder); margin-left: 6px; cursor: pointer; font-size: 15px; vertical-align: -1px; }
-.help-icon:hover { color: var(--color-primary); }
-.edit-basic-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 30px; }
-.edit-adv-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 30px; }
-.edit-adv-row .form-item-compact { margin-bottom: 16px; }
-.edit-adv-section .form-item-compact { margin-bottom: 16px; }
+
+.section-label i {
+  margin-right: 6px;
+  color: var(--color-primary);
+  font-size: 14px;
+}
+
+.help-icon {
+  color: var(--text-placeholder);
+  margin-left: 6px;
+  cursor: pointer;
+  font-size: 15px;
+  vertical-align: -1px;
+}
+
+.help-icon:hover {
+  color: var(--color-primary);
+}
+
+.edit-basic-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 30px;
+}
+
+.edit-adv-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 30px;
+}
+
+.edit-adv-row .form-item-compact {
+  margin-bottom: 16px;
+}
+
+.edit-adv-section .form-item-compact {
+  margin-bottom: 16px;
+}
+
 .form-item-full {
   grid-column: 1 / -1;
 }
@@ -734,6 +890,7 @@ export default {
 .form-item-groups {
   margin-bottom: 16px;
 }
+
 .group-picker {
   width: 100%;
   max-width: 560px;
@@ -743,6 +900,7 @@ export default {
   box-sizing: border-box;
   overflow: hidden;
 }
+
 .group-picker-header {
   display: flex;
   align-items: center;
@@ -752,11 +910,13 @@ export default {
   border-bottom: 1px solid var(--border-color-light);
   background: var(--bg-header);
 }
+
 .group-picker-title {
   font-size: 12px;
   color: var(--text-regular);
   font-weight: 500;
 }
+
 .group-options {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
@@ -765,6 +925,7 @@ export default {
   max-height: 116px;
   overflow-y: auto;
 }
+
 .group-option {
   position: relative;
   display: flex;
@@ -783,15 +944,18 @@ export default {
   text-align: left;
   transition: border-color .2s ease, background .2s ease, color .2s ease;
 }
+
 .group-option:hover {
   border-color: #95d475;
   background: var(--success-bg);
 }
+
 .group-option--active {
   border-color: var(--color-success);
   background: var(--color-success);
   color: var(--text-inverse);
 }
+
 .group-option-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -799,6 +963,7 @@ export default {
   font-size: 12px;
   font-weight: 500;
 }
+
 .group-option-check {
   display: inline-flex;
   align-items: center;
@@ -812,68 +977,108 @@ export default {
   font-size: 10px;
   flex-shrink: 0;
 }
+
 .group-option--active .group-option-check {
   border-color: var(--text-inverse);
   background: var(--bg-card);
   color: var(--color-success);
 }
+
 .group-picker-empty {
   padding: 18px 12px;
   text-align: center;
   color: var(--text-secondary);
   font-size: 12px;
 }
-.group-picker-empty i { margin-right: 4px; }
+
+.group-picker-empty i {
+  margin-right: 4px;
+}
+
 .group-picker--disabled {
   background: var(--bg-hover);
 }
+
 .group-picker--disabled .group-option {
   cursor: not-allowed;
   opacity: .65;
 }
 
-.form-tip { font-size: 12px; color: var(--text-secondary); margin-left: 8px; }
+.form-tip {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-left: 8px;
+}
+
 .user-status-radio ::v-deep .el-radio-button__inner {
   min-width: 72px;
 }
+
 .user-status-radio ::v-deep .status-radio-enabled .el-radio-button__inner {
   color: var(--color-success);
   border-color: #c2e7b0;
   background: var(--success-bg);
 }
+
 .user-status-radio ::v-deep .status-radio-disabled .el-radio-button__inner {
   color: var(--color-danger);
   border-color: #fbc4c4;
   background: var(--danger-bg);
 }
+
 .user-status-radio ::v-deep .status-radio-expired .el-radio-button__inner {
   color: var(--color-warning);
   border-color: #f5dab1;
   background: var(--warning-bg);
 }
+
 .user-status-radio ::v-deep .status-radio-enabled.is-active .el-radio-button__inner {
   color: var(--text-inverse);
   border-color: var(--color-success);
   background: var(--color-success);
   box-shadow: -1px 0 0 0 var(--color-success);
 }
+
 .user-status-radio ::v-deep .status-radio-disabled.is-active .el-radio-button__inner {
   color: var(--text-inverse);
   border-color: var(--color-danger);
   background: var(--color-danger);
   box-shadow: -1px 0 0 0 var(--color-danger);
 }
+
 .user-status-radio ::v-deep .status-radio-expired.is-active .el-radio-button__inner {
   color: var(--text-inverse);
   border-color: var(--color-warning);
   background: var(--color-warning);
   box-shadow: -1px 0 0 0 var(--color-warning);
 }
-.otp-row { display: flex; align-items: center; gap: 10px; height: 40px; }
-.otp-secret-input { flex: 1; }
-.force-pwd-tip { font-size: 12px; color: var(--color-warning); font-weight: 500; }
-.otp-row ::v-deep .el-switch { line-height: 1; }
-.form-item-otp ::v-deep .el-form-item__label { line-height: 40px; padding-top: 0; }
+
+.otp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+}
+
+.otp-secret-input {
+  flex: 1;
+}
+
+.force-pwd-tip {
+  font-size: 12px;
+  color: var(--color-warning);
+  font-weight: 500;
+}
+
+.otp-row ::v-deep .el-switch {
+  line-height: 1;
+}
+
+.form-item-otp ::v-deep .el-form-item__label {
+  line-height: 40px;
+  padding-top: 0;
+}
+
 .form-tip-info {
   display: block;
   margin: 4px 0 0;
@@ -883,23 +1088,40 @@ export default {
   font-size: 12px;
   color: var(--text-secondary);
 }
-.dialog-footer { display: flex; justify-content: flex-end; gap: 10px; padding-top: 8px; }
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 8px;
+}
 
 /* 响应式 */
 @media (max-width: 768px) {
-  .edit-basic-row, .edit-adv-row { grid-template-columns: 1fr; }
+
+  .edit-basic-row,
+  .edit-adv-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 900px) {
   .user-table-wrap ::v-deep .col-ops {
     min-width: 200px;
   }
+
   .card-actions {
     flex-wrap: wrap;
     gap: 6px;
   }
+
   .card-actions .search-input {
     width: 140px;
+  }
+
+  .card-actions .filter-select {
+    width: 110px;
+    margin-left: 8px;
   }
 }
 
@@ -907,10 +1129,12 @@ export default {
   .user-table-wrap ::v-deep .col-ops {
     min-width: 140px;
   }
+
   .card-actions {
     flex-direction: column;
     align-items: stretch;
   }
+
   .card-actions .search-input {
     width: 100%;
   }
