@@ -919,6 +919,20 @@ func WebAuthChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	username := pending.Ctx.Conn.Username
+	// 改密前校验用户确处于「需要强制改密」状态，且为本地用户
+	user := &dbdata.User{}
+	if err := dbdata.One("Username", username, user); err != nil || user.Status != 1 {
+		webAuthError(w, "用户不存在或已停用")
+		return
+	}
+	if user.Type != "" && user.Type != "local" {
+		webAuthError(w, "外部认证用户请到对应身份源修改密码")
+		return
+	}
+	if !user.ForcePwd {
+		webAuthError(w, "无需修改密码或会话已失效")
+		return
+	}
 	// 改密核心操作（策略校验 + 哈希 + 写库 + 重载）由共享函数统一处理
 	if err := RunForcePwdChange(pending.Ctx, username, req.NewPassword); err != nil {
 		webAuthError(w, err.Error())

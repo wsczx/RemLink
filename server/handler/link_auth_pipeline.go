@@ -213,8 +213,15 @@ func handleChallengeResult(w http.ResponseWriter, r *http.Request,
 	case auth.ChallengeRADIUS:
 		tplRequest(tpl_accept_challenge, w, view.ToXML())
 
+	case auth.ChallengeSMS:
+		// 原生客户端复用二次验证表单输入短信码；脱敏手机号随模板提示展示
+		tplRequest(tpl_accept_challenge, w, view.ToXML())
+
 	default:
 		// credentials 等：返回凭据输入界面
+		if view.Type != "" {
+			base.Warn("原生管道收到未预期挑战类型: ", view.Type, " user=", ctx.Conn.Username, " group=", result.GroupName)
+		}
 		tplRequest(tpl_request, w, view.ToXML())
 	}
 }

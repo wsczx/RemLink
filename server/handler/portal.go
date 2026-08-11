@@ -662,7 +662,8 @@ func PortalResetPasswordVerify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	portalOK(w, map[string]any{
-		"valid": true,
+		"valid":    true,
+		"username": user.Username,
 	})
 }
 

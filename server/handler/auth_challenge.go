@@ -86,6 +86,7 @@ func BuildChallengeView(result *auth.PipelineResult, ctx *auth.Context, retry bo
 			v.Message = msg
 		}
 	case auth.ChallengeSMS:
+		v.Message = "请输入短信验证码"
 		if ctx != nil && ctx.SMS != nil && ctx.SMS.Phone != "" {
 			v.PhoneMasked = maskPhone(ctx.SMS.Phone)
 		}
@@ -121,6 +122,9 @@ func (v *ChallengeView) ToXML() RequestData {
 		data.Error = v.Message
 	case auth.ChallengeRADIUS:
 		data.Error = v.Message
+	case auth.ChallengeSMS:
+		data.Error = v.Message
+		data.PhoneMasked = v.PhoneMasked
 	case auth.ChallengeSSO:
 		data.SsoType = v.SsoType
 	case auth.ChallengeForcePwd:

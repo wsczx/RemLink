@@ -44,6 +44,9 @@ type RequestData struct {
 
 	// 强制改密
 	State string // 强制改密会话 state
+
+	// SMS 短信验证码挑战：脱敏手机号（三端与 WebAuth/门户对齐）
+	PhoneMasked string
 }
 
 // 根据模板类型渲染认证页面模板到 ResponseWriter
@@ -182,7 +185,7 @@ var accept_challenge = `<?xml version="1.0" encoding="UTF-8"?>
 <config-auth client="vpn" type="auth-request" aggregate-auth-version="2">
     <auth id="radius-challenge">
         <banner>RADIUS 二次验证</banner>
-        <message>{{if .Error}}{{.Error}}{{else}}请输入二次验证码{{end}}</message>
+        <message>{{if .Error}}{{.Error}}{{else}}请输入二次验证码{{end}}{{if .PhoneMasked}}（已发送至 {{.PhoneMasked}}）{{end}}</message>
         <form method="post" action="/otp-verification">
             <input type="password" name="secondary_password" label="Response:"/>
         </form>
