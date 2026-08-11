@@ -5,10 +5,10 @@
 //   2. WebAuthStart：证书自动识别组，或返回组列表
 //   3. WebAuthSelectGroup：SSO 首步立即执行，否则返回凭据输入
 //   4. WebAuthStep：提交凭据/OTP，推进管道（首次用 Authenticate，恢复用 Resume）
-//   5. webAuthHandleResult 统一出口：
-//      StepPass → 签发完成标记 + 门户 Cookie → /web-auth/complete
-//      StepFail → 错误 JSON
-//      StepPending → OTP/Radius/SSO 各自的 UI 状态
+//   5. AuthFlow 统一出口（webAuthDispatch / webAuthChallenge）：
+//      OnPass → 签发完成标记 + 门户 Cookie → /web-auth/complete
+//      OnFail → 错误 JSON
+//      OnChallenge → OTP/Radius/SSO 各自的 UI 状态
 //   6. SSO 子流程：webAuthBuildSSOURL → 直接跳转 → OAuth 回调(302) → WebAuthContinue
 //   7. WebAuthComplete → 设 acSamlv2Token Cookie → /+CSCOE+/saml_ac_login.html
 
@@ -26,7 +26,12 @@ import (
 	"github.com/wsczx/remlink/auth/authsrv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
-	"github.com/wsczx/remlink/pkg/utils"
+)
+
+// WebAuth 入口引导态（管道运行前）文案集中定义
+const (
+	webAuthEntrySmsPhoneHint    = "请输入手机号以接收短信验证码" // 用户选择 SMS 组但未提交手机号时的引导提示
+	webAuthEntryCredentialsHint = "请输入登录凭据"        //常规组凭据输入界面引导提示
 )
 
 // AnyConnect 弹出系统浏览器打开认证页面 sso-v2-login URL 指向 WebAuth 认证地址
@@ -153,7 +158,7 @@ func WebAuthStart(w http.ResponseWriter, r *http.Request) {
 
 		result := authsrv.Authenticate(pending.Ctx)
 		if result.Result != auth.StepFail {
-			webAuthHandleResult(w, r, state, pending, result, certCN)
+			webAuthDispatch(w, r, state, pending, certCN)
 			return
 		}
 		// 证书自动认证失败：回退到组选择流程，清除本次临时写入的用户名
@@ -249,9 +254,8 @@ func WebAuthSelectGroup(w http.ResponseWriter, r *http.Request) {
 		if _, _, selCertTLS := webAuthRecoverCert(pending); selCertTLS != nil {
 			ctx.Conn.TLS = selCertTLS
 		}
-		result := authsrv.Authenticate(ctx)
 		pending.Ctx = ctx
-		webAuthHandleResult(w, r, state, pending, result, req.Username)
+		webAuthDispatch(w, r, state, pending, req.Username)
 		return
 	}
 
@@ -270,16 +274,15 @@ func WebAuthSelectGroup(w http.ResponseWriter, r *http.Request) {
 		if ctx.Conn.TLS == nil {
 			ctx.Conn.TLS = r.TLS
 		}
-		result := authsrv.Authenticate(ctx)
 		pending.Ctx = ctx
-		webAuthHandleResult(w, r, state, pending, result, req.Username)
+		webAuthDispatch(w, r, state, pending, req.Username)
 		return
 	}
 
 	if firstStepType == "sms" {
 		webAuthJSON(w, http.StatusOK, map[string]any{
 			"status": "sms_phone",
-			"hint":   "请输入手机号以接收短信验证码",
+			"hint":   webAuthEntrySmsPhoneHint,
 		})
 		return
 	}
@@ -289,7 +292,7 @@ func WebAuthSelectGroup(w http.ResponseWriter, r *http.Request) {
 	// 用户名（如证书 CN、历史污染）在非组过滤场景下被回传并锁死输入框
 	resp := map[string]any{
 		"status": "credentials",
-		"hint":   "请输入登录凭据",
+		"hint":   webAuthEntryCredentialsHint,
 	}
 	if base.GetCfg().EnableWebAuthGroupFilter && pending.Ctx.Conn.Username != "" {
 		resp["username"] = pending.Ctx.Conn.Username
@@ -424,8 +427,8 @@ func WebAuthStep(w http.ResponseWriter, r *http.Request) {
 		ctx.Conn.RemoteAddr = r.RemoteAddr
 		ctx.GetSMS().Phone = req.Phone
 		authsrv.LoadUserInfo(ctx)
-		result := authsrv.Authenticate(ctx)
-		webAuthHandleResult(w, r, state, pending, result, user.Username)
+		pending.Ctx = ctx
+		webAuthDispatch(w, r, state, pending, user.Username)
 		return
 	}
 
@@ -469,135 +472,97 @@ func WebAuthStep(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 根据管道状态决定首次执行还是恢复
-	result := webAuthRunOrResume(ctx, pending, req.OtpCode != "" || req.SmsCode != "")
-
-	// 挑战码错误，计入锁定计数
-	if result.IsChallengeRetry() && username != "" {
-		lockManager.Fail(username, r.RemoteAddr)
+	pending.Ctx = ctx
+	if req.OtpCode != "" || req.SmsCode != "" || len(pending.Ctx.PassedSteps()) > 0 || pending.Ctx.StepIdx() > 0 {
+		webAuthResumeDispatch(w, r, state, pending, username)
+	} else {
+		webAuthDispatch(w, r, state, pending, username)
 	}
-
-	webAuthHandleResult(w, r, state, pending, result, username)
 }
 
-// 管道结果统一处理入口。
-func webAuthHandleResult(w http.ResponseWriter, r *http.Request,
-	state string, pending *AuthSession, result *auth.PipelineResult, username string) {
+// 构造 WebAuth 端 Flow（统一封装三端回调：通过/失败/挑战）
+func newWebAuthFlow(state string, pending *AuthSession, username string) *Flow {
+	return &Flow{
+		Ctx:      pending.Ctx,
+		Username: username,
+		Session:  pending,
+		Callbacks: FlowCallbacks{
+			OnPass: func(fl *Flow, w http.ResponseWriter, r *http.Request) {
+				webAuthOnPass(w, r, state, pending, fl.Result)
+			},
+			OnFail: func(fl *Flow, w http.ResponseWriter, r *http.Request) {
+				errMsg := "认证失败"
+				if fl.Result.Err != nil {
+					errMsg = stripStepPrefix(fl.Result.Err.Error())
+				}
+				base.Warn("WebAuth 认证失败:", fl.Result.Err)
+				webAuthError(w, errMsg)
+			},
+			OnChallenge: func(fl *Flow, w http.ResponseWriter, r *http.Request) {
+				webAuthChallenge(w, r, state, pending, fl)
+			},
+		},
+	}
+}
+
+// 执行首次认证（Authenticate）分发
+func webAuthDispatch(w http.ResponseWriter, r *http.Request,
+	state string, pending *AuthSession, username string) {
+	newWebAuthFlow(state, pending, username).Run(w, r)
+}
+
+// 从已保存会话恢复管道（Resume）分发
+func webAuthResumeDispatch(w http.ResponseWriter, r *http.Request,
+	state string, pending *AuthSession, username string) {
+	flow := newWebAuthFlow(state, pending, username)
+	flow.Resume(w, r, auth.PipelineState{
+		StepIdx:     pending.Ctx.StepIdx(),
+		PassedSteps: pending.Ctx.PassedSteps(),
+	})
+}
+
+// 处理管道 StepPending 结果，渲染为 WebAuth JSON
+func webAuthChallenge(w http.ResponseWriter, r *http.Request,
+	state string, pending *AuthSession, flow *Flow) {
 
 	ctx := pending.Ctx
+	result := flow.Result
 
-	switch result.Result {
-	case auth.StepPass:
-		if username != "" {
-			lockManager.Success(username, r.RemoteAddr)
+	// 写回管道断点并持久化
+	flow.savePendingState()
+
+	challenge := result.Challenge
+	if challenge == nil {
+		// NopChallenger（如 ldap/radius 缺少凭据）→ 显示凭据输入界面
+		// 复用统一挑战视图；username 仅组过滤模式才预填
+		// 避免会话残留用户名（证书 CN 等）在非组过滤场景锁死输入框
+		view := BuildChallengeView(result, ctx, result.IsChallengeRetry())
+		resp := view.ToWebAuthJSON()
+		if base.GetCfg().EnableWebAuthGroupFilter && pending.Ctx.Conn.Username != "" {
+			resp["username"] = pending.Ctx.Conn.Username
 		}
-		webAuthOnPass(w, r, state, pending, result)
+		webAuthJSON(w, http.StatusOK, resp)
+		return
+	}
 
-	case auth.StepFail:
-		if username != "" {
-			lockManager.Fail(username, r.RemoteAddr)
-		}
-		errMsg := "认证失败"
-		if result.Err != nil {
-			errMsg = stripStepPrefix(result.Err.Error())
-		}
-		base.Warn("WebAuth 认证失败:", result.Err)
-		webAuthError(w, errMsg)
-
-	case auth.StepPending:
-		// 保存管道断点信息
-		ctx.SetStepIdx(result.State.StepIdx)
-		ctx.SetPassedSteps(result.State.PassedSteps)
-		AuthSessionManager.Save(state, pending)
-
-		challenge := result.Challenge
-		if challenge == nil {
-			// NopChallenger（如 ldap/radius 缺少凭据）→ 显示凭据输入界面
-			resp := map[string]any{
-				"status": "credentials",
-				"hint":   "请输入登录凭据",
-			}
-			if pending.Ctx.Conn.Username != "" {
-				resp["username"] = pending.Ctx.Conn.Username
-			}
-			webAuthJSON(w, http.StatusOK, resp)
+	if challenge.Type == auth.ChallengeSSO {
+		// 手机端内置浏览器无法完成企微/飞书扫码，默认拒绝；开启 allow_mobile_sso 后放行
+		if isMobileDevice(r) && !base.GetCfg().AllowMobileSSO {
+			webAuthError(w, "手机端不支持SSO扫码认证，请使用其他认证方式")
 			return
 		}
-
-		switch challenge.Type {
-		case auth.ChallengeOTP:
-			// 首次挑战：前序凭据已通过，重置计数器给挑战阶段独立计数窗口
-			if !result.IsChallengeRetry() && result.Username != "" {
-				lockManager.Success(result.Username, r.RemoteAddr)
-			}
-			webAuthJSON(w, http.StatusOK, map[string]any{
-				"status": "otp",
-				"hint":   "请输入 6 位动态验证码",
-			})
-
-		case auth.ChallengeSMS:
-			// 首次挑战：重置计数器（同 OTP）
-			if !result.IsChallengeRetry() && result.Username != "" {
-				lockManager.Success(result.Username, r.RemoteAddr)
-			}
-			resp := map[string]any{
-				"status": "sms",
-				"hint":   "请输入短信验证码",
-			}
-			if ctx != nil && ctx.SMS != nil && ctx.SMS.Phone != "" {
-				phone := ctx.SMS.Phone
-				if len(phone) > 4 {
-					resp["phone_masked"] = phone[:3] + "****" + phone[len(phone)-4:]
-				} else {
-					resp["phone_masked"] = phone
-				}
-			}
-			webAuthJSON(w, http.StatusOK, resp)
-
-		case auth.ChallengeRADIUS:
-			// 首次挑战：重置计数器（同 OTP）
-			if !result.IsChallengeRetry() && result.Username != "" {
-				lockManager.Success(result.Username, r.RemoteAddr)
-			}
-			msg := "请输入二次验证码"
-			if ctx != nil && ctx.RADIUS != nil && ctx.RADIUS.ChallengeMsg != "" {
-				msg = ctx.RADIUS.ChallengeMsg
-			}
-			webAuthJSON(w, http.StatusOK, map[string]any{
-				"status":        "radius",
-				"challenge_msg": msg,
-			})
-
-		case auth.ChallengeForcePwd:
-			// 首次挑战：前序凭据已通过，重置计数器（同 OTP）
-			if !result.IsChallengeRetry() && result.Username != "" {
-				lockManager.Success(result.Username, r.RemoteAddr)
-			}
-			webAuthJSON(w, http.StatusOK, map[string]any{
-				"status":   "change_pwd",
-				"username": ctx.Conn.Username,
-			})
-
-		case auth.ChallengeSSO:
-			// 手机端内置浏览器无法完成企微/飞书扫码，默认拒绝；开启 allow_mobile_sso 后放行
-			if isMobileDevice(r) && !base.GetCfg().AllowMobileSSO {
-				webAuthError(w, "手机端不支持企微/飞书扫码认证，请使用其他认证方式")
-				return
-			}
-			ssoType, _ := challenge.Data["sso_type"].(string)
-			ssoURL := webAuthBuildSSOURL(r, ssoType, ctx.Conn.GroupName, state)
-			webAuthJSON(w, http.StatusOK, map[string]any{
-				"status":       "sso",
-				"sso_type":     ssoType,
-				"redirect_url": ssoURL,
-			})
-
-		default:
-			webAuthJSON(w, http.StatusOK, map[string]any{
-				"status": "credentials",
-				"hint":   "请继续输入验证信息",
-			})
-		}
+		ssoURL := webAuthBuildSSOURL(r, ssoTypeOf(challenge), ctx.Conn.GroupName, state)
+		webAuthJSON(w, http.StatusOK, map[string]any{
+			"status":       "sso",
+			"sso_type":     ssoTypeOf(challenge),
+			"redirect_url": ssoURL,
+		})
+		return
 	}
+
+	// OTP/SMS/RADIUS/ForcePwd 等：统一挑战视图序列化为 WebAuth JSON
+	view := BuildChallengeView(result, ctx, result.IsChallengeRetry())
+	webAuthJSON(w, http.StatusOK, view.ToWebAuthJSON())
 }
 
 // 认证通过：保存完成标记并签发门户 Cookie。VPN 会话由 handleSsoToken 创建。
@@ -668,10 +633,9 @@ func webAuthBuildSSOURL(r *http.Request, ssoType, groupName, webAuthState string
 			},
 		},
 	}
-	// webAuthState 存入 SSO.From 供回调后关联（此处复用 From 字段记录关联状态）
-	_ = webAuthState
 	AuthSessionManager.Save(ssoState, pending)
 
+	// 回传给前端，OAuth 回调后借此关联回原 WebAuth 会话
 	redirectUri := fmt.Sprintf("%s/web-auth/sso-callback?web_state=%s&sso_state=%s",
 		getServerAddr(r), webAuthState, ssoState)
 
@@ -809,10 +773,7 @@ func WebAuthContinue(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx.Conn.RemoteAddr = r.RemoteAddr
 
-	// 根据管道状态决定恢复执行还是首次执行
-	result := webAuthRunOrResume(ctx, pending, false)
-
-	webAuthHandleResult(w, r, state, pending, result, username)
+	webAuthResumeDispatch(w, r, state, pending, username)
 }
 
 // 设置 acSamlv2Token Cookie，302 到 SAML 完成端点。
@@ -929,18 +890,6 @@ func webAuthBrowserMode(r *http.Request) string {
 	return "external"
 }
 
-// 根据管道状态决定首次执行还是恢复。
-func webAuthRunOrResume(ctx *auth.Context, sess *AuthSession, hasChallengeResponse bool) *auth.PipelineResult {
-	if hasChallengeResponse || len(sess.Ctx.PassedSteps()) > 0 || sess.Ctx.StepIdx() > 0 {
-		return authsrv.Resume(ctx, auth.PipelineState{
-			StepIdx:     sess.Ctx.StepIdx(),
-			PassedSteps: sess.Ctx.PassedSteps(),
-		})
-	}
-	authsrv.LoadUserInfo(ctx)
-	return authsrv.Authenticate(ctx)
-}
-
 // 处理 WebAuth 强制改密提交（POST /web-auth/change_password）。
 // 校验强度并更新密码、清除 ForcePwd 后续跑管道（forcepwd 步直接通过，继续后续 otp 等步骤）。
 func WebAuthChangePassword(w http.ResponseWriter, r *http.Request) {
@@ -968,32 +917,15 @@ func WebAuthChangePassword(w http.ResponseWriter, r *http.Request) {
 		webAuthError(w, "两次输入的密码不一致")
 		return
 	}
-	if err := utils.CheckPasswordPolicy(req.NewPassword); err != nil {
-		webAuthError(w, err.Error())
-		return
-	}
 
 	username := pending.Ctx.Conn.Username
-	hashed, err := utils.PasswordHash(req.NewPassword)
-	if err != nil {
-		webAuthError(w, "修改密码失败")
-		return
-	}
-	// 按用户名直接更新，避免先查全量用户仅取 Id 的重复查库。
-	if _, err := dbdata.GetXdb().Where("username = ?", username).Cols("pin_code", "change_pwd").
-		Update(&dbdata.User{PinCode: hashed, ForcePwd: false}); err != nil {
-		webAuthError(w, "修改密码失败")
+	// 改密核心操作（策略校验 + 哈希 + 写库 + 重载）由共享函数统一处理
+	if err := RunForcePwdChange(pending.Ctx, username, req.NewPassword); err != nil {
+		webAuthError(w, err.Error())
 		return
 	}
 	lockManager.Success(username, r.RemoteAddr)
 
-	// 强制以数据库为准重载用户信息
-	authsrv.ReloadUserInfo(pending.Ctx)
-
 	// 续跑管道：forcepwd 步见 ForcePwd=false 直接通过，继续后续步骤（如 otp）
-	result := webAuthRunOrResume(pending.Ctx, pending, true)
-	if result.IsChallengeRetry() && username != "" {
-		lockManager.Fail(username, r.RemoteAddr)
-	}
-	webAuthHandleResult(w, r, state, pending, result, username)
+	webAuthResumeDispatch(w, r, state, pending, username)
 }

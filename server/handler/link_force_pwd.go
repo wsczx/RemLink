@@ -7,7 +7,6 @@ import (
 	"net/http"
 
 	"github.com/wsczx/remlink/base"
-	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/utils"
 )
 
@@ -129,16 +128,9 @@ func ForcePwdSubmit(w http.ResponseWriter, r *http.Request) {
 		forcePwdMessage(w, "账户已被锁定，请联系管理员", "", false)
 		return
 	}
-	hashed, err := utils.PasswordHash(newPwd)
-	if err != nil {
-		base.Error("强制改密密码哈希失败:", err)
-		forcePwdMessage(w, "修改密码失败", state, false)
-		return
-	}
-	// 按用户名直接更新，避免先查全量用户仅取 Id 的重复查库。
-	if _, err := dbdata.GetXdb().Where("username = ?", username).Cols("pin_code", "change_pwd").
-		Update(&dbdata.User{PinCode: hashed, ForcePwd: false}); err != nil {
-		base.Error("强制改密更新失败:", err)
+	// 复用共享的强制改密核心：校验策略 → 哈希 → 写库（pin_code + 清除 change_pwd）→ 重载会话用户。
+	if err := RunForcePwdChange(sess.Ctx, username, newPwd); err != nil {
+		base.Error("强制改密失败:", err)
 		forcePwdMessage(w, "修改密码失败", state, false)
 		return
 	}

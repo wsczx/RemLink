@@ -166,7 +166,7 @@ func PortalSSO(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ssoType := r.URL.Query().Get("type")
-	if ssoType != "wxwork" && ssoType != "feishu" && ssoType != "dingtalk" {
+	if !ssoTypeEnabled(ssoType) {
 		http.Error(w, "不支持的第三方登录类型", http.StatusBadRequest)
 		return
 	}
@@ -344,24 +344,13 @@ func PortalForceChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hashed, err := utils.PasswordHash(req.NewPassword)
-	if err != nil {
-		base.Error("用户门户强制改密哈希失败:", err)
-		portalError(w, "修改密码失败")
-		return
-	}
-	if _, err := dbdata.GetXdb().Where("username = ?", username).Cols("pin_code", "change_pwd").
-		Update(&dbdata.User{PinCode: hashed, ForcePwd: false}); err != nil {
+	// 改密核心操作（策略校验 + 哈希 + 写库 + 重载）由共享函数统一处理
+	if err := RunForcePwdChange(sess.Ctx, username, req.NewPassword); err != nil {
 		base.Error("用户门户强制改密失败:", err)
 		portalError(w, "修改密码失败")
 		return
 	}
-	// 内存对象同步，避免签发令牌时读到过期的 ForcePwd 标记
-	user.PinCode = hashed
-	user.ForcePwd = false
 
-	// 以数据库为准重载用户信息，续跑管道（forcepwd 步见 ForcePwd=false 通过，继续后续 otp 等步骤）
-	authsrv.ReloadUserInfo(sess.Ctx)
 	sess.Ctx.Conn.RemoteAddr = r.RemoteAddr
 	result := authsrv.Resume(sess.Ctx, auth.PipelineState{
 		StepIdx:     sess.Ctx.StepIdx(),
@@ -454,14 +443,22 @@ func PortalLoginConfig(w http.ResponseWriter, r *http.Request) {
 
 // 返回门户支持且至少存在一个组已配置的 SSO 类型。
 func portalEnabledSSOTypes() []string {
-	supported := []string{"wxwork", "feishu", "dingtalk"}
-	types := make([]string, 0, len(supported))
-	for _, t := range supported {
+	types := make([]string, 0, len(ssoProviders))
+	for t := range ssoProviders {
 		if _, err := portalSSOGroup(t); err == nil {
 			types = append(types, t)
 		}
 	}
 	return types
+}
+
+// 判断该 SSO 类型是否在 ssoProviders 注册
+func ssoTypeEnabled(ssoType string) bool {
+	if ssoType == "" {
+		return false
+	}
+	_, ok := ssoProviders[ssoType]
+	return ok
 }
 
 var portalForgotLimiter = struct {
@@ -770,6 +767,7 @@ func portalStartAuth(w http.ResponseWriter, username, password string, r *http.R
 	}
 
 	var lastErr error
+	var finalResp portalAuthResponse
 	for _, group := range portalCandidateGroups(user, userExists) {
 		ctx := &auth.Context{
 			Conn: auth.ConnInfo{
@@ -781,24 +779,40 @@ func portalStartAuth(w http.ResponseWriter, username, password string, r *http.R
 			},
 			PortalLogin: true,
 		}
-		result := authsrv.Authenticate(ctx)
-		switch result.Result {
-		case auth.StepPass:
-			portalUser, err := portalResolveUser(username, group, user, userExists)
-			if err != nil {
-				return portalAuthError(err.Error())
-			}
-			lockManager.Success(username, r.RemoteAddr)
-			return portalIssueLoginResponse(w, r, portalUser, ctx.LogInfo())
-		case auth.StepPending:
-			sessionID := portalSaveChallengeSession(result, ctx)
-			return portalChallengeResponse(sessionID, result, ctx)
-		case auth.StepFail:
-			if result.Err != nil {
-				lastErr = result.Err
-				base.Warn("用户门户认证失败:", username, group, result.Err)
-			}
+		flow := &Flow{
+			Ctx:      ctx,
+			Username: username,
+			Callbacks: FlowCallbacks{
+				OnPass: func(fl *Flow, w http.ResponseWriter, r *http.Request) {
+					portalUser, err := portalResolveUser(username, group, user, userExists)
+					if err != nil {
+						lastErr = err
+						return
+					}
+					finalResp = portalIssueLoginResponse(w, r, portalUser, ctx.LogInfo())
+				},
+				OnFail: func(fl *Flow, w http.ResponseWriter, r *http.Request) {
+					if fl.Result.Err != nil {
+						lastErr = fl.Result.Err
+						base.Warn("用户门户认证失败:", username, group, fl.Result.Err)
+					}
+				},
+				OnChallenge: func(fl *Flow, w http.ResponseWriter, r *http.Request) {
+					sessionID := portalSaveChallengeSession(fl.Result, ctx)
+					finalResp = portalChallengeResponse(sessionID, fl.Result, ctx)
+				},
+			},
 		}
+		flow.Run(w, r)
+		// OnPass：直接签发登录响应并返回
+		if flow.Result.Result == auth.StepPass && finalResp.Code == 0 {
+			return finalResp
+		}
+		// OnChallenge：挑战响应已构造，直接返回（由 PortalLogin 调 portalOK 写出）
+		if flow.Result.Result == auth.StepPending {
+			return finalResp
+		}
+		// OnFail：继续尝试下一个候选组
 	}
 	lockManager.Fail(username, r.RemoteAddr)
 	if lastErr != nil && base.GetCfg().DisplayError {
@@ -842,33 +856,48 @@ func portalResumeAuth(w http.ResponseWriter, sessionID, code string, r *http.Req
 		StepIdx:     sess.Ctx.StepIdx(),
 		PassedSteps: sess.Ctx.PassedSteps(),
 	}
-	result := authsrv.Resume(ctx, state)
-	switch result.Result {
-	case auth.StepPass:
-		AuthSessionManager.Delete(sessionID)
-		user, userExists, err := portalLoadUser(result.Username)
-		if err != nil {
-			return portalAuthError(err.Error())
-		}
-		portalUser, err := portalResolveUser(result.Username, result.GroupName, user, userExists)
-		if err != nil {
-			return portalAuthError(err.Error())
-		}
-		lockManager.Success(username, r.RemoteAddr)
-		return portalIssueLoginResponse(w, r, portalUser, ctx.LogInfo())
-	case auth.StepPending:
-		sess.Ctx.SetStepIdx(result.State.StepIdx)
-		sess.Ctx.SetPassedSteps(result.State.PassedSteps)
-		AuthSessionManager.Save(sessionID, sess)
-		return portalChallengeResponse(sessionID, result, ctx)
-	case auth.StepFail:
-		if result.Err != nil {
-			base.Warn("用户门户二次认证失败:", result.Err)
-		}
-		lockManager.Fail(username, r.RemoteAddr)
-		if base.GetCfg().DisplayError && result.Err != nil {
-			return portalAuthError(result.Err.Error())
-		}
+
+	var resp portalAuthResponse
+	flow := &Flow{
+		Ctx:      ctx,
+		Username: username,
+		Session:  sess,
+		Callbacks: FlowCallbacks{
+			OnPass: func(fl *Flow, w http.ResponseWriter, r *http.Request) {
+				AuthSessionManager.Delete(sessionID)
+				user, userExists, err := portalLoadUser(fl.Result.Username)
+				if err != nil {
+					resp = portalAuthError(err.Error())
+					return
+				}
+				portalUser, err := portalResolveUser(fl.Result.Username, fl.Result.GroupName, user, userExists)
+				if err != nil {
+					resp = portalAuthError(err.Error())
+					return
+				}
+				resp = portalIssueLoginResponse(w, r, portalUser, ctx.LogInfo())
+			},
+			OnFail: func(fl *Flow, w http.ResponseWriter, r *http.Request) {
+				if fl.Result.Err != nil {
+					base.Warn("用户门户二次认证失败:", fl.Result.Err)
+				}
+				if base.GetCfg().DisplayError && fl.Result.Err != nil {
+					resp = portalAuthError(fl.Result.Err.Error())
+					return
+				}
+				resp = portalAuthError("验证失败")
+			},
+			OnChallenge: func(fl *Flow, w http.ResponseWriter, r *http.Request) {
+				fl.savePendingState()
+				resp = portalChallengeResponse(sessionID, fl.Result, ctx)
+			},
+		},
+	}
+	flow.Resume(w, r, state)
+
+	// 回调已设置 resp（成功或失败），直接返回
+	if resp.Data != nil || resp.Code != 0 {
+		return resp
 	}
 	return portalAuthError("验证失败")
 }
@@ -888,40 +917,19 @@ func portalSaveChallengeSession(result *auth.PipelineResult, ctx *auth.Context) 
 }
 
 func portalChallengeResponse(sessionID string, result *auth.PipelineResult, ctx *auth.Context) portalAuthResponse {
-	challengeType := "verify"
-	message := "请输入验证码"
-	if result.Challenge != nil {
-		switch result.Challenge.Type {
-		case auth.ChallengeOTP:
-			challengeType = "otp"
-			message = "请输入 6 位动态验证码"
-		case auth.ChallengeRADIUS:
-			challengeType = "radius"
-			message = "请输入二次验证码"
-			if ctx != nil && ctx.RADIUS != nil && ctx.RADIUS.ChallengeMsg != "" {
-				message = ctx.RADIUS.ChallengeMsg
-			}
-		case auth.ChallengeSMS:
-			challengeType = "sms"
-			message = "请输入短信验证码"
-		case auth.ChallengeSSO:
-			challengeType = "sso"
-			message = "请完成第三方登录"
-		case auth.ChallengeForcePwd:
-			// 复用前端既有 change_pwd 分支：以 session_id 充当 token 字段，前端无需改动
-			return portalAuthResponse{Data: map[string]any{
-				"status":   "change_pwd",
-				"token":    sessionID,
-				"username": ctx.Conn.Username,
-				"message":  "首次登录需修改密码后才能继续使用",
-			}}
-		}
+	// SSO 挑战由门户独立 SSO 入口处理，管道内不产出 ChallengeSSO，此处仅占位返回
+	if result.Challenge != nil && result.Challenge.Type == auth.ChallengeSSO {
+		return portalAuthResponse{Data: map[string]any{
+			"status":     "sso",
+			"session_id": sessionID,
+			"message":    "请完成第三方登录",
+		}}
 	}
-	return portalAuthResponse{Data: map[string]any{
-		"status":     challengeType,
-		"session_id": sessionID,
-		"message":    message,
-	}}
+
+	// OTP/SMS/RADIUS/ForcePwd/credentials：统一挑战视图序列化为门户 JSON
+	// （status/message 来源唯一，session_id/token 由 ToPortalJSON 统一追加）
+	view := BuildChallengeView(result, ctx, result.IsChallengeRetry())
+	return portalAuthResponse{Data: view.ToPortalJSON(sessionID)}
 }
 
 func portalIssueLoginResponse(w http.ResponseWriter, r *http.Request, user *dbdata.User, logInfo string) portalAuthResponse {

@@ -23,6 +23,14 @@ type ssoProvider struct {
 	buildAuthURL func(groupName, redirectURI, state string) (string, error)
 }
 
+// 新增一种 SSO/OAuth2 认证类型的「最小改动清单」
+//  1. 本文件 ssoProviders 加一项（callbackPath + buildAuthURL）——WebAuth / 原生 XML / 门户三端均自动透传 sso_type，无需改这三端
+//  2. auth/authsrv/<type>.go 实现 Challenger（Challenge().Type==ChallengeSSO 且 Data 带 sso_type），并注册回调端点 <Type>AuthCallback
+//  3. server.go 注册路由 /<callbackPath>/callback → <Type>AuthCallback
+//  4. dbdata/provider.go + userauth_<type>.go 注册 Provider 配置与用户同步
+//  5. auth/config_<type>.go + base/config.go 加配置结构体
+//  6. 如需 [sso,otp] 组合，dbdata/group.go 的 SyncExternalUsersForOTP 加分支
+//  7. 前端 Provider / 认证步骤下拉加该类型
 var ssoProviders = map[string]ssoProvider{
 	"wxwork": {
 		callbackPath: "WXAuth",

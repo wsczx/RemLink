@@ -6,8 +6,11 @@
 用户请求
     │
     ▼
-handler/link_auth*.go          ← 入口：解析 XML/JSON → 调用 authsrv.Authenticate/Resume → 渲染响应
+handler/link_auth*.go          ← 入口：解析 XML/JSON → 构造 *Flow（注入 OnPass/OnChallenge/OnFail 回调）
     │
+    ▼
+handler/authflow.go            ← AuthFlow 状态机（三端共用收口）：
+    │                             调 authsrv.Authenticate/Resume → 统一锁定计数 → 按终态分发到回调
     ▼
 auth/authsrv/authsrv.go        ← 编排层（与认证器同包，直接查库）：
     │                             加载组 → 解析 Profile → GetPipeline → Run/Resume
@@ -24,6 +27,15 @@ StepPass / StepPending / StepFail
  继续下一步  通知客户端       终止管道
             输入额外信息     返回错误
 ```
+
+> **AuthFlow 收口（2026-08-11 落地）**：此前门户 / WebAuth / 原生 XML 三端各自写一套「跑管道 → `switch result.Result` 分发 → 统一锁计数 → `savePendingState`」，三份同构代码。现统一收口到 `handler/authflow.go` 的 `Flow`：
+> - `Flow.Run(w, r)`：首次认证，内部调 `authsrv.Authenticate` 后分发。
+> - `Flow.Resume(w, r, state)`：从挂起断点恢复，内部调 `authsrv.Resume` 后分发。
+> - `Flow.Dispatch(w, r, result)`：**仅分发**一个已计算好的 `result`，**不重跑管道**——原生 XML 端点（`link_auth_pipeline.go`）在早已手动拿到 `result` 处使用，避免重复执行（曾因误用 Run/Resume 重跑导致 OTP 续验测试失败）。
+>
+> 三端只需在各自构造的 `Flow` 上提供 `OnPass`/`OnChallenge`/`OnFail` 三个回调，各自定义"通过动作"（建 VPN 会话 / 签门户 JWT / WebVPN 免登）与"挑战渲染"（XML / JSON）。**新增认证方法无需改 AuthFlow**：只在 `auth` 注册表登记新 step，管道自动编排，Flow 的分发与锁定逻辑零改动。
+>
+> **新增 SSO/OAuth2 类型（如钉钉）三端渲染出口零改动**：`BuildChallengeView` 透传 `sso_type`，WebAuth / 原生 XML / 门户三端（含 `PortalSSO` 入口校验）均自动生效，只需在 `handler/sso.go` 的 `ssoProviders` 注册一处（详见「范式 B」）。
 
 ### 包边界与依赖方向
 
@@ -292,18 +304,23 @@ SSO 认证器必须**实现** `Challenger` 接口（`Challenge().Type == Challen
 
 #### 还必须改的（让 OAuth2 回调真正落地）
 
-| # | 文件 | 改动 |
-|---|---|---|
-| 1 | `auth/authsrv/authsrv.go` `loadSSOConfig` | 加 `case "dingtalk"` → `dbdata.GetAuthDingtalk` |
-| 2 | `dbdata/provider.go` | `providerTypes`/`providerNames` + `ValidateProviderConfig`/`ResolveProviderConfig` 加 `dingtalk` |
-| 3 | `dbdata/userauth_dingtalk.go`（`GetAuthDingtalk`/`SyncDingtalkUsers`） | 仿 `GetAuthWework`/`GetAuthFeishu` 读配置 + 同步用户；`provider.go` 的 `ProvSecretKeys` 注册 `client_secret` 做加密脱敏 |
-| 4 | `handler/link_auth_saml.go` | `SAMLSPLogin` 加 `if ssotype=="dingtalk"` 分发 + 新增 `DingtalkAuthCallback`（code 换 user、部门校验、建 SSO 会话、SetCookie） |
-| 5 | `server/handler/server.go` | 加路由 `/DingtalkAuth/callback` → `DingtalkAuthCallback` |
-| 6 | `handler/link_webauth.go` `webAuthBuildSSOURL` | 分发加 `dingtalk` |
-| 7 | `handler/portal.go` | `if ssoType != "wxwork" && ssoType != "feishu"` 校验加 `dingtalk` |
-| 8 | `dbdata/group.go` `SyncExternalUsersForOTP` | 加 `dingtalk` 分支（否则 `[dingtalk,otp]` 同步不到本地用户） |
-| 9 | 前端 | Provider 类型下拉、认证步骤下拉加 `dingtalk`；`WebAuth.vue` SSO 跳转处理 |
+| # | 文件 | 改动 | 重构后是否仍需 |
+|---|---|---|---|
+| 1 | `auth/authsrv/authsrv.go` `loadSSOConfig` | 加 `case "<type>"` → `dbdata.GetAuth<Type>` | 是 |
+| 2 | `dbdata/provider.go` | `providerTypes`/`providerNames` + `ValidateProviderConfig`/`ResolveProviderConfig` 加 `<type>` | 是 |
+| 3 | `dbdata/userauth_<type>.go`（`GetAuth<Type>`/`Sync<Type>Users`） | 仿 `GetAuthWework`/`GetAuthFeishu` 读配置 + 同步用户；`provider.go` 的 `ProvSecretKeys` 注册 `client_secret` 做加密脱敏 | 是 |
+| 4 | `handler/link_auth_saml.go` | 在 `SAMLSPLogin` 已有分发（按 `ssotype` 参数）处加 `case "<type>"` + 新增 `<Type>AuthCallback`（code 换 user、部门校验、建 SSO 会话、SetCookie） | 是（端点必须存在，但已不是"加 if 分支"，而是统一分发加 case） |
+| 5 | `server/handler/server.go` | 加路由 `/<Type>Auth/callback` → `<Type>AuthCallback` | 是 |
+| 6 | `handler/sso.go` `ssoProviders` | 加一项（`callbackPath` + `buildAuthURL`） | **是——这是 handler 出口层唯一必改点** |
+| 7 | `dbdata/group.go` `SyncExternalUsersForOTP` | 加 `<type>` 分支（仅需支持 `[<type>,otp]` 组合时） | 视组合需求 |
+| 8 | 前端 | Provider 类型下拉、认证步骤下拉加 `<type>`；`WebAuth.vue` SSO 跳转处理 | 是 |
 
+> **AuthFlow 重构带来的变化（关键）**：重构前第 6 项需改 `handler/link_webauth.go` 的 `webAuthBuildSSOURL` 加分支、三端出口（`link_webauth.go`/`portal.go`/`link_auth_pipeline.go`）各自按 `sso_type` 手拼渲染，且 `portal.go` 的 `PortalSSO` 入口白名单也要手写新类型。重构后：
+> - `BuildChallengeView` 统一把管道产出的 `sso_type` **透传**给 `ToXML`/`ToWebAuthJSON`/`ToPortalJSON`，三端渲染出口**不再需要按类型加分支**；
+> - `PortalSSO` 入口校验改为读 `ssoProviders` 注册表（`ssoTypeEnabled`），门户白名单**不再硬编码**。
+>
+> 因此新增 SSO 只需在 `sso.go` 的 `ssoProviders` 注册，WebAuth / 原生 XML / 门户三端（渲染 + 入口校验）**全部自动生效，无需改这三端**。改动文件数从「三端各改 + 约 9 处」降为「`ssoProviders` 一处 + 必要的策略/实体/配置/路由/前端下拉」。
+>
 > 这些改动多与现有 `wxwork`/`feishu` 对称，本质是"复制那套改名字"；复杂度来自 OAuth2 回调 + 多端（客户端/门户/系统浏览器）协作的固有成本，非架构缺陷。
 
 #### SSO 认证器骨架（最小示例）
@@ -485,7 +502,7 @@ GetProviderConfigFromMap 反序列化到认证器实例
 - **配置解耦**：认证器不关心配置从哪来（数据库/文件），由 `GetPipeline` 的 `resolver`（`dbdata.ResolveProviderConfig`）注入。
 - **实现层查库**：需要查库的逻辑（认证器、组加载、SSO 检测、OTP 预载、用户信息投影、管道编排）统一放在 `auth/authsrv`，它直接 import `dbdata`，避开循环依赖。核心 `auth` 不依赖 `dbdata`，故编排函数作为 `authsrv.X` 暴露，调用方直接引用。
 - **并发安全**：认证器实例在 `GetPipeline` 时创建一次，管道单次执行中复用。认证器本身应无内部可变状态（跨请求的缓存如 SMS 验证码、admin OTP 防重放用包级带锁 map 单独管理）。
-- **handler 边界**：handler 只负责 XML/JSON 解析、会话管理（`AuthSession`/`SessionStore`）、调用 `authsrv.Authenticate`/`authsrv.Resume`、渲染响应。认证编排逻辑全部在 `auth/authsrv` 内。
+- **handler 边界**：handler 只负责 XML/JSON 解析、会话管理（`AuthSession`/`SessionStore`）、构造 `Flow` 并注入三端回调（`OnPass`/`OnChallenge`/`OnFail`）、渲染响应。**「跑管道 → 按结果分发 → 统一锁定计数 → 存挑战断点」已由 `handler/authflow.go` 的 AuthFlow 统一收口**，三端不再各自写分发；认证编排逻辑仍全部在 `auth/authsrv` 内。
 
 ### 会话层（handler 侧）
 
@@ -507,11 +524,19 @@ type AuthSession struct {
 
 ```
 handler/
+├── authflow.go             # AuthFlow 状态机（三端共用收口）：跑管道 + 统一锁定计数 + 分发到回调
 ├── link_auth.go            # 入口 + init/SSO 分流 + 证书自动认证
-├── link_auth_pipeline.go   # Pipeline 编排调用
+├── link_auth_pipeline.go   # 原生 XML 端点：构造 Flow（OnPass=建VPN会话/OnChallenge=渲染XML）→ Dispatch 预计算结果
 ├── link_auth_tpl.go        # XML 模板 + RequestData
 ├── link_auth_otp.go        # AuthSession + 会话 CRUD
 ├── link_auth_saml.go       # SAML/企微/飞书/钉钉 SSO 端点
+├── link_auth_webauth.go    # WebAuth 端点：构造 Flow（JSON 渲染）→ Run/Resume
+├── portal.go               # 门户端点：构造 Flow（写 portalAuthResponse）→ Run/Resume
 ├── link_auth_session.go    # CreateSession 创建会话入口
 └── link_auth_*_test.go     # 单元 / 端到端测试
 ```
+
+> **三端如何使用 AuthFlow**：
+> - **原生 XML（`link_auth_pipeline.go`）**：因建 VPN 会话前需先用 `result` 做上下文准备（如注入 `SessionID`），它先拿到 `result` 再调 `flow.Dispatch(w, r, result)`——只分发不重跑管道。
+> - **WebAuth（`link_auth_webauth.go`）**：直接 `flow.Run` / `flow.Resume`，由 AuthFlow 调管道。
+> - **门户（`portal.go`）**：同 WebAuth 用 `flow.Run` / `flow.Resume`；其回调不直写 `w`，而是把结果写入本地 `portalAuthResponse` 结构体，由 `portalOK` 后续写出（保持门户响应契约）。

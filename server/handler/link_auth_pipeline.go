@@ -89,62 +89,78 @@ func handlePipelineResult(w http.ResponseWriter, r *http.Request,
 	result *auth.PipelineResult, sessionData *AuthSession) {
 
 	ctx := sessionData.Ctx
-
-	// 管道恢复场景：StepPass/StepFail 后清除旧认证会话
-	if sessionData.SessionID != "" && result.Result != auth.StepPending {
-		AuthSessionManager.Delete(sessionData.SessionID)
-		DeleteCookie(w, "auth-session-id")
+	username := ctx.Conn.Username
+	if result.Username != "" {
+		username = result.Username
 	}
 
-	switch result.Result {
-	case auth.StepPass:
-		sessionData.UserActLog.Username = result.Username
-		sessionData.UserActLog.GroupName = result.GroupName
-		sessionData.UserActLog.Info = result.Info
-		if sessionData.UserActLog.Info == "" {
-			sessionData.UserActLog.Info = "认证成功"
-		}
-		sessionData.UserActLog.Status = dbdata.UserAuthSuccess
-		dbdata.UserActLogIns.Add(*sessionData.UserActLog, ctx.Conn.UserAgent)
+	flow := &Flow{
+		Ctx:      ctx,
+		Username: username,
+		Callbacks: FlowCallbacks{
+			OnPass: func(fl *Flow, w http.ResponseWriter, r *http.Request) {
+				// 恢复场景：清除旧认证会话（新建会话在 CreateSession 内另发 cookie）
+				if sessionData.SessionID != "" {
+					AuthSessionManager.Delete(sessionData.SessionID)
+					DeleteCookie(w, "auth-session-id")
+				}
+				sessionData.UserActLog.Username = fl.Result.Username
+				sessionData.UserActLog.GroupName = fl.Result.GroupName
+				sessionData.UserActLog.Info = fl.Result.Info
+				if sessionData.UserActLog.Info == "" {
+					sessionData.UserActLog.Info = "认证成功"
+				}
+				sessionData.UserActLog.Status = dbdata.UserAuthSuccess
+				dbdata.UserActLogIns.Add(*sessionData.UserActLog, ctx.Conn.UserAgent)
 
-		ctx.Conn.Username = result.Username
-		ctx.Conn.GroupName = result.GroupName
-		lockManager.Success(result.Username, r.RemoteAddr)
-		CreateSession(w, sessionData)
+				ctx.Conn.Username = fl.Result.Username
+				ctx.Conn.GroupName = fl.Result.GroupName
+				CreateSession(w, sessionData)
+			},
+			OnFail: func(fl *Flow, w http.ResponseWriter, r *http.Request) {
+				// 恢复场景：清除旧认证会话
+				if sessionData.SessionID != "" {
+					AuthSessionManager.Delete(sessionData.SessionID)
+					DeleteCookie(w, "auth-session-id")
+				}
+				errMsg := "认证失败"
+				if fl.Result.Err != nil {
+					errMsg = fl.Result.Err.Error()
+				}
+				base.Warn("认证失败:", fl.Result.Err, r.RemoteAddr)
+				sessionData.UserActLog.Info = errMsg
+				sessionData.UserActLog.Status = dbdata.UserAuthFail
+				dbdata.UserActLogIns.Add(*sessionData.UserActLog, ctx.Conn.UserAgent)
 
-	case auth.StepFail:
-		lockManager.Fail(ctx.Conn.Username, r.RemoteAddr)
-		errMsg := "认证失败"
-		if result.Err != nil {
-			errMsg = result.Err.Error()
-		}
-		base.Warn("认证失败:", result.Err, r.RemoteAddr)
-		sessionData.UserActLog.Info = errMsg
-		sessionData.UserActLog.Status = dbdata.UserAuthFail
-		dbdata.UserActLogIns.Add(*sessionData.UserActLog, ctx.Conn.UserAgent)
-
-		w.WriteHeader(http.StatusOK)
-		data := RequestData{
-			Group:  ctx.Conn.GroupName,
-			Groups: dbdata.GetGroupNamesNormal(),
-			Error:  authFailMessage(result.Err),
-		}
-		if base.GetCfg().DisplayError && result.Err != nil {
-			data.Error = stripStepPrefix(errMsg)
-		}
-		tplRequest(tpl_request, w, data)
-
-	case auth.StepPending:
-		handleChallengeResult(w, r, result, sessionData)
+				w.WriteHeader(http.StatusOK)
+				data := RequestData{
+					Group:  ctx.Conn.GroupName,
+					Groups: dbdata.GetGroupNamesNormal(),
+					Error:  authFailMessage(fl.Result.Err),
+				}
+				if base.GetCfg().DisplayError && fl.Result.Err != nil {
+					data.Error = stripStepPrefix(errMsg)
+				}
+				tplRequest(tpl_request, w, data)
+			},
+			OnChallenge: func(fl *Flow, w http.ResponseWriter, r *http.Request) {
+				handleChallengeResult(w, r, fl, sessionData)
+			},
+		},
 	}
+
+	// 分发已计算的管道结果
+	flow.Dispatch(w, r, result)
 }
 
-// 处理 StepPending：保存/更新会话状态 + 按挑战类型返回模板。
+// 处理 StepPending：保存/更新会话状态 + 按挑战视图返回模板
+// 由 Flow.OnChallenge 回调调用，flow 已统一处理锁定计数窗口
 func handleChallengeResult(w http.ResponseWriter, r *http.Request,
-	result *auth.PipelineResult, sessionData *AuthSession) {
+	flow *Flow, sessionData *AuthSession) {
 
-	challenge := result.Challenge
-	if challenge == nil {
+	result := flow.Result
+
+	if result.Challenge == nil && result.Result == auth.StepPending {
 		base.Error("StepPending 但无 Challenge 信息")
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -152,11 +168,9 @@ func handleChallengeResult(w http.ResponseWriter, r *http.Request,
 
 	ctx := sessionData.Ctx
 	isResume := sessionData.SessionID != ""
-	retry := result.IsChallengeRetry() // 挑战码错误，计入锁定计数
 
 	// 保存断点信息到 Ctx，供下次 Resume 恢复
-	ctx.SetStepIdx(result.State.StepIdx)
-	ctx.SetPassedSteps(result.State.PassedSteps)
+	flow.savePendingState()
 
 	if isResume {
 		// 恢复场景：更新已有会话
@@ -164,84 +178,43 @@ func handleChallengeResult(w http.ResponseWriter, r *http.Request,
 	} else {
 		// 首次认证：创建新会话
 		sid := GenerateSessionID()
+		sessionData.SessionID = sid
 		AuthSessionManager.Save(sid, sessionData)
 		SetCookie(w, "auth-session-id", sid, 0)
 	}
 	// 清除强制改密标记
 	sessionData.ForcePwd = false
 
-	// 按挑战类型返回模板
-	switch challenge.Type {
-	case auth.ChallengeOTP:
-		if retry {
-			// OTP 码错误，递增锁定计数
-			lockManager.Fail(result.Username, r.RemoteAddr)
-			w.WriteHeader(http.StatusOK)
-			tplRequest(tpl_otp, w, RequestData{Error: "OTP 动态码错误，请重新输入"})
-		} else {
-			// 首次 OTP 挑战：前序密码已通过，重置计数器给 OTP 阶段独立计数窗口
-			lockManager.Success(result.Username, r.RemoteAddr)
-			w.WriteHeader(http.StatusOK)
-			tplRequest(tpl_otp, w, RequestData{})
-		}
+	view := BuildChallengeView(result, ctx, result.IsChallengeRetry())
 
-	case auth.ChallengeRADIUS:
-		msg := ""
-		if ctx.RADIUS != nil {
-			msg = ctx.RADIUS.ChallengeMsg
-		}
-		if retry {
-			// 验证码错误，递增锁定计数
-			if result.Username != "" {
-				lockManager.Fail(result.Username, r.RemoteAddr)
-			}
-			if msg == "" {
-				msg = "验证失败，请重新输入二次验证码"
-			}
-		} else {
-			// 首次 RADIUS 挑战：前序凭据已通过，重置计数器（同 OTP）
-			if result.Username != "" {
-				lockManager.Success(result.Username, r.RemoteAddr)
-			}
-			if msg == "" {
-				msg = "请输入二次验证码"
-			}
-		}
-		w.WriteHeader(http.StatusOK)
-		tplRequest(tpl_accept_challenge, w, RequestData{Error: msg, Group: result.GroupName})
-
+	w.WriteHeader(http.StatusOK)
+	switch view.Type {
 	case auth.ChallengeSSO:
 		// 手机端无法完成企微/飞书扫码，默认拒绝；开启 allow_mobile_sso 后放行
 		if isMobileDevice(r) && !base.GetCfg().AllowMobileSSO {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
-		ssoType, _ := challenge.Data["sso_type"].(string)
-		browserMode := samlBrowserMode(r, ssoType, result.GroupName)
-		data := RequestData{
-			Group:       result.GroupName,
-			Groups:      dbdata.GetGroupNamesNormal(),
-			ServerAddr:  getServerAddr(r),
-			BrowserMode: browserMode,
-			SsoType:     ssoType,
-		}
-		w.WriteHeader(http.StatusOK)
+		data := view.ToXML()
+		data.ServerAddr = getServerAddr(r) // ServerAddr 由接入请求按 r 注入，ToXML 不预设
+		data.BrowserMode = samlBrowserMode(r, view.SsoType, result.GroupName)
 		tplRequest(tpl_request_saml, w, data)
 
 	case auth.ChallengeForcePwd:
-		data := RequestData{
-			Group:      result.GroupName,
-			Groups:     dbdata.GetGroupNamesNormal(),
-			ServerAddr: getServerAddr(r),
-			State:      sessionData.SessionID,
-		}
+		data := view.ToXML()
+		data.ServerAddr = getServerAddr(r) // ServerAddr 由接入请求按 r 注入，ToXML 不预设
+		data.State = sessionData.SessionID
 		sessionData.ForcePwd = true
-		w.WriteHeader(http.StatusOK)
 		tplRequest(tpl_request_force_pwd, w, data)
 
+	case auth.ChallengeOTP:
+		tplRequest(tpl_otp, w, view.ToXML())
+
+	case auth.ChallengeRADIUS:
+		tplRequest(tpl_accept_challenge, w, view.ToXML())
+
 	default:
-		w.WriteHeader(http.StatusOK)
-		data := RequestData{Group: ctx.Conn.GroupName, Groups: dbdata.GetGroupNamesNormal()}
-		tplRequest(tpl_request, w, data)
+		// credentials 等：返回凭据输入界面
+		tplRequest(tpl_request, w, view.ToXML())
 	}
 }
