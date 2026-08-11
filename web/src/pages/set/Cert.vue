@@ -976,15 +976,70 @@ export default {
     min-width: 140px !important;
   }
 
-  /* 搜索栏块级 */
+  /* 搜索栏块级并撑满，避免手机端输入框被压窄 */
+  .search-bar ::v-deep .search-form-inline {
+    display: flex;
+    flex-direction: column;
+  }
+
   .search-bar ::v-deep .el-form-item {
     margin-right: 0;
     margin-bottom: 8px;
-    display: block;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .search-bar ::v-deep .el-form-item__label {
+    text-align: left;
+    margin-bottom: 4px;
   }
 
   .search-bar ::v-deep .el-form-item__content {
     margin-left: 0 !important;
+    line-height: normal;
+  }
+
+  .search-bar ::v-deep .el-input,
+  .search-bar ::v-deep .el-select {
+    width: 100% !important;
+  }
+
+  .search-bar .el-button {
+    width: 100%;
+    margin: 0 0 8px;
+  }
+
+  /* 分页在手机端：隐藏每页条数/跳页/总数，仅保留 首页-上-页码-下-尾，
+     整条横向滚动可见，"下一页"不再被裁切 */
+  .pagination-wrap {
+    justify-content: flex-start;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .pagination-wrap ::v-deep .el-pagination {
+    white-space: nowrap;
+  }
+
+  .pagination-wrap ::v-deep .el-pagination__total,
+  .pagination-wrap ::v-deep .el-pagination__sizes,
+  .pagination-wrap ::v-deep .el-pagination__jump {
+    display: none;
+  }
+
+  /* 卡片在手机端减少内边距，内容更舒展 */
+  .setting-card {
+    padding: 16px 14px 4px;
+  }
+
+  /* 收敛证书页多层嵌套内边距：tabs 内容区 + 外层卡片，避免手机端过窄 */
+  .cert-card {
+    border-radius: 6px;
+  }
+
+  .cert-tabs ::v-deep .el-tabs__content {
+    padding: 12px 2px 0;
   }
 
   /* action-bar 纵向全宽 */

@@ -378,20 +378,27 @@ export default {
   }
 }
 
-@media (max-width: 880px) {
+@media (max-width: 1024px) {
   .card-header {
+    flex-direction: column;
+    align-items: stretch;
     flex-wrap: wrap;
     gap: 8px;
   }
 
   .card-actions {
     flex-wrap: wrap;
-    gap: 6px;
     width: 100%;
+    gap: 8px;
   }
 
-  .card-actions .search-input {
-    width: 140px;
+  .card-actions .search-input,
+  .card-actions .el-select,
+  .card-actions .filter-select {
+    flex: 1 1 140px;
+    width: auto !important;
+    min-width: 0;
+    margin-left: 0;
   }
 
   .auto-refresh-tip {
@@ -406,25 +413,6 @@ export default {
 @media (max-width: 600px) {
   .online-table-wrap ::v-deep .col-ops {
     min-width: 140px;
-  }
-
-  .card-actions {
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .card-actions .search-input {
-    flex: 1 1 140px;
-    width: auto !important;
-  }
-
-  .card-actions .el-select,
-  .card-actions .filter-select {
-    flex: 1 1 140px;
-    width: auto !important;
-    margin-left: 0;
   }
 }
 </style>

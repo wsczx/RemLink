@@ -171,12 +171,21 @@ export default {
 </script>
 
 <style scoped>
-/* 手机端筛选行横向换行，避免日期选择器固定宽度溢出挤掉其它控件 */
-@media (max-width: 900px) {
+/* 平板及更窄（含横屏 pad）：筛选行横向换行，字段自适应拉伸，
+   避免日期选择器等固定宽度控件溢出挤掉其它控件 */
+@media (max-width: 1024px) {
+  /* 标题与筛选栏上下排列，避免横屏下标题和一堆按钮挤在同一行 */
+  .card-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
   .card-actions {
     flex-direction: row;
     flex-wrap: wrap;
     align-items: center;
+    width: 100%;
     gap: 8px;
   }
 
@@ -184,10 +193,29 @@ export default {
   .card-actions .el-date-editor {
     flex: 1 1 140px;
     width: auto !important;
+    min-width: 0;
   }
 
   .card-actions .el-button {
     margin-left: 0;
+  }
+}
+
+/* 手机端：分页条隐藏冗余项并允许横向滚动，避免末页「下一页」被裁切 */
+@media (max-width: 600px) {
+  .pagination-wrap {
+    justify-content: flex-start;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .pagination-wrap ::v-deep .el-pagination {
+    white-space: nowrap;
+  }
+
+  .pagination-wrap ::v-deep .el-pagination__total,
+  .pagination-wrap ::v-deep .el-pagination__jump {
+    display: none;
   }
 }
 </style>

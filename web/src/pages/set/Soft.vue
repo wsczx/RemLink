@@ -1221,7 +1221,7 @@ export default {
   line-height: 1.5;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 768px) {
 
   .page-head,
   .toolbar,
@@ -1236,13 +1236,28 @@ export default {
   }
 
   .toolbar-left {
-    flex-direction: column;
-    align-items: stretch;
+    flex-wrap: wrap;
+    align-items: center;
+    width: 100%;
   }
 
-  .search-input,
-  .effect-select {
+  .toolbar-right {
     width: 100%;
+    justify-content: flex-start;
+  }
+
+  /* 搜索框/下拉保持横向 flex 上下文（不进入 column），避免 el-input 的
+     prefix-icon 绝对定位在纵向堆叠时错位掉到框外；窄屏自动换行 */
+  .search-input {
+    flex: 1 1 180px;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .effect-select {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 120px;
   }
 
   .group-items {
@@ -1270,6 +1285,23 @@ export default {
   .config-item-effect,
   .config-item-action {
     flex-shrink: 0;
+  }
+
+  /* 收敛 tabs 内容区内边距，配置项卡片在手机端接近全宽，不再显得过窄 */
+  .soft-tabs ::v-deep .el-tabs__content {
+    padding: 12px 4px;
+    overflow-x: visible;
+  }
+}
+
+/* 平板及更窄（含横屏 pad 约 1024px）：配置项卡片单列，避免右侧卡片被裁切看不到 */
+@media (max-width: 1024px) {
+  .group-items {
+    grid-template-columns: 1fr;
+  }
+
+  .soft-tabs ::v-deep .el-tabs__content {
+    overflow-x: visible;
   }
 }
 

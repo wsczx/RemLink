@@ -1105,23 +1105,30 @@ export default {
   }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
   .user-table-wrap ::v-deep .col-ops {
     min-width: 200px;
   }
 
+  /* 标题与筛选栏改为上下排列，避免横屏/竖屏下标题和一堆按钮挤在同一行 */
+  .card-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
   .card-actions {
     flex-wrap: wrap;
-    gap: 6px;
+    width: 100%;
+    gap: 8px;
   }
 
-  .card-actions .search-input {
-    width: 140px;
-  }
-
+  .card-actions .search-input,
   .card-actions .filter-select {
-    width: 110px;
-    margin-left: 8px;
+    flex: 1 1 140px;
+    width: auto !important;
+    min-width: 0;
+    margin-left: 0;
   }
 }
 
@@ -1142,6 +1149,23 @@ export default {
     flex: 1 1 140px;
     width: auto !important;
     margin-left: 0;
+  }
+
+  /* 分页条在手机端隐藏冗余项并允许横向滚动，避免末页「下一页」等按钮被裁切 */
+  .pagination-wrap {
+    justify-content: flex-start;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .pagination-wrap ::v-deep .el-pagination {
+    white-space: nowrap;
+  }
+
+  .pagination-wrap ::v-deep .el-pagination__total,
+  .pagination-wrap ::v-deep .el-pagination__sizes,
+  .pagination-wrap ::v-deep .el-pagination__jump {
+    display: none;
   }
 }
 </style>
