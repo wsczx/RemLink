@@ -349,17 +349,137 @@ type DingtalkDeptUser struct {
 	Email  string `json:"email"`
 }
 
-// 拉取钉钉部门成员
-func (c *DingtalkConfig) GetDepartmentUsers(contactToken string, deptID string) ([]DingtalkDeptUser, error) {
-	return c.getDepartmentUsers(contactToken, deptID, false)
+// 拉取钉钉部门成员。recursive=true 时以该部门为根向下遍历所有子部门（含自身），
+// recursive=false 时仅拉取该部门直属成员。
+func (c *DingtalkConfig) GetDepartmentUsers(contactToken string, deptID string, recursive bool) ([]DingtalkDeptUser, error) {
+	return c.getDepartmentUsers(contactToken, deptID, recursive)
 }
 
-// 拉取钉钉部门成员（含子部门）
+// 拉取钉钉权限范围内全部用户（从根部门 1 递归所有子部门）
 func (c *DingtalkConfig) GetAllUsers(contactToken string) ([]DingtalkDeptUser, error) {
 	return c.getDepartmentUsers(contactToken, "1", true)
 }
 
-func (c *DingtalkConfig) getDepartmentUsers(contactToken, deptID string, _ bool) ([]DingtalkDeptUser, error) {
+// 获取钉钉指定部门的直属子部门 ID 列表（不含自身）
+func (c *DingtalkConfig) getChildDepartmentIDs(contactToken, deptID string) ([]string, error) {
+	var ids []string
+	url := "https://oapi.dingtalk.com/topapi/v2/department/listsub?access_token=" + contactToken +
+		"&dept_id=" + deptID
+	resp, err := dingtalkHttpClient.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("获取钉钉子部门列表请求失败: %w", err)
+	}
+	respBody, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("读取钉钉子部门列表失败: %w", err)
+	}
+	var dr struct {
+		ErrCode int    `json:"errcode"`
+		ErrMsg  string `json:"errmsg"`
+		Result  []struct {
+			DeptID int64 `json:"dept_id"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(respBody, &dr); err != nil {
+		return nil, fmt.Errorf("解析钉钉子部门列表失败: %w", err)
+	}
+	if dr.ErrCode != 0 {
+		return nil, fmt.Errorf("获取钉钉子部门列表失败: %s", dr.ErrMsg)
+	}
+	for _, d := range dr.Result {
+		ids = append(ids, strconv.FormatInt(d.DeptID, 10))
+	}
+	return ids, nil
+}
+
+// 递归收集指定部门及其所有子部门（含自身），用于遍历部门树
+func (c *DingtalkConfig) collectDepartmentTree(contactToken, rootID string, deptIDs *[]string, visited map[string]bool) error {
+	if visited[rootID] {
+		return nil
+	}
+	visited[rootID] = true
+	*deptIDs = append(*deptIDs, rootID)
+
+	childIDs, err := c.getChildDepartmentIDs(contactToken, rootID)
+	if err != nil {
+		return fmt.Errorf("获取钉钉子部门失败（dept_id=%s）: %w", rootID, err)
+	}
+	for _, id := range childIDs {
+		if err := c.collectDepartmentTree(contactToken, id, deptIDs, visited); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// 探针：校验通讯录读权限与部门可见范围。
+// 钉钉在「无通讯录读权限 / 部门不在应用可见范围」时，user/list 会静默返回空列表（errcode=0），
+// 难以定位原因；而 department/get 接口会明确返回 errcode（如 60011 无权限）。
+// 探针失败直接返回钉钉原生错误，便于排错。
+func (c *DingtalkConfig) probeContactPermission(contactToken, deptID string) error {
+	url := "https://oapi.dingtalk.com/topapi/v2/department/get?access_token=" + contactToken +
+		"&dept_id=" + deptID
+	resp, err := dingtalkHttpClient.Get(url)
+	if err != nil {
+		return fmt.Errorf("钉钉通讯录权限探针请求失败: %w", err)
+	}
+	respBody, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return fmt.Errorf("钉钉通讯录权限探针读取失败: %w", err)
+	}
+	base.Debug("钉钉通讯录权限探针响应:", string(respBody))
+	var dr struct {
+		ErrCode int    `json:"errcode"`
+		ErrMsg  string `json:"errmsg"`
+		SubCode string `json:"sub_code"`
+		SubMsg  string `json:"sub_msg"`
+		Result  any    `json:"result"`
+	}
+	if err := json.Unmarshal(respBody, &dr); err != nil {
+		return fmt.Errorf("解析钉钉通讯录权限探针响应失败: %w", err)
+	}
+	if dr.ErrCode != 0 {
+		msg := dr.ErrMsg
+		if dr.SubCode != "" {
+			msg += fmt.Sprintf(" (sub_code=%s sub_msg=%s)", dr.SubCode, dr.SubMsg)
+		}
+		return fmt.Errorf("钉钉通讯录权限不足（dept_id=%s）: errcode=%d %s", deptID, dr.ErrCode, msg)
+	}
+	return nil
+}
+
+func (c *DingtalkConfig) getDepartmentUsers(contactToken, deptID string, recursive bool) ([]DingtalkDeptUser, error) {
+	// 权限探针仅对本次同步的入口部门跑一次（无论递归与否），便于在缺通讯录权限时透传原生错误码；
+	// 递归遍历到的子部门不再逐个探针，其权限不足会由 user/list 的 errcode 直接暴露。
+	if err := c.probeContactPermission(contactToken, deptID); err != nil {
+		return nil, err
+	}
+
+	// 递归模式：先收集部门树（含自身及所有子部门），再逐个部门拉取直属成员。
+	if recursive {
+		deptIDs := make([]string, 0)
+		if err := c.collectDepartmentTree(contactToken, deptID, &deptIDs, make(map[string]bool)); err != nil {
+			return nil, err
+		}
+		var result []DingtalkDeptUser
+		for _, id := range deptIDs {
+			users, err := c.fetchDeptUsersOnce(contactToken, id)
+			if err != nil {
+				base.Error("拉取钉钉子部门成员失败，跳过:", id, err)
+				continue
+			}
+			result = append(result, users...)
+		}
+		return result, nil
+	}
+
+	return c.fetchDeptUsersOnce(contactToken, deptID)
+}
+
+// 拉取单个部门的直属成员（不含子部门、不含权限探针）
+func (c *DingtalkConfig) fetchDeptUsersOnce(contactToken, deptID string) ([]DingtalkDeptUser, error) {
 	var (
 		result  []DingtalkDeptUser
 		cursor  int64
@@ -402,6 +522,9 @@ func (c *DingtalkConfig) getDepartmentUsers(contactToken, deptID string, _ bool)
 		}
 		if dr.ErrCode != 0 {
 			return nil, fmt.Errorf("拉取钉钉部门成员失败: %s", dr.ErrMsg)
+		}
+		if len(dr.Result.List) == 0 && dr.Result.HasMore {
+			return nil, fmt.Errorf("拉取钉钉部门成员返回空列表（疑似通讯录读权限或应用可见范围不足）")
 		}
 		result = append(result, dr.Result.List...)
 		hasMore = dr.Result.HasMore

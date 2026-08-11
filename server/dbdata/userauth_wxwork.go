@@ -92,13 +92,13 @@ func (a *AuthWXwork) SaveUsers(g *Group) error {
 	syncedUsers := make(map[string]bool)
 	var added, updated, skipped int
 	for _, wxUser := range wxUserMap {
-		// 拒绝名单：同步时跳过
+		syncedUsers[wxUser.UserID] = true
+		// 拒绝名单：不同步到本地，跳过后续新增/更新
 		if a.CheckUserID(wxUser.UserID, blocked) {
 			base.Debug("企微同步跳过拒绝用户:", wxUser.UserID)
 			skipped++
 			continue
 		}
-		syncedUsers[wxUser.UserID] = true
 
 		mobile, email := a.GetUserDetail(accessToken, wxUser.UserID)
 		newUser := &User{
@@ -155,7 +155,7 @@ func (a *AuthWXwork) SaveUsers(g *Group) error {
 		}
 	}
 	if len(wxUserMap) == 0 {
-		base.Warn("企微拉取到的用户列表为空（可能部门配置错误或 access_token 权限不足），组:", g.Name)
+		return fmt.Errorf("企微拉取到的用户列表为空（可能部门配置错误、access_token 权限不足或应用可见范围未覆盖），组: %s", g.Name)
 	}
 
 	// 清理已不在企微部门中的本地 wxwork 用户
@@ -168,7 +168,7 @@ func (a *AuthWXwork) SaveUsers(g *Group) error {
 		if !utils.InArrStr(localUser.Groups, g.Name) {
 			continue
 		}
-		if !syncedUsers[localUser.Username] {
+		if !syncedUsers[localUser.Username] || a.CheckUserID(localUser.Username, blocked) {
 			localUser.Groups = utils.RemoveStrFromArr(localUser.Groups, g.Name)
 			if len(localUser.Groups) == 0 {
 				if err := Del(&localUser); err != nil {

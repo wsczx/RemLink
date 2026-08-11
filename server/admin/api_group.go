@@ -362,7 +362,7 @@ func ProviderSyncUsers(w http.ResponseWriter, r *http.Request) {
 			}
 		}()
 		dbdata.AdminLog("用户组管理", req.GroupName, "同步LDAP用户", r.RemoteAddr)
-		RespSucess(w, "LDAP用户同步成功")
+		RespSucess(w, "正在后台同步 LDAP 用户，请查看后台日志确认同步结果")
 		return
 	}
 
@@ -379,7 +379,7 @@ func ProviderSyncUsers(w http.ResponseWriter, r *http.Request) {
 			}
 		}()
 		dbdata.AdminLog("用户组管理", req.GroupName, "同步企微用户", r.RemoteAddr)
-		RespSucess(w, "企微用户同步成功")
+		RespSucess(w, "正在后台同步企业微信用户，请查看后台日志确认同步结果")
 		return
 	}
 
@@ -396,7 +396,7 @@ func ProviderSyncUsers(w http.ResponseWriter, r *http.Request) {
 			}
 		}()
 		dbdata.AdminLog("用户组管理", req.GroupName, "同步钉钉用户", r.RemoteAddr)
-		RespSucess(w, "钉钉用户同步成功")
+		RespSucess(w, "正在后台同步钉钉用户，请查看后台日志确认同步结果")
 		return
 	}
 
@@ -412,7 +412,7 @@ func ProviderSyncUsers(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	dbdata.AdminLog("用户组管理", req.GroupName, "同步飞书用户", r.RemoteAddr)
-	RespSucess(w, "飞书用户同步成功")
+	RespSucess(w, "正在后台同步飞书用户，请查看后台日志确认同步结果")
 }
 
 // GroupCertCheck 检查指定组是否有已签发的客户端证书

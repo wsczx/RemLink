@@ -67,11 +67,11 @@ func (a *AuthDingtalk) SaveUsers(g *Group) error {
 	needOTP := HasAuthType(g.AuthProfile, "otp")
 	blocked := a.ParseBlockedUserIDs()
 
-	// 拉取允许部门内的成员；未配置部门时拉取权限范围内全部用户（部门仅作过滤，非同步前提）
+	// 拉取允许部门内的成员（含子部门）；未配置部门时拉取权限范围内全部用户（从根部门递归全公司）
 	dtUserMap := make(map[string]auth.DingtalkDeptUser)
 	if departments := a.ParseDepartments(); len(departments) > 0 {
 		for _, deptID := range departments {
-			users, err := a.GetDepartmentUsers(contactToken, deptID)
+			users, err := a.GetDepartmentUsers(contactToken, deptID, true)
 			if err != nil {
 				base.Error("获取钉钉部门成员失败", deptID, err)
 				continue
@@ -99,13 +99,14 @@ func (a *AuthDingtalk) SaveUsers(g *Group) error {
 	syncedUsers := make(map[string]bool)
 	var added, updated, skipped int
 	for _, dtUser := range dtUserMap {
-		// 拒绝名单：同步时跳过
+		syncedUsers[dtUser.UserId] = true
+
+		// 拒绝名单：不同步到本地，跳过后续新增/更新
 		if a.CheckUserID(dtUser.UserId, blocked) != nil {
 			base.Warn("钉钉同步跳过拒绝用户:", dtUser.UserId)
 			skipped++
 			continue
 		}
-		syncedUsers[dtUser.UserId] = true
 
 		newUser := &User{
 			Type:       "dingtalk",
@@ -161,7 +162,7 @@ func (a *AuthDingtalk) SaveUsers(g *Group) error {
 		}
 	}
 	if len(dtUserMap) == 0 {
-		base.Warn("钉钉拉取到的用户列表为空（可能部门配置错误或 access_token 权限不足），组:", g.Name)
+		return fmt.Errorf("钉钉拉取到的用户列表为空（可能部门配置错误、access_token 权限不足或应用可见范围未覆盖），组: %s", g.Name)
 	}
 
 	// 清理已不在钉钉部门中的本地 dingtalk 用户
@@ -174,7 +175,7 @@ func (a *AuthDingtalk) SaveUsers(g *Group) error {
 		if !utils.InArrStr(localUser.Groups, g.Name) {
 			continue
 		}
-		if !syncedUsers[localUser.Username] {
+		if !syncedUsers[localUser.Username] || a.CheckUserID(localUser.Username, blocked) != nil {
 			localUser.Groups = utils.RemoveStrFromArr(localUser.Groups, g.Name)
 			if len(localUser.Groups) == 0 {
 				if err := Del(&localUser); err != nil {

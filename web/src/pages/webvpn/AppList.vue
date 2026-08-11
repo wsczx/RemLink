@@ -4,16 +4,8 @@
       <div slot="header" class="card-header">
         <span class="card-title"><i class="el-icon-connection"></i> WebVPN 应用</span>
         <div class="card-actions">
-          <el-input
-            v-model="searchName"
-            placeholder="搜索应用名称 / 子域名"
-            size="small"
-            prefix-icon="el-icon-search"
-            clearable
-            class="search-input"
-            @keyup.enter.native="handleSearch"
-            @clear="handleSearch"
-          />
+          <el-input v-model="searchName" placeholder="搜索应用名称 / 子域名" size="small" prefix-icon="el-icon-search" clearable
+            class="search-input" @keyup.enter.native="handleSearch" @clear="handleSearch" />
           <el-button size="small" icon="el-icon-refresh" @click="handleSearch">刷新</el-button>
           <el-button size="small" type="primary" icon="el-icon-plus" @click="handleEdit('')">
             添加应用
@@ -21,83 +13,73 @@
         </div>
       </div>
 
-      <el-table
-        :data="tableData"
-        stripe
-        border
-        style="width: 100%"
-        :header-cell-style="{ background: 'var(--bg-header)', color: 'var(--text-primary)', fontWeight: '600', fontSize: '13px' }"
-      >
-        <el-table-column prop="id" label="ID" width="70" align="center" />
-        <el-table-column prop="name" label="子域名" min-width="140">
-          <template slot-scope="scope">
-            <span class="text-primary">{{ scope.row.name }}</span>
-            <span class="text-muted">.{{ webvpnDomain }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="note" label="名称" min-width="140" show-overflow-tooltip />
-        <el-table-column prop="backend" label="后端地址" min-width="200" show-overflow-tooltip />
-        <el-table-column label="授权用户" min-width="150">
-          <template slot-scope="scope">
-            <template v-if="scope.row.users && scope.row.users.length">
-              <el-tag v-for="u in scope.row.users" :key="u" size="mini" effect="plain" class="group-tag">{{ u }}</el-tag>
+      <el-table :data="tableData" stripe border style="width: 100%"
+        :header-cell-style="{ background: 'var(--bg-header)', color: 'var(--text-primary)', fontWeight: '600', fontSize: '13px' }">
+        <el-table-column prop="id" label="ID" width="70" align="center" sortable>
+          <el-table-column prop="name" label="子域名" min-width="140" sortable>
+            <template slot-scope="scope">
+              <span class="text-primary">{{ scope.row.name }}</span>
+              <span class="text-muted">.{{ webvpnDomain }}</span>
             </template>
-            <span v-else class="text-muted">全部用户</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="授权用户组" min-width="150">
-          <template slot-scope="scope">
-            <template v-if="scope.row.groups && scope.row.groups.length">
-              <el-tag v-for="g in scope.row.groups" :key="g" size="mini" effect="plain" class="group-tag">{{ g }}</el-tag>
-            </template>
-            <span v-else class="text-muted">全部用户</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="host_rewrite" label="Host 改写" min-width="140" show-overflow-tooltip>
-          <template slot-scope="scope">
-            <span v-if="scope.row.host_rewrite" class="text-primary">{{ scope.row.host_rewrite }}</span>
-            <span v-else class="text-muted">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="90" align="center">
-          <template slot-scope="scope">
-            <el-tag :type="scope.row.status === 1 ? 'success' : 'info'" size="small" effect="plain">
-              {{ scope.row.status === 1 ? '启用' : '禁用' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="170" align="center" fixed="right">
-          <template slot-scope="scope">
-            <div class="col-ops">
-              <el-button type="text" size="mini" @click="handleEdit(scope.row)">编辑</el-button>
-              <el-button type="text" size="mini" @click="handleStatus(scope.row)">
-                {{ scope.row.status === 1 ? '禁用' : '启用' }}
-              </el-button>
-              <el-button type="text" size="mini" class="text-danger" @click="handleDelete(scope.row)">删除</el-button>
-            </div>
-          </template>
+          </el-table-column>
+          <el-table-column prop="note" label="名称" min-width="140" show-overflow-tooltip sortable>
+            <el-table-column prop="backend" label="后端地址" min-width="200" show-overflow-tooltip sortable>
+              <el-table-column label="授权用户" min-width="150">
+                <template slot-scope="scope">
+                  <template v-if="scope.row.users && scope.row.users.length">
+                    <el-tag v-for="u in scope.row.users" :key="u" size="mini" effect="plain" class="group-tag">{{ u
+                    }}</el-tag>
+                  </template>
+                  <span v-else class="text-muted">全部用户</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="授权用户组" min-width="150">
+                <template slot-scope="scope">
+                  <template v-if="scope.row.groups && scope.row.groups.length">
+                    <el-tag v-for="g in scope.row.groups" :key="g" size="mini" effect="plain" class="group-tag">{{ g
+                    }}</el-tag>
+                  </template>
+                  <span v-else class="text-muted">全部用户</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="host_rewrite" label="Host 改写" min-width="140" show-overflow-tooltip sortable>
+                <template slot-scope="scope">
+                  <span v-if="scope.row.host_rewrite" class="text-primary">{{ scope.row.host_rewrite }}</span>
+                  <span v-else class="text-muted">-</span>
+                </template>
+              </el-table-column>
+            </el-table-column>
+            <el-table-column label="状态" width="90" align="center">
+              <template slot-scope="scope">
+                <el-tag :type="scope.row.status === 1 ? 'success' : 'info'" size="small" effect="plain">
+                  {{ scope.row.status === 1 ? '启用' : '禁用' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="170" align="center" fixed="right">
+              <template slot-scope="scope">
+                <div class="col-ops">
+                  <el-button type="text" size="mini" @click="handleEdit(scope.row)">编辑</el-button>
+                  <el-button type="text" size="mini" @click="handleStatus(scope.row)">
+                    {{ scope.row.status === 1 ? '禁用' : '启用' }}
+                  </el-button>
+                  <el-button type="text" size="mini" class="text-danger" @click="handleDelete(scope.row)">删除</el-button>
+                </div>
+              </template>
+            </el-table-column>
+          </el-table-column>
         </el-table-column>
       </el-table>
 
       <div class="pagination-wrap" v-if="total > pageSize">
-        <el-pagination
-          background
-          layout="total, prev, pager, next, jumper"
-          :total="total"
-          :page-size="pageSize"
-          :current-page="currentPage"
-          @current-change="handlePageChange"
-        />
+        <el-pagination background layout="total, prev, pager, next, jumper" :total="total" :page-size="pageSize"
+          :current-page="currentPage" @current-change="handlePageChange" />
       </div>
     </el-card>
 
     <!-- 新增/编辑对话框 -->
-    <el-dialog
-      :title="form.id ? '编辑 WebVPN 应用' : '添加 WebVPN 应用'"
-      :visible.sync="dialogVisible"
-      width="640px"
-      @closed="resetForm"
-    >
+    <el-dialog :title="form.id ? '编辑 WebVPN 应用' : '添加 WebVPN 应用'" :visible.sync="dialogVisible" width="640px"
+      @closed="resetForm">
       <el-form ref="form" :model="form" :rules="rules" label-width="100px" size="small">
         <el-form-item label="子域名" prop="name">
           <el-input v-model="form.name" placeholder="如 oa，将生成 oa.wv.example.com">
@@ -163,7 +145,7 @@ import axios from 'axios'
 
 export default {
   name: 'WebVpnAppList',
-  data () {
+  data() {
     return {
       loading: false,
       saving: false,
@@ -191,7 +173,7 @@ export default {
       }
     }
   },
-  created () {
+  created() {
     this.$emit('update:route_path', this.$route.path)
     this.$emit('update:route_name', ['WebVPN', 'WebVPN 应用'])
     this.loadDomain()
@@ -200,7 +182,7 @@ export default {
     this.getList()
   },
   methods: {
-    emptyForm () {
+    emptyForm() {
       return {
         id: 0,
         name: '',
@@ -215,30 +197,30 @@ export default {
         statusOn: true
       }
     },
-    resetForm () {
+    resetForm() {
       this.form = this.emptyForm()
       if (this.$refs.form) this.$refs.form.clearValidate()
     },
-    loadDomain () {
+    loadDomain() {
       axios.get('/webvpn/domain').then(resp => {
         if (resp.data.code === 0) this.webvpnDomain = resp.data.data.domain || ''
-      }).catch(() => {})
+      }).catch(() => { })
     },
-    loadGroups () {
+    loadGroups() {
       axios.get('/group/list?page_size=200').then(resp => {
         if (resp.data.code === 0) {
           this.allGroups = (resp.data.data.datas || []).map(g => g.name)
         }
-      }).catch(() => {})
+      }).catch(() => { })
     },
-    loadUsers () {
+    loadUsers() {
       axios.get('/user/list?page_size=200').then(resp => {
         if (resp.data.code === 0) {
           this.allUsers = (resp.data.data.datas || []).map(u => u.username)
         }
-      }).catch(() => {})
+      }).catch(() => { })
     },
-    getList () {
+    getList() {
       this.loading = true
       const params = {
         page: this.currentPage,
@@ -259,15 +241,15 @@ export default {
         this.loading = false
       })
     },
-    handleSearch () {
+    handleSearch() {
       this.currentPage = 1
       this.getList()
     },
-    handlePageChange (page) {
+    handlePageChange(page) {
       this.currentPage = page
       this.getList()
     },
-    handleEdit (row) {
+    handleEdit(row) {
       if (row) {
         this.form = {
           id: row.id,
@@ -275,33 +257,33 @@ export default {
           note: row.note,
           backend: row.backend,
           host_rewrite: row.host_rewrite || '',
-        skip_verify: !!row.skip_verify,
-        users: row.users || [],
-        groups: row.groups || [],
-        allow_path: row.allow_path || [],
-        ip_allow_list: row.ip_allow_list || [],
-        statusOn: row.status === 1
-      }
-      } else {
-        this.resetForm()
-      }
-      this.dialogVisible = true
-    },
-    handleStatus (row) {
-      const next = row.status === 1 ? 0 : 1
-      const payload = {
-        id: row.id,
-        name: row.name,
-        note: row.note,
-          backend: row.backend,
-          host_rewrite: row.host_rewrite || '',
           skip_verify: !!row.skip_verify,
           users: row.users || [],
           groups: row.groups || [],
           allow_path: row.allow_path || [],
           ip_allow_list: row.ip_allow_list || [],
-          status: next
+          statusOn: row.status === 1
         }
+      } else {
+        this.resetForm()
+      }
+      this.dialogVisible = true
+    },
+    handleStatus(row) {
+      const next = row.status === 1 ? 0 : 1
+      const payload = {
+        id: row.id,
+        name: row.name,
+        note: row.note,
+        backend: row.backend,
+        host_rewrite: row.host_rewrite || '',
+        skip_verify: !!row.skip_verify,
+        users: row.users || [],
+        groups: row.groups || [],
+        allow_path: row.allow_path || [],
+        ip_allow_list: row.ip_allow_list || [],
+        status: next
+      }
       axios.post('/webvpn/app/set', payload).then(resp => {
         if (resp.data.code === 0) {
           this.$message.success(next === 1 ? '已启用' : '已禁用')
@@ -311,7 +293,7 @@ export default {
         }
       }).catch(() => this.$message.error('网络错误'))
     },
-    handleDelete (row) {
+    handleDelete(row) {
       this.$confirm(`确认删除应用「${row.note || row.name}」？`, '提示', {
         type: 'warning'
       }).then(() => {
@@ -326,9 +308,9 @@ export default {
             this.$message.error(resp.data.msg || '删除失败')
           }
         }).catch(() => this.$message.error('网络错误'))
-      }).catch(() => {})
+      }).catch(() => { })
     },
-    submitForm () {
+    submitForm() {
       this.$refs.form.validate(valid => {
         if (!valid) return
         this.saving = true
@@ -366,12 +348,14 @@ export default {
 .group-tag {
   margin: 0 4px 4px 0;
 }
+
 .form-tip {
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.5;
   margin-top: 4px;
 }
+
 .form-tip-inline {
   color: var(--text-muted);
   font-size: 12px;

@@ -201,7 +201,7 @@ func (c *WXWorkConfig) GetDepartmentUsers(accessToken string, departmentID int) 
 		return nil, err
 	}
 	if listResp.ErrCode != 0 {
-		return nil, fmt.Errorf("获取部门成员列表失败: %s", listResp.ErrMsg)
+		return nil, fmt.Errorf("获取部门成员列表失败: errcode=%d %s", listResp.ErrCode, listResp.ErrMsg)
 	}
 	return listResp.UserList, nil
 }

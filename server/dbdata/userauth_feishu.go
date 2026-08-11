@@ -101,13 +101,13 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 	syncedUsers := make(map[string]bool)
 	var added, updated, skipped int
 	for _, feishuUser := range feishuUserMap {
-		// 拒绝名单：同步时跳过
+		syncedUsers[feishuUser.UserID] = true
+		// 拒绝名单：不同步到本地，跳过后续新增/更新
 		if a.CheckUserID(feishuUser.UserID, blocked) != nil {
 			base.Debug("飞书同步跳过拒绝用户:", feishuUser.UserID)
 			skipped++
 			continue
 		}
-		syncedUsers[feishuUser.UserID] = true
 		mobile, email := feishuUser.Mobile, ""
 		if detail, derr := a.GetFeishuUserDetail(accessToken, feishuUser.UserID); derr == nil {
 			if detail.Data.Mobile != "" {
@@ -172,7 +172,7 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 		}
 	}
 	if len(feishuUserMap) == 0 {
-		base.Warn("飞书拉取到的用户列表为空（可能部门配置错误或 access_token 权限不足），组:", g.Name)
+		return fmt.Errorf("飞书拉取到的用户列表为空（可能部门配置错误、access_token 权限不足或应用可见范围未覆盖），组: %s", g.Name)
 	}
 
 	// 清理已不在飞书部门中的本地 feishu 用户
@@ -185,7 +185,7 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 		if !utils.InArrStr(localUser.Groups, g.Name) {
 			continue
 		}
-		if !syncedUsers[localUser.Username] {
+		if !syncedUsers[localUser.Username] || a.CheckUserID(localUser.Username, blocked) != nil {
 			localUser.Groups = utils.RemoveStrFromArr(localUser.Groups, g.Name)
 			if len(localUser.Groups) == 0 {
 				if err := Del(&localUser); err != nil {
