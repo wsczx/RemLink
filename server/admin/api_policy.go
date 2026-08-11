@@ -53,10 +53,33 @@ func PolicyList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 统计卡片按"全量数据"聚合，不受分页影响
+	var all []dbdata.Policy
+	_ = dbdata.Find(&all, 0, 0)
+	statActive, statFakeDNS, statBandwidth, statQuota := 0, 0, 0, 0
+	for _, p := range all {
+		if p.Status == 1 {
+			statActive++
+		}
+		if p.EnableFakeDNS {
+			statFakeDNS++
+		}
+		if p.Bandwidth > 0 || p.BandwidthUp > 0 {
+			statBandwidth++
+		}
+		if p.TrafficQuota > 0 {
+			statQuota++
+		}
+	}
+
 	data := map[string]any{
-		"count":     count,
-		"page_size": pageSize,
-		"datas":     result,
+		"count":         count,
+		"page_size":     pageSize,
+		"datas":         result,
+		"stats_active":  statActive,
+		"stats_fakedns": statFakeDNS,
+		"stats_band":    statBandwidth,
+		"stats_quota":   statQuota,
 	}
 
 	RespSucess(w, data)

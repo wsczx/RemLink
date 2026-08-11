@@ -81,11 +81,22 @@ func ProviderList(w http.ResponseWriter, r *http.Request) {
 		maskProviderSecrets(&datas[i])
 	}
 
+	// 统计卡片按"全量数据"聚合，不受分页影响
+	var all []dbdata.Provider
+	_ = dbdata.Find(&all, 0, 0)
+	statActive := 0
+	for _, p := range all {
+		if p.Status == 1 {
+			statActive++
+		}
+	}
+
 	RespSucess(w, map[string]any{
 		"count":        count,
 		"page_size":    pageSize,
 		"datas":        datas,
 		"callbackBase": providerCallbackUrl(r),
+		"stats_active": statActive,
 	})
 }
 

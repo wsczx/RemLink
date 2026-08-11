@@ -547,6 +547,7 @@ export default {
     return {
       loading: false,
       page: 1, tableData: [], count: 0,
+      stats: {},
       editDialog: false,
       detailCallbackBase: "",
       ruleForm: { id: 0, name: "", type: "ldap", status: 1 },
@@ -588,7 +589,7 @@ export default {
     isTestEnabled() { return this.ruleForm.status === 1; },
     isSyncEnabled() { return this.ruleForm.id && (this.isLdap || this.isWxwork || this.isFeishu || this.isDingtalk); },
     statTotal() { return this.count; },
-    statActive() { return this.tableData.filter(r => r.status === 1).length; },
+    statActive() { return this.stats.stats_active || 0; },
   },
   methods: {
     getTypeLabel(t) { return TYPE_LABELS[t] || t; },
@@ -633,6 +634,7 @@ export default {
         const rdata = resp.data.data;
         this.tableData = rdata.datas || [];
         this.count = rdata.count || 0;
+        this.stats = rdata;
         // 列表接口一并下发回调基础地址（基于 VPN 服务端口），
         // 新增态无需加载详情即可正确显示，避免回退到后台 8800 地址
         if (rdata.callbackBase) {

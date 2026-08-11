@@ -42,13 +42,46 @@ func GroupList(w http.ResponseWriter, r *http.Request) {
 		datas = []dbdata.Group{}
 	}
 
+	// 统计卡片按"全量数据"聚合，不受分页影响
+	var all []dbdata.Group
+	_ = dbdata.Find(&all, 0, 0)
+	statActive, statWithPolicy, statWithAuth := 0, 0, 0
+	for _, g := range all {
+		if g.Status == 1 {
+			statActive++
+		}
+		if g.PolicyId > 0 {
+			statWithPolicy++
+		}
+		if groupHasMultiAuth(g.AuthProfile) {
+			statWithAuth++
+		}
+	}
+
 	data := map[string]any{
-		"count":     count,
-		"page_size": pageSize,
-		"datas":     datas,
+		"count":            count,
+		"page_size":        pageSize,
+		"datas":            datas,
+		"stats_active":     statActive,
+		"stats_policy":     statWithPolicy,
+		"stats_multi_auth": statWithAuth,
 	}
 
 	RespSucess(w, data)
+}
+
+// 判断用户组的认证配置是否包含不少于 2 个认证步骤（即"组合认证"）
+func groupHasMultiAuth(profile json.RawMessage) bool {
+	if len(profile) == 0 {
+		return false
+	}
+	var p struct {
+		Step []any `json:"step"`
+	}
+	if err := json.Unmarshal(profile, &p); err != nil {
+		return false
+	}
+	return len(p.Step) >= 2
 }
 
 // 返回所有用户组名称列表

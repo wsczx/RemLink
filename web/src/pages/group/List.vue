@@ -215,10 +215,12 @@
               </div>
               <div class="ip-config-row">
                 <el-form-item label="IPv6 网段" prop="client_cidr6" class="ip-config-col">
-                  <el-input v-model="ruleForm.client_cidr6" placeholder="如 2001:db8:10::/64，留空用全局 v6 池" size="small"></el-input>
+                  <el-input v-model="ruleForm.client_cidr6" placeholder="如 2001:db8:10::/64，留空用全局 v6 池"
+                    size="small"></el-input>
                 </el-form-item>
                 <el-form-item label="出网网卡" prop="out_dev" class="ip-config-col">
-                  <el-select v-model="ruleForm.out_dev" placeholder="留空=默认 master_dev，可手动输入任意网卡名（如 br0/bond0）" size="small" clearable filterable allow-create default-first-option style="width:100%">
+                  <el-select v-model="ruleForm.out_dev" placeholder="留空=默认 master_dev，可手动输入任意网卡名（如 br0/bond0）"
+                    size="small" clearable filterable allow-create default-first-option style="width:100%">
                     <el-option label="留空（使用默认 master_dev）" value=""></el-option>
                     <el-option v-for="iface in outDevOptions" :key="iface" :label="iface" :value="iface"></el-option>
                   </el-select>
@@ -226,7 +228,8 @@
               </div>
               <div class="form-tip form-tip-info" style="margin-left:100px">
                 <i class="el-icon-info"></i>
-                <span>该组用户将从指定网段获取 IP，网关和掩码也对应变化，4 项必须全部填写。开启 IPv6 双栈时，可在 IPv6 网段处指定独立 v6 出网段（前缀须小于 128），留空则复用全局 v6 池。</span>
+                <span>该组用户将从指定网段获取 IP，网关和掩码也对应变化，4 项必须全部填写。开启 IPv6 双栈时，可在 IPv6 网段处指定独立 v6 出网段（前缀须小于 128），留空则复用全局 v6
+                  池。</span>
               </div>
             </div>
           </transition>
@@ -272,9 +275,10 @@
               style="margin-top:10px">添加认证步骤</el-button>
             <div v-if="ruleForm.auth_profile.step.length > 0" class="pipeline-flow">
               <span class="pipeline-label">认证流程</span>
-              <span v-for="(step, index) in ruleForm.auth_profile.step" :key="'tp-' + step._key" style="display:contents">
+              <span v-for="(step, index) in ruleForm.auth_profile.step" :key="'tp-' + step._key"
+                style="display:contents">
                 <el-tag size="small" type="success" effect="dark" class="pipeline-tag">{{ getStepLabel(step.type)
-                  }}</el-tag>
+                }}</el-tag>
                 <i v-if="index < ruleForm.auth_profile.step.length - 1" class="el-icon-right pipeline-arrow"></i>
               </span>
             </div>
@@ -453,6 +457,7 @@ export default {
       page: 1,
       tableData: [],
       count: 10,
+      stats: {},
       policyList: [],
       allPolicyNames: [],
       stepDefaults: {
@@ -562,11 +567,9 @@ export default {
   },
   computed: {
     statTotal() { return this.count },
-    statActive() { return this.tableData.filter(r => r.status === 1).length },
-    statWithPolicy() { return this.tableData.filter(r => r.policy_id && r.policy_id > 0).length },
-    statWithAuth() {
-      return this.tableData.filter(r => r.authSteps && r.authSteps.length >= 2).length
-    },
+    statActive() { return this.stats.stats_active || 0 },
+    statWithPolicy() { return this.stats.stats_policy || 0 },
+    statWithAuth() { return this.stats.stats_multi_auth || 0 },
     // SSO 与凭据步骤(local/ldap/radius)互斥：SSO 由第三方身份提供，不产生登录密码
     authConflictTip() {
       const types = (this.ruleForm.auth_profile.step || []).map(s => s.type)
@@ -603,7 +606,7 @@ export default {
     loadIfaces() {
       axios.get('/group/ifaces').then(resp => {
         this.ifaces = (resp.data.data && resp.data.data.ifaces) || [];
-      }).catch(() => {});
+      }).catch(() => { });
     },
     // IPv6 CIDR 校验：形如 2001:db8::/64，前缀 0-128；支持 :: 缩写与末段内嵌 IPv4
     isValidCIDR6(input) {
@@ -647,14 +650,14 @@ export default {
         if (resp.data.code === 0) {
           this.policyList = resp.data.data.datas || [];
         }
-      }).catch(() => {});
+      }).catch(() => { });
     },
     loadAllPolicyNames() {
       return axios.get('/policy/all_names').then(resp => {
         if (resp.data.code === 0) {
           this.allPolicyNames = resp.data.data.datas || [];
         }
-      }).catch(() => {});
+      }).catch(() => { });
     },
     getDefaultPolicyForm() {
       return {
@@ -827,6 +830,7 @@ export default {
           return { ...g, policy_name: policyName, authSteps };
         });
         this.count = rdata.count;
+        this.stats = rdata;
         this.loading = false;
       }).catch(() => {
         this.$message.error('请求出错');
@@ -873,7 +877,7 @@ export default {
           if (resp.data.code === 0) {
             this.$set(this.providerNames, typ, resp.data.data.datas || []);
           }
-        }).catch(() => {});
+        }).catch(() => { });
       }
     },
     preloadProviders() {
@@ -979,6 +983,7 @@ export default {
   margin-left: 2px;
   cursor: help;
 }
+
 .label-tip-icon:hover {
   color: var(--text-secondary);
 }
@@ -1001,10 +1006,13 @@ export default {
 .ip-config-slide-enter-active {
   transition: opacity 0.25s ease, transform 0.25s ease;
 }
+
 .ip-config-slide-leave-active {
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
-.ip-config-slide-enter, .ip-config-slide-leave-to {
+
+.ip-config-slide-enter,
+.ip-config-slide-leave-to {
   opacity: 0;
   transform: translateY(-8px);
 }
@@ -1566,19 +1574,23 @@ export default {
   .edit-basic-row {
     grid-template-columns: 1fr;
   }
+
   .form-tip-info {
     word-break: break-all;
     overflow-wrap: break-word;
     max-width: 100%;
     box-sizing: border-box;
   }
+
   /* 快速新建策略弹窗 */
   .policy-quick-grid {
     grid-template-columns: 1fr;
   }
+
   .valdata-row {
     flex-wrap: wrap;
   }
+
   .valdata-input-main,
   .valdata-input-note {
     flex: 1 1 120px;
@@ -1590,23 +1602,28 @@ export default {
   .group-edit-dialog ::v-deep .el-form-item {
     display: block;
   }
+
   .group-edit-dialog ::v-deep .el-form-item__label {
     width: auto !important;
     text-align: left;
     padding-bottom: 4px;
     line-height: 1.4;
   }
+
   .group-edit-dialog ::v-deep .el-form-item__content {
     margin-left: 0 !important;
     display: block;
   }
+
   .form-tip-info {
     font-size: 11px;
     padding: 4px 8px;
   }
+
   .auth-step-item {
     flex-wrap: wrap;
   }
+
   .auth-step-item .step-type-select {
     flex: 1 1 120px;
   }
