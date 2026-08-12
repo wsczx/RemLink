@@ -163,7 +163,7 @@ func checkLinkAcl(rp *dbdata.Policy, pl *sessdata.Payload) bool {
 					}
 				}
 
-				if dbdata.ContainsInPorts(v.Ports, ipPort) || dbdata.ContainsInPorts(v.Ports, 0) {
+				if dbdata.ContainsPortInStr(v.Port, ipPort) {
 					if v.Action == dbdata.Allow {
 						return true
 					} else {

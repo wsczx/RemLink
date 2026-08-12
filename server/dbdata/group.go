@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,7 +38,7 @@ type GroupLinkAcl struct {
 	IpProto  waterutil.IPProtocol `json:"ip_protocol"` // 判断协议使用
 	Val      string               `json:"val"`
 	Port     string               `json:"port"` // 兼容单端口历史数据类型uint16
-	Ports    map[uint16]int8      `json:"ports"`
+	Ports    map[uint16]int8      `json:"-"`    // 运行时匹配用，不序列化进库（避免大端口范围撑爆 TEXT 列）
 	IpNet    *net.IPNet           `json:"ip_net"`
 	Note     string               `json:"note"`
 }
@@ -338,10 +339,39 @@ func checkCidrOverlap(ipNet *net.IPNet, g *Group, isV6 bool) error {
 	return nil
 }
 
-// 检查端口是否在端口映射中
-func ContainsInPorts(ports map[uint16]int8, port uint16) bool {
-	_, ok := ports[port]
-	return ok
+// 检查端口是否落在端口表达式字符串内（支持逗号分隔与 "-" 范围，如 "22,80,443,1000-2000"）
+// 用于在 ACL 匹配时按需解析 Port 字段，避免把大端口范围转成 map 序列化进库
+func ContainsPortInStr(portStr string, port uint16) bool {
+	portStr = strings.TrimSpace(portStr)
+	if portStr == "" || portStr == "0" {
+		// 空或 0 表示不限端口
+		return true
+	}
+	for pt := range strings.SplitSeq(portStr, ",") {
+		pt = strings.TrimSpace(pt)
+		if pt == "" {
+			continue
+		}
+		if idx := strings.Index(pt, "-"); idx > 0 {
+			from, err1 := strconv.ParseUint(pt[:idx], 10, 16)
+			to, err2 := strconv.ParseUint(pt[idx+1:], 10, 16)
+			if err1 != nil || err2 != nil {
+				continue
+			}
+			if uint16(from) <= port && port <= uint16(to) {
+				return true
+			}
+		} else {
+			p, err := strconv.ParseUint(pt, 10, 16)
+			if err != nil {
+				continue
+			}
+			if uint16(p) == port {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // 使用 Pipeline 测试认证（后台"测试认证配置"入口）

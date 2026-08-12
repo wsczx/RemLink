@@ -167,7 +167,6 @@ func SetPolicy(p *Policy) error {
 			v.Port = strings.TrimSpace(portsStr)
 
 			if regexp.MustCompile(`^\d{1,5}(-\d{1,5})?(,\d{1,5}(-\d{1,5})?)*$`).MatchString(portsStr) {
-				ports := map[uint16]int8{}
 				for pt := range strings.SplitSeq(portsStr, ",") {
 					if pt == "" {
 						continue
@@ -185,18 +184,12 @@ func SetPolicy(p *Policy) error {
 						if portfrom > portto {
 							return errors.New("端口范围错误: 起始端口 " + rp[0] + " 不能大于结束端口 " + rp[1])
 						}
-						for i := portfrom; i <= portto; i++ {
-							ports[uint16(i)] = 1
-						}
 					} else {
-						port, err := strconv.ParseUint(pt, 10, 16)
-						if err != nil {
+						if _, err := strconv.ParseUint(pt, 10, 16); err != nil {
 							return errors.New("端口:" + pt + " 格式错误, " + err.Error())
 						}
-						ports[uint16(port)] = 1
 					}
 				}
-				v.Ports = ports
 				linkAcl = append(linkAcl, v)
 			} else {
 				return errors.New("端口: " + portsStr + " 格式错误,请用逗号分隔的端口,比如: 22,80,443 连续端口用-,比如:1234-5678")
