@@ -158,7 +158,7 @@ func TestInvalidateCertAuthCache(t *testing.T) {
 		ast := assert.New(t)
 		defer InvalidateCertAuthCache()
 		// 并发多次失效不应 panic
-		for i := 0; i < 50; i++ {
+		for range 50 {
 			go InvalidateCertAuthCache()
 		}
 		InvalidateCertAuthCache()

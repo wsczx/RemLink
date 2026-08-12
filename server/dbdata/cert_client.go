@@ -270,6 +270,7 @@ func GetClientCertList(pageSize, pageIndex int, username, groupname, status stri
 	defer session.Close()
 
 	session = session.Where("1=1")
+	session.OrderBy("id desc")
 	// 添加搜索条件
 	if username != "" {
 		session.And("username LIKE ?", "%"+username+"%")

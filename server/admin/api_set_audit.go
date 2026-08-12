@@ -16,7 +16,7 @@ func SetAuditList(w http.ResponseWriter, r *http.Request) {
 		page = 1
 	}
 	var datas []dbdata.AccessAudit
-	session := dbdata.GetAuditSession(r.FormValue("search"))
+	session := dbdata.GetAuditSession(r.Form)
 	count, err := dbdata.FindAndCount(session, &datas, dbdata.PageSize, page)
 	if err != nil && !dbdata.CheckErrNotFound(err) {
 		RespError(w, RespInternalErr, err)
@@ -38,7 +38,7 @@ func SetAuditList(w http.ResponseWriter, r *http.Request) {
 func SetAuditExport(w http.ResponseWriter, r *http.Request) {
 	var datas []dbdata.AccessAudit
 	maxNum := 1000000
-	session := dbdata.GetAuditSession(r.FormValue("search"))
+	session := dbdata.GetAuditSession(r.Form)
 	count, err := dbdata.FindAndCount(session, &datas, maxNum, 0)
 	if err != nil && !dbdata.CheckErrNotFound(err) {
 		RespError(w, RespInternalErr, err)

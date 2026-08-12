@@ -1,61 +1,55 @@
 package dbdata
 
 import (
-	"encoding/json"
+	"net/url"
+	"strconv"
 
 	"xorm.io/xorm"
 )
 
-type SearchCon struct {
-	Username    string   `json:"username"`
-	GroupName   string   `json:"group_name"`
-	Src         string   `json:"src"`
-	Dst         string   `json:"dst"`
-	DstPort     string   `json:"dst_port"`
-	AccessProto string   `json:"access_proto"`
-	Date        []string `json:"date"`
-	Info        string   `json:"info"`
-	Sort        int      `json:"sort"`
-}
-
-func GetAuditSession(search string) *xorm.Session {
+func GetAuditSession(values url.Values) *xorm.Session {
 	session := xdb.Where("1=1")
-	if search == "" {
-		return session
+	if v := values.Get("search[username]"); v != "" {
+		session.And("username = ?", v)
 	}
-	var searchData SearchCon
-	err := json.Unmarshal([]byte(search), &searchData)
-	if err != nil {
-		return session
+	if v := values.Get("search[group_name]"); v != "" {
+		session.And("group_name = ?", v)
 	}
-	if searchData.Username != "" {
-		session.And("username = ?", searchData.Username)
+	if v := values.Get("search[src]"); v != "" {
+		session.And("src = ?", v)
 	}
-	if searchData.GroupName != "" {
-		session.And("group_name = ?", searchData.GroupName)
+	if v := values.Get("search[dst]"); v != "" {
+		session.And("dst = ?", v)
 	}
-	if searchData.Src != "" {
-		session.And("src = ?", searchData.Src)
+	if v := values.Get("search[dst_port]"); v != "" {
+		session.And("dst_port = ?", v)
 	}
-	if searchData.Dst != "" {
-		session.And("dst = ?", searchData.Dst)
+	if v := values.Get("search[access_proto]"); v != "" {
+		session.And("access_proto = ?", v)
 	}
-	if searchData.DstPort != "" {
-		session.And("dst_port = ?", searchData.DstPort)
+	if v := values.Get("search[date][]"); v != "" {
+		// 日期区间可能以 "date[0]"/"date[1]" 形式出现，下面单独处理
+		_ = v
 	}
-	if searchData.AccessProto != "" {
-		session.And("access_proto = ?", searchData.AccessProto)
+	if dates, ok := values["search[date][]"]; ok && len(dates) == 2 && dates[0] != "" {
+		session.And("created_at BETWEEN ? AND ?", dates[0], dates[1])
+	} else if d0 := values.Get("search[date][0]"); d0 != "" {
+		d1 := values.Get("search[date][1]")
+		session.And("created_at BETWEEN ? AND ?", d0, d1)
 	}
-	if len(searchData.Date) > 0 && searchData.Date[0] != "" {
-		session.And("created_at BETWEEN ? AND ?", searchData.Date[0], searchData.Date[1])
+	if v := values.Get("search[info]"); v != "" {
+		session.And("info LIKE ?", "%"+v+"%")
 	}
-	if searchData.Info != "" {
-		session.And("info LIKE ?", "%"+searchData.Info+"%")
-	}
-	if searchData.Sort == 1 {
+	sort, _ := strconv.Atoi(values.Get("search[sort]"))
+	switch sort {
+	case 0:
+		// 默认倒序：新记录在前，无需翻到最后一页
 		session.OrderBy("id desc")
-	} else {
+	case 2:
 		session.OrderBy("id asc")
+	default:
+		// sort==1 兼容旧前端：倒序
+		session.OrderBy("id desc")
 	}
 	return session
 }

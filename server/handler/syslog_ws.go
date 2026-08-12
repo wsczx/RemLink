@@ -66,9 +66,6 @@ func newSyslogHub() *SyslogHub {
 
 // 启动 Hub 主循环
 func (h *SyslogHub) Run() {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
 	for {
 		select {
 		case client := <-h.register:
@@ -97,19 +94,6 @@ func (h *SyslogHub) Run() {
 						h.unregister <- c
 					}(client)
 				}
-			}
-			h.mu.RUnlock()
-
-		case <-ticker.C:
-			// 心跳检测
-			h.mu.RLock()
-			for client := range h.clients {
-				go func(c *SyslogClient) {
-					c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-					if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-						h.unregister <- c
-					}
-				}(client)
 			}
 			h.mu.RUnlock()
 		}

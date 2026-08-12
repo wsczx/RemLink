@@ -104,9 +104,9 @@ func FindWhere(data any, limit int, page int, where string, args ...any) error {
 
 func FindAndCount(session *xorm.Session, data any, limit, page int) (int64, error) {
 	if limit == 0 {
-		return session.OrderBy("id ASC").FindAndCount(data)
+		return session.FindAndCount(data)
 	}
 	start := (page - 1) * limit
-	totalCount, err := session.OrderBy("id ASC").Limit(limit, start).FindAndCount(data)
+	totalCount, err := session.Limit(limit, start).FindAndCount(data)
 	return totalCount, err
 }

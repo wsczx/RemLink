@@ -2,6 +2,7 @@ package dbdata
 
 import (
 	"fmt"
+	"net/url"
 	"testing"
 	"time"
 
@@ -31,10 +32,17 @@ func TestSearchAudit(t *testing.T) {
 	ast.Nil(err)
 
 	var datas []AccessAudit
-	searchFormat := `{"username": "%s", "src":"%s", "dst": "%s", "dst_port":"%d","access_proto":"%d","info":"%s","date":["%s","%s"]}`
-	search := fmt.Sprintf(searchFormat, dataTest.Username, dataTest.Src, dataTest.Dst, dataTest.DstPort, dataTest.AccessProto, dataTest.Info, currDateVal, currDateVal)
+	values := url.Values{}
+	values.Set("search[username]", dataTest.Username)
+	values.Set("search[src]", dataTest.Src)
+	values.Set("search[dst]", dataTest.Dst)
+	values.Set("search[dst_port]", fmt.Sprintf("%d", dataTest.DstPort))
+	values.Set("search[access_proto]", fmt.Sprintf("%d", dataTest.AccessProto))
+	values.Set("search[info]", dataTest.Info)
+	values.Set("search[date][0]", currDateVal)
+	values.Set("search[date][1]", currDateVal)
 
-	session := GetAuditSession(search)
+	session := GetAuditSession(values)
 	count, _ := FindAndCount(session, &datas, PageSize, 0)
 	ast.Equal(count, int64(1))
 	ast.Equal(datas[0].Username, dataTest.Username)

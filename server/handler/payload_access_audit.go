@@ -19,6 +19,7 @@ const (
 	acc_proto_tcp
 	acc_proto_https
 	acc_proto_http
+	acc_proto_dns
 )
 
 var (
@@ -128,6 +129,9 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 	var ipSrc, ipDst net.IP
 	var ipPort uint16
 
+	var tcpSeg []byte // TCP 段（含 TCP 头，不含 IP 头），供域名提取使用
+	var udpSeg []byte // UDP 负载，供 DNS 域名提取使用
+
 	switch (pl.Data[0] & 0xF0) >> 4 {
 	case 4:
 		ipProto = waterutil.IPv4Protocol(pl.Data)
@@ -140,6 +144,21 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 		}
 		_ = (uint16(ipPl[0]) << 8) | uint16(ipPl[1]) // srcPort: 审计不记录
 		ipPort = (uint16(ipPl[2]) << 8) | uint16(ipPl[3])
+		// 用 IP 总长度字段更稳妥地定位上层负载
+		ipTotalLen := min(int(binary.BigEndian.Uint16(pl.Data[2:4])), len(pl.Data))
+		switch ipProto {
+		case waterutil.TCP:
+			// IPv4 头长度（IHL）
+			ihl := int(pl.Data[0]&0x0f) << 2
+			if ihl >= 20 && ihl < ipTotalLen {
+				tcpSeg = pl.Data[ihl:ipTotalLen]
+			}
+		case waterutil.UDP:
+			ihl := int(pl.Data[0]&0x0f) << 2
+			if ihl >= 20 && ihl < ipTotalLen {
+				udpSeg = pl.Data[ihl:ipTotalLen]
+			}
+		}
 	case 6:
 		info, ok := parseV6Header(pl.Data)
 		if !ok {
@@ -152,6 +171,14 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 			return // 非 TCP/UDP 不审计（与 v4 一致）
 		}
 		ipPort = info.DstPort
+		if info.L4Off < len(pl.Data) {
+			switch info.Proto {
+			case 6:
+				tcpSeg = pl.Data[info.L4Off:]
+			case 17:
+				udpSeg = pl.Data[info.L4Off:]
+			}
+		}
 	default:
 		return
 	}
@@ -178,29 +205,48 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 
 	info := ""
 	nu := utils.NowSec().Unix()
-	// HTTPS/HTTP 域名提取仅对 v4 生效；v6 包记源/目的/协议/端口即可（1.3 范围，避免用 v4 helper 误读 v6 头）
-	if ipProto == waterutil.TCP && (pl.Data[0]&0xF0)>>4 == 4 {
-		tcpPlData := waterutil.IPv4Payload(pl.Data)
-		// 24 (ACK PSH)
-		if len(tcpPlData) < 14 || tcpPlData[13] != 24 {
-			return
-		}
-		accessProto, info = onTCP(tcpPlData)
-		// HTTPS or HTTP
-		if accessProto != acc_proto_tcp {
-			// 提前存储只含ip数据的key, 避免即记录域名又记录一笔IP数据的记录
-			ipKey := make([]byte, 51)
-			copy(ipKey, key)
-			ipS := utils.BytesToString(ipKey)
-			auditPayload.IpAuditMap.Set(ipS, nu)
 
-			key[34] = byte(accessProto)
-			// 存储含域名的key
-			if info != "" {
-				md5Sum := md5.Sum([]byte(info))
-				copy(key[35:51], md5Sum[:])
-			}
+	// 域名提取：TCP 走 SNI/HTTP；目的端口 53 的 UDP 走 DNS Question。
+	if accessProto == acc_proto_tcp && len(tcpSeg) >= 14 {
+		// 仅首包（PSH+ACK）尝试解析，避免每包都解析
+		if tcpSeg[13]&0x18 == 0x18 {
+			accessProto, info = onTCP(tcpSeg)
 		}
+	} else if accessProto == acc_proto_udp && ipPort == 53 && len(udpSeg) >= 12 {
+		if name := parseDNSQuery(udpSeg); name != "" {
+			accessProto = acc_proto_dns
+			info = name
+		}
+	}
+
+	// FakeDNS 兜底：报文本身没有携带域名，但目的地址是 FakeIP 时，通过映射反查域名。
+	// 直接访问全局单例，避免在测试或未初始化场景触发懒加载。
+	if info == "" && sessdata.GlobalFakeDNSManager != nil {
+		if domain := sessdata.GlobalFakeDNSManager.GetDomain(ipDst.String()); domain != "" {
+			info = domain
+		}
+	}
+
+	// 任何命中域名的记录：把"仅 IP"的去重键提前占位，避免既记域名又记一笔裸 IP。
+	if info != "" {
+		ipKey := make([]byte, 51)
+		copy(ipKey, key)
+		// 占位键使用域名所依赖的底层传输协议：HTTPS/HTTP→TCP，DNS→UDP，FakeDNS 兜底保持当前协议
+		placeholderProto := accessProto
+		switch accessProto {
+		case acc_proto_https, acc_proto_http:
+			placeholderProto = acc_proto_tcp
+		case acc_proto_dns:
+			placeholderProto = acc_proto_udp
+		}
+		ipKey[34] = byte(placeholderProto)
+		ipS := utils.BytesToString(ipKey)
+		auditPayload.IpAuditMap.Set(ipS, nu)
+
+		key[34] = byte(accessProto)
+		// 存储含域名的key
+		md5Sum := md5.Sum([]byte(info))
+		copy(key[35:51], md5Sum[:])
 	}
 	s := utils.BytesToString(key)
 
