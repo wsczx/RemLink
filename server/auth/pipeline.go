@@ -91,7 +91,9 @@ func (p *Pipeline) runFrom(ctx *Context, start int) (StepResult, error) {
 			p.pendingStep = i
 			return StepPending, nil
 		case StepPass:
-			ctx.AddPassedStep(step.Name())
+			if step.Name() != "forcepwd" {
+				ctx.AddPassedStep(step.Name())
+			}
 			continue
 		default:
 			return StepFail, fmt.Errorf("%s: 未知认证结果 %d", step.Name(), result)
