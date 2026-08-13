@@ -111,7 +111,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="引用" align="center" width="130">
+        <el-table-column label="引用" align="center" width="160">
           <template slot-scope="scope">
             <div class="ref-cell">
               <span class="ref-item">
@@ -125,6 +125,8 @@
                 <strong>{{ scope.row.group_count || 0 }}</strong>
                 <span class="ref-label">组</span>
               </span>
+              <el-link type="primary" :underline="false" class="ref-detail-link"
+                @click="showRefDetail(scope.row)">详情</el-link>
             </div>
           </template>
         </el-table-column>
@@ -304,6 +306,66 @@
         <el-button type="primary" @click="doApplyToUsers" :loading="applyLoading" icon="el-icon-check">确认应用</el-button>
       </span>
     </el-dialog>
+
+    <!-- 引用详情 -->
+    <el-dialog :close-on-click-modal="false" :title="'策略「' + refPolicyName + '」引用详情'" :visible.sync="refDetailDialog"
+      width="720px" center class="ref-detail-dialog">
+      <div v-loading="refDetailLoading">
+        <div class="ref-detail-block">
+          <div class="ref-detail-head">
+            <i class="el-icon-s-order"></i>
+            <span>引用该策略的用户组（{{ refGroups.length }}）</span>
+            <el-button v-if="refGroups.length > 0" type="danger" plain size="mini" icon="el-icon-remove-outline"
+              class="ref-batch-btn" :disabled="selectedRefGroupIds.length === 0" :loading="refRemoving"
+              @click="removeSelectedGroups">批量移出（{{ selectedRefGroupIds.length }}）</el-button>
+          </div>
+          <el-table v-if="refGroups.length > 0" ref="refGroupTable" :data="refGroups" border size="small"
+            max-height="240"
+            :header-cell-style="{ background: 'var(--bg-header)', color: 'var(--text-primary)', fontWeight: '600' }"
+            @selection-change="onRefGroupSelect">
+            <el-table-column type="selection" width="42" align="center"></el-table-column>
+            <el-table-column prop="id" label="ID" width="70" align="center"></el-table-column>
+            <el-table-column prop="name" label="组名称" min-width="160"></el-table-column>
+            <el-table-column prop="note" label="备注" min-width="140" show-overflow-tooltip></el-table-column>
+            <el-table-column label="操作" width="80" align="center">
+              <template slot-scope="scope">
+                <el-link type="danger" :underline="false" :disabled="refRemoving"
+                  @click="removeGroup(scope.row)">移出</el-link>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div v-else class="ref-detail-empty">无用户组引用</div>
+        </div>
+
+        <div class="ref-detail-block">
+          <div class="ref-detail-head">
+            <i class="el-icon-s-custom"></i>
+            <span>引用该策略的用户（{{ refUsers.length }}）</span>
+            <el-button v-if="refUsers.length > 0" type="danger" plain size="mini" icon="el-icon-remove-outline"
+              class="ref-batch-btn" :disabled="selectedRefUserIds.length === 0" :loading="refRemoving"
+              @click="removeSelectedUsers">批量移出（{{ selectedRefUserIds.length }}）</el-button>
+          </div>
+          <el-table v-if="refUsers.length > 0" ref="refUserTable" :data="refUsers" border size="small" max-height="240"
+            :header-cell-style="{ background: 'var(--bg-header)', color: 'var(--text-primary)', fontWeight: '600' }"
+            @selection-change="onRefUserSelect">
+            <el-table-column type="selection" width="42" align="center"></el-table-column>
+            <el-table-column prop="id" label="ID" width="70" align="center"></el-table-column>
+            <el-table-column prop="username" label="用户名" min-width="140"></el-table-column>
+            <el-table-column prop="nickname" label="昵称" min-width="120" show-overflow-tooltip></el-table-column>
+            <el-table-column label="操作" width="80" align="center">
+              <template slot-scope="scope">
+                <el-link type="danger" :underline="false" :disabled="refRemoving"
+                  @click="removeUser(scope.row)">移出</el-link>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div v-else class="ref-detail-empty">无用户引用</div>
+        </div>
+      </div>
+      <span slot="footer">
+        <el-button @click="refDetailDialog = false">关闭</el-button>
+      </span>
+    </el-dialog>
   </div>
 </template>
 
@@ -371,6 +433,16 @@ export default {
       allUsers: [],
       selectedUserIds: [],
       userSearch: '',
+      // 引用详情
+      refDetailDialog: false,
+      refDetailLoading: false,
+      refRemoving: false,
+      refPolicyName: '',
+      refPolicyId: 0,
+      refGroups: [],
+      refUsers: [],
+      selectedRefGroupIds: [],
+      selectedRefUserIds: [],
       // 视口宽度，用于统计卡片列数自适应（避免手机端卡片被压成极窄一列）
       windowWidth: typeof window !== 'undefined' ? window.innerWidth : 1280,
       stats: {},
@@ -457,6 +529,73 @@ export default {
       }).catch(() => { });
     },
     pageChange(p) { this.getData(p) },
+
+    // 查看策略被哪些组/用户引用
+    showRefDetail(row) {
+      this.refPolicyName = row.name;
+      this.refGroups = [];
+      this.refUsers = [];
+      this.refPolicyId = row.id;
+      this.selectedRefGroupIds = [];
+      this.selectedRefUserIds = [];
+      // 切换策略时清空上一次的选择
+      if (this.$refs.refGroupTable) this.$refs.refGroupTable.clearSelection();
+      if (this.$refs.refUserTable) this.$refs.refUserTable.clearSelection();
+      this.refDetailDialog = true;
+      this.refDetailLoading = true;
+      axios.get('/policy/used_by', { params: { id: row.id } }).then(resp => {
+        const d = resp.data.data || {};
+        this.refGroups = d.groups || [];
+        this.refUsers = d.users || [];
+      }).catch(() => {
+        this.$message.error('请求出错');
+      }).finally(() => {
+        this.refDetailLoading = false;
+      });
+    },
+
+    onRefGroupSelect(rows) {
+      this.selectedRefGroupIds = rows.map(r => r.id);
+    },
+    onRefUserSelect(rows) {
+      this.selectedRefUserIds = rows.map(r => r.id);
+    },
+
+    // 从策略移出单个组
+    removeGroup(row) {
+      this.doRemove('/policy/remove_from_groups', { policy_id: this.refPolicyId, group_ids: [row.id] });
+    },
+    // 从策略批量移出组
+    removeSelectedGroups() {
+      if (this.selectedRefGroupIds.length === 0) return;
+      this.doRemove('/policy/remove_from_groups', { policy_id: this.refPolicyId, group_ids: this.selectedRefGroupIds });
+    },
+    // 从策略移出单个用户
+    removeUser(row) {
+      this.doRemove('/policy/remove_from_users', { policy_id: this.refPolicyId, user_ids: [row.id] });
+    },
+    // 从策略批量移出用户
+    removeSelectedUsers() {
+      if (this.selectedRefUserIds.length === 0) return;
+      this.doRemove('/policy/remove_from_users', { policy_id: this.refPolicyId, user_ids: this.selectedRefUserIds });
+    },
+    // 通用移出请求：成功后刷新引用详情与列表计数
+    doRemove(url, payload) {
+      this.refRemoving = true;
+      axios.post(url, payload).then(resp => {
+        if (resp.data.code === 0) {
+          this.$message.success(resp.data.msg);
+          this.showRefDetail({ id: this.refPolicyId, name: this.refPolicyName });
+          this.getData(this.page);
+        } else {
+          this.$message.error(resp.data.msg);
+        }
+      }).catch(() => {
+        this.$message.error('请求出错');
+      }).finally(() => {
+        this.refRemoving = false;
+      });
+    },
 
     // 统一的行操作入口
     handleRowCmd(row, cmd) {
@@ -916,6 +1055,47 @@ export default {
 
 .ref-divider {
   color: var(--border-base);
+}
+
+.ref-detail-link {
+  font-size: 12px;
+  margin-left: 2px;
+}
+
+/* 引用详情弹窗 */
+.ref-detail-block {
+  margin-bottom: 18px;
+}
+
+.ref-detail-block:last-child {
+  margin-bottom: 0;
+}
+
+.ref-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.ref-detail-head i {
+  color: var(--color-primary);
+}
+
+.ref-batch-btn {
+  margin-left: auto;
+}
+
+.ref-detail-empty {
+  padding: 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-placeholder);
+  background: var(--bg-hover);
+  border-radius: 6px;
 }
 
 /* 状态指示 */

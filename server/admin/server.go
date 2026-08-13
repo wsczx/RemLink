@@ -158,6 +158,8 @@ func StartAdmin() {
 	r.HandleFunc("/policy/used_by", PolicyUsedBy)
 	r.HandleFunc("/policy/apply_to_groups", PolicyApplyToGroups).Methods(http.MethodPost)
 	r.HandleFunc("/policy/apply_to_users", PolicyApplyToUsers).Methods(http.MethodPost)
+	r.HandleFunc("/policy/remove_from_groups", PolicyRemoveFromGroups).Methods(http.MethodPost)
+	r.HandleFunc("/policy/remove_from_users", PolicyRemoveFromUsers).Methods(http.MethodPost)
 
 	r.HandleFunc("/provider/list", ProviderList)
 	r.HandleFunc("/provider/names", ProviderNames)

@@ -360,3 +360,115 @@ func PolicyUsedBy(w http.ResponseWriter, r *http.Request) {
 	}
 	RespSucess(w, data)
 }
+
+// 将指定用户组从该策略移出（仅清除当前引用本策略的组）
+func PolicyRemoveFromGroups(w http.ResponseWriter, r *http.Request) {
+	type Req struct {
+		PolicyId int   `json:"policy_id"`
+		GroupIds []int `json:"group_ids"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		RespError(w, RespInternalErr, err)
+		return
+	}
+	defer r.Body.Close()
+
+	req := &Req{}
+	if err := json.Unmarshal(body, req); err != nil {
+		RespError(w, RespParamErr, "参数错误")
+		return
+	}
+	if req.PolicyId < 1 {
+		RespError(w, RespParamErr, "策略ID错误")
+		return
+	}
+	if len(req.GroupIds) == 0 {
+		RespError(w, RespParamErr, "请选择要移出的用户组")
+		return
+	}
+
+	var p dbdata.Policy
+	if err := dbdata.One("Id", req.PolicyId, &p); err != nil {
+		RespError(w, RespParamErr, "策略不存在")
+		return
+	}
+
+	// 仅清除当前确实引用本策略的组，避免误清引用其他策略的组
+	successCount := 0
+	for _, gid := range req.GroupIds {
+		var g dbdata.Group
+		if err := dbdata.One("Id", gid, &g); err != nil {
+			continue
+		}
+		if g.PolicyId != req.PolicyId {
+			continue
+		}
+		g.PolicyId = 0
+		if err := dbdata.Set(&g); err != nil {
+			RespError(w, RespInternalErr, "移出用户组 "+g.Name+" 失败: "+err.Error())
+			return
+		}
+		successCount++
+	}
+
+	dbdata.AdminLog("策略管理", p.Name, "将"+strconv.Itoa(successCount)+"个用户组移出策略", r.RemoteAddr)
+	RespSucess(w, "已成功移出 "+strconv.Itoa(successCount)+" 个用户组")
+}
+
+// 将指定用户从该策略移出（仅清除当前引用本策略的用户）
+func PolicyRemoveFromUsers(w http.ResponseWriter, r *http.Request) {
+	type Req struct {
+		PolicyId int   `json:"policy_id"`
+		UserIds  []int `json:"user_ids"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		RespError(w, RespInternalErr, err)
+		return
+	}
+	defer r.Body.Close()
+
+	req := &Req{}
+	if err := json.Unmarshal(body, req); err != nil {
+		RespError(w, RespParamErr, "参数错误")
+		return
+	}
+	if req.PolicyId < 1 {
+		RespError(w, RespParamErr, "策略ID错误")
+		return
+	}
+	if len(req.UserIds) == 0 {
+		RespError(w, RespParamErr, "请选择要移出的用户")
+		return
+	}
+
+	var p dbdata.Policy
+	if err := dbdata.One("Id", req.PolicyId, &p); err != nil {
+		RespError(w, RespParamErr, "策略不存在")
+		return
+	}
+
+	// 仅清除当前确实引用本策略的用户，避免误清引用其他策略的用户
+	successCount := 0
+	for _, uid := range req.UserIds {
+		var u dbdata.User
+		if err := dbdata.One("Id", uid, &u); err != nil {
+			continue
+		}
+		if u.PolicyId != req.PolicyId {
+			continue
+		}
+		u.PolicyId = 0
+		if err := dbdata.Set(&u); err != nil {
+			RespError(w, RespInternalErr, "移出用户 "+u.Username+" 失败: "+err.Error())
+			return
+		}
+		successCount++
+	}
+
+	dbdata.AdminLog("策略管理", p.Name, "将"+strconv.Itoa(successCount)+"个用户移出策略", r.RemoteAddr)
+	RespSucess(w, "已成功移出 "+strconv.Itoa(successCount)+" 个用户")
+}
