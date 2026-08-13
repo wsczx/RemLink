@@ -81,6 +81,10 @@ func checkMacvtap() {
 // 创建 Macvtap 网卡
 func LinkMacvtap(cSess *sessdata.ConnSession) error {
 	capL := sessdata.IpPool.IpLongMax - sessdata.IpPool.IpLongMin
+	if capL <= 0 {
+		// IP 池配置异常（Max<=Min）时避免取模除零 panic
+		capL = 1
+	}
 	ipN := utils.Ip2long(cSess.IpAddr) % capL
 	ifName := fmt.Sprintf("%s%d", vTapPrefix, ipN)
 
@@ -171,6 +175,10 @@ func LinkMacvtap(cSess *sessdata.ConnSession) error {
 // 内核按 IP 分发流量（而非二层桥接）。适合客户端规模大、母网卡所在网络对 MAC 数量敏感的场景。
 func LinkIpvtap(cSess *sessdata.ConnSession) error {
 	capL := sessdata.IpPool.IpLongMax - sessdata.IpPool.IpLongMin
+	if capL <= 0 {
+		// IP 池配置异常（Max<=Min）时兜底，避免取模除零 panic
+		capL = 1
+	}
 	ipN := utils.Ip2long(cSess.IpAddr) % capL
 	ifName := fmt.Sprintf("%s%d", vTapPrefix, ipN)
 

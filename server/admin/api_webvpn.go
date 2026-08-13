@@ -104,12 +104,15 @@ func WebVpnAppSet(w http.ResponseWriter, r *http.Request) {
 
 // 删除 WebVPN 应用
 func WebVpnAppDel(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	id, _ := strconv.Atoi(r.FormValue("id"))
-	if id < 1 {
+	var req struct {
+		Id int `json:"id"`
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil || json.Unmarshal(body, &req) != nil || req.Id < 1 {
 		RespError(w, RespParamErr, "Id错误")
 		return
 	}
+	id := req.Id
 
 	a := &dbdata.WebVpnApp{}
 	dbdata.One("Id", id, a)

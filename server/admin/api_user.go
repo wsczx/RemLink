@@ -101,55 +101,25 @@ func UserList(w http.ResponseWriter, r *http.Request) {
 		"count":          count,
 		"page_size":      pageSize,
 		"datas":          datas,
-		"stats_total":    stats.total,
-		"stats_local":    stats.local,
-		"stats_ldap":     stats.ldap,
-		"stats_external": stats.external,
-		"stats_active":   stats.active,
-		"stats_disable":  stats.disable,
+		"stats_total":    stats.Total,
+		"stats_local":    stats.Local,
+		"stats_ldap":     stats.Ldap,
+		"stats_external": stats.External,
+		"stats_active":   stats.Active,
+		"stats_disable":  stats.Disable,
 	}
 
 	RespSucess(w, data)
 }
 
-// userListStats 在不分页的前提下，对当前筛选条件做聚合统计。
-// 统计卡片据此展示全量数据，而非当前页数据。
-func userListStats(wheres []string, args []any) (struct {
-	total, local, ldap, external, active, disable int
-}, error) {
-	var (
-		all []dbdata.User
-		ret struct {
-			total, local, ldap, external, active, disable int
-		}
-	)
+// 在数据库侧做聚合统计（COUNT + CASE WHEN）
+// 不全量加载用户对象，并覆盖三方登录类型（wxwork/dingtalk/feishu），避免遗漏
+func userListStats(wheres []string, args []any) (dbdata.UserStats, error) {
+	where := ""
 	if len(wheres) > 0 {
-		where := strings.Join(wheres, " AND ")
-		if err := dbdata.FindWhere(&all, 0, 0, where, args...); err != nil {
-			return ret, err
-		}
-	} else {
-		if err := dbdata.Find(&all, 0, 0); err != nil {
-			return ret, err
-		}
+		where = strings.Join(wheres, " AND ")
 	}
-	ret.total = len(all)
-	for _, u := range all {
-		switch u.Type {
-		case "local":
-			ret.local++
-		case "ldap":
-			ret.ldap++
-		case "external":
-			ret.external++
-		}
-		if u.Status == 1 {
-			ret.active++
-		} else {
-			ret.disable++
-		}
-	}
-	return ret, nil
+	return dbdata.UserStatsWhere(where, args...)
 }
 
 func UserDetail(w http.ResponseWriter, r *http.Request) {

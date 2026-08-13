@@ -21,7 +21,7 @@
         </div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon stat-icon-ldap">
+        <div class="stat-icon stat-icon-external">
           <i class="el-icon-connection"></i>
         </div>
         <div class="stat-body">
@@ -125,7 +125,7 @@
             <template slot-scope="scope">
               <div v-if="scope.row.groups && scope.row.groups.length" class="group-tags">
                 <el-tag v-for="g in scope.row.groups" :key="g" size="mini" effect="plain" class="group-tag">{{ g
-                }}</el-tag>
+                  }}</el-tag>
               </div>
               <span v-else class="text-muted">-</span>
             </template>
@@ -143,7 +143,7 @@
           <el-table-column label="已用流量" width="120" align="center">
             <template slot-scope="scope">
               <span v-if="scope.row.traffic_used > 0" class="traffic-used">{{ formatTraffic(scope.row.traffic_used)
-              }}</span>
+                }}</span>
               <span v-else class="text-muted">-</span>
             </template>
           </el-table-column>
@@ -704,6 +704,11 @@ export default {
 .stat-icon-ldap {
   background: var(--warning-bg);
   color: var(--color-warning);
+}
+
+.stat-icon-external {
+  background: var(--primary-bg);
+  color: var(--color-primary);
 }
 
 .stat-icon-active {
