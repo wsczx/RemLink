@@ -308,7 +308,7 @@ func clearTrafficResetAt(policyId int) {
 		for _, g := range groups {
 			var groupUsers []User
 			// groups 字段是 JSON 数组，转义 LIKE 特殊字符后精确匹配组名
-			escaped := escapeLike(g.Name)
+			escaped := EscapeLike(g.Name)
 			if err := FindWhere(&groupUsers, 0, 0, "groups like ?", `%"`+escaped+`"%`); err == nil {
 				for _, u := range groupUsers {
 					usernames[u.Username] = struct{}{}
@@ -325,11 +325,11 @@ func clearTrafficResetAt(policyId int) {
 }
 
 // 转义 SQL LIKE 模式中的特殊字符
-func escapeLike(s string) string {
+func EscapeLike(s string) string {
 	r := make([]byte, 0, len(s)*2)
 	for i := 0; i < len(s); i++ {
 		switch s[i] {
-		case '\\', '%', '_':
+		case '\\', '%', '_', '"':
 			r = append(r, '\\')
 		}
 		r = append(r, s[i])

@@ -43,16 +43,13 @@ func GroupList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 统计卡片按"全量数据"聚合，不受分页影响
+	statActive := dbdata.FindWhereCount(&dbdata.Group{}, "status=1")
+	statWithPolicy := dbdata.FindWhereCount(&dbdata.Group{}, "policy_id>0")
+	// 多因子认证需解析 AuthProfile，组表量小，仅拉组本身（不拉用户等大表）
 	var all []dbdata.Group
 	_ = dbdata.Find(&all, 0, 0)
-	statActive, statWithPolicy, statWithAuth := 0, 0, 0
+	statWithAuth := 0
 	for _, g := range all {
-		if g.Status == 1 {
-			statActive++
-		}
-		if g.PolicyId > 0 {
-			statWithPolicy++
-		}
 		if groupHasMultiAuth(g.AuthProfile) {
 			statWithAuth++
 		}
@@ -223,8 +220,8 @@ func GroupDel(w http.ResponseWriter, r *http.Request) {
 	// 清理该组在防火墙里的 NAT/转发规则，避免删除后规则残留至整机重启
 	sessdata.RemoveGroupNAT(g.ClientCidr, g.ClientCidr6, g.OutDev)
 
-	// 删除用户组后，组内成员重新签发 WebVPN 会话
-	dbdata.WebVpnRevokeGroupMembers([]string{g.Name})
+	// 删除用户组后，组内成员重新签发 WebVPN 会话（异步，避免阻塞响应）
+	go dbdata.WebVpnRevokeGroupMembers([]string{g.Name})
 
 	// 同步清理各用户 Groups 字段里的已删组名，避免用户列表残留
 	if err := dbdata.RemoveGroupFromUsers(g.Name); err != nil {

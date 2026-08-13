@@ -26,15 +26,33 @@ func (s *AppStore) Invalidate() {
 
 // 返回某用户有权访问的启用中的应用（用户维度授权）
 func (s *AppStore) AppsForUser(user *dbdata.User) ([]dbdata.WebVpnApp, error) {
-	var all []dbdata.WebVpnApp
-	if err := dbdata.Find(&all, -1, 0); err != nil {
+	// 候选 1：授权组含该用户任一组的 app
+	var byGroup []dbdata.WebVpnApp
+	for _, g := range user.Groups {
+		like := `%"` + dbdata.EscapeLike(g) + `"%`
+		var part []dbdata.WebVpnApp
+		if err := dbdata.FindWhere(&part, 0, 0, "groups LIKE ? AND status=1", like); err == nil {
+			byGroup = append(byGroup, part...)
+		}
+	}
+	// 候选 2：授权用户白名单直接含该用户的 app
+	likeU := `%"` + dbdata.EscapeLike(user.Username) + `"%`
+	var byUser []dbdata.WebVpnApp
+	if err := dbdata.FindWhere(&byUser, 0, 0, "users LIKE ? AND status=1", likeU); err != nil {
 		return nil, err
 	}
-	result := make([]dbdata.WebVpnApp, 0, len(all))
-	for _, a := range all {
-		if a.Status != 1 {
+	// 合并候选（含 groups 为空=不限组 的 app，需用 OR 条件兜底）
+	var fallback []dbdata.WebVpnApp
+	if err := dbdata.FindWhere(&fallback, 0, 0, "status=1 AND (groups IS NULL OR groups = '' OR groups = '[]' OR groups = 'null')", nil); err != nil {
+		return nil, err
+	}
+	seen := make(map[int]bool)
+	result := make([]dbdata.WebVpnApp, 0)
+	for _, a := range append(append(byGroup, byUser...), fallback...) {
+		if seen[a.Id] {
 			continue
 		}
+		seen[a.Id] = true
 		if !dbdata.WebVpnUserAllowed(&a, user) {
 			continue
 		}

@@ -32,9 +32,14 @@ func (r *Revoker) RevokeGroupMembers(groupNames []string) {
 		want[g] = true
 	}
 	var users []dbdata.User
-	if err := dbdata.Find(&users, -1, 0); err != nil {
-		base.Error("WebVPN 查询组成员失败:", err)
-		return
+	for _, g := range groupNames {
+		like := `%"` + dbdata.EscapeLike(g) + `"%`
+		var part []dbdata.User
+		if err := dbdata.FindWhere(&part, 0, 0, "groups LIKE ?", like); err != nil {
+			base.Error("WebVPN 查询组成员失败:", err)
+			continue
+		}
+		users = append(users, part...)
 	}
 	kicked := make(map[string]bool)
 	for _, u := range users {

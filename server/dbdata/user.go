@@ -100,8 +100,9 @@ func (u *User) BeforeUpdate() {
 
 // 删除用户组后，把该组名从所有用户的 Groups 里移除，避免用户列表残留已删组
 func RemoveGroupFromUsers(groupName string) error {
+	like := `%"` + EscapeLike(groupName) + `"%`
 	var users []User
-	if err := Find(&users, 0, 0); err != nil {
+	if err := FindWhere(&users, 0, 0, "groups LIKE ?", like); err != nil {
 		return err
 	}
 	for i := range users {

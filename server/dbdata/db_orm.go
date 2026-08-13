@@ -113,11 +113,10 @@ func FindAndCount(session *xorm.Session, data any, limit, page int) (int64, erro
 
 // 在不分页、不全量加载对象的前提下，对当前筛选条件做聚合统计
 // 用 SQL 的 COUNT + CASE WHEN 在数据库侧完成统计，避免把全表用户载入内存
-// 覆盖全部用户类型（wxwork/dingtalk/feishu）
+// 外部用户 = 所有非本地用户（ldap/radius/wxwork/dingtalk/feishu/external 均算外部）
 type UserStats struct {
 	Total    int
 	Local    int
-	Ldap     int
 	External int
 	Active   int
 	Disable  int
@@ -129,7 +128,7 @@ func UserStatsWhere(where string, args ...any) (UserStats, error) {
 		COUNT(*) AS total,
 		SUM(CASE WHEN type = 'local' THEN 1 ELSE 0 END) AS local,
 		SUM(CASE WHEN type = 'ldap' THEN 1 ELSE 0 END) AS ldap,
-		SUM(CASE WHEN type IN ('external','wxwork','dingtalk','feishu') THEN 1 ELSE 0 END) AS external,
+		SUM(CASE WHEN type != 'local' THEN 1 ELSE 0 END) AS external,
 		SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS active,
 		SUM(CASE WHEN status != 1 THEN 1 ELSE 0 END) AS disable
 	FROM user`

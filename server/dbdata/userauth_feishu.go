@@ -108,12 +108,14 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 			skipped++
 			continue
 		}
-		mobile, email := feishuUser.Mobile, ""
+		mobile, email := feishuUser.Mobile, feishuUser.Email
 		if detail, derr := a.GetFeishuUserDetail(accessToken, feishuUser.UserID); derr == nil {
 			if detail.Data.Mobile != "" {
 				mobile = detail.Data.Mobile
 			}
-			email = detail.Data.Email
+			if detail.Data.Email != "" {
+				email = detail.Data.Email
+			}
 		} else {
 			base.Debug("飞书获取用户明细失败:", feishuUser.UserID, derr)
 		}
@@ -122,7 +124,7 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 			Type:       "feishu",
 			Username:   feishuUser.UserID,
 			Nickname:   feishuUser.Name,
-			Phone:      strings.Split(mobile, "+86")[1],
+			Phone:      strings.TrimPrefix(mobile, "+86"),
 			Email:      email,
 			Groups:     []string{g.Name},
 			DisableOtp: !needOTP,
@@ -153,7 +155,7 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 		// 更新现有飞书用户字段
 		u.Nickname = feishuUser.Name
 		if mobile != "" {
-			u.Phone = strings.Split(mobile, "+86")[1]
+			u.Phone = strings.TrimPrefix(mobile, "+86")
 		}
 		if email != "" {
 			u.Email = email

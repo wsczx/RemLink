@@ -54,13 +54,11 @@ func PolicyList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 统计卡片按"全量数据"聚合，不受分页影响
+	statActive := dbdata.FindWhereCount(&dbdata.Policy{}, "status=1")
 	var all []dbdata.Policy
 	_ = dbdata.Find(&all, 0, 0)
-	statActive, statFakeDNS, statBandwidth, statQuota := 0, 0, 0, 0
+	statFakeDNS, statBandwidth, statQuota := 0, 0, 0
 	for _, p := range all {
-		if p.Status == 1 {
-			statActive++
-		}
 		if p.EnableFakeDNS {
 			statFakeDNS++
 		}

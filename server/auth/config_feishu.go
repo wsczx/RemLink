@@ -185,9 +185,11 @@ func (c *FeishuConfig) GetFeishuUser(code string) (string, error) {
 	return userID, nil
 }
 
-// 获取飞书用户详细信息（含部门）
+// 获取飞书用户详细信息（含部门、邮箱、手机号）
+// 飞书 contact/v3/users 接口默认只返回基础字段，email/mobile 等需显式通过
+// user_field_mask 请求，否则永远返回空串（这正是之前同步不到邮箱的原因）。
 func (c *FeishuConfig) GetFeishuUserDetail(tenantAccessToken, userID string) (*FeishuUserResponse, error) {
-	url := fmt.Sprintf("https://open.feishu.cn/open-apis/contact/v3/users/%s?user_id_type=user_id", userID)
+	url := fmt.Sprintf("https://open.feishu.cn/open-apis/contact/v3/users/%s?user_id_type=user_id&user_field_mask=email,mobile,name,department_ids,open_id,union_id", userID)
 	userInfo := &FeishuUserResponse{}
 	headers := map[string]string{"Authorization": "Bearer " + tenantAccessToken}
 	if err := fetchJSON("获取飞书用户详细信息", "GET", url, nil, headers, userInfo, 0); err != nil {
@@ -231,6 +233,7 @@ type FeishuDeptUserItem struct {
 	OpenID        string   `json:"open_id"`
 	Name          string   `json:"name"`
 	Mobile        string   `json:"mobile"`
+	Email         string   `json:"email"`
 	DepartmentIDs []string `json:"department_ids"`
 }
 
@@ -242,12 +245,12 @@ func (c *FeishuConfig) GetDepartmentUsers(tenantAccessToken, departmentID string
 
 	for {
 		url := fmt.Sprintf(
-			"https://open.feishu.cn/open-apis/contact/v3/users/find_by_department?department_id=%s&user_id_type=user_id&department_id_type=open_department_id&page_size=50",
+			"https://open.feishu.cn/open-apis/contact/v3/users/find_by_department?department_id=%s&user_id_type=user_id&department_id_type=open_department_id&page_size=50&user_field_mask=mobile,email",
 			departmentID,
 		)
 		// 如果根部门是 "0"，调整 department_id_type 适配
 		if departmentID == "0" {
-			url = "https://open.feishu.cn/open-apis/contact/v3/users/find_by_department?department_id=0&user_id_type=user_id&department_id_type=department_id&page_size=50"
+			url = "https://open.feishu.cn/open-apis/contact/v3/users/find_by_department?department_id=0&user_id_type=user_id&department_id_type=department_id&page_size=50&user_field_mask=mobile,email"
 		}
 
 		if pageToken != "" {

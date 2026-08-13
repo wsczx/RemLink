@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/wsczx/remlink/base"
 )
 
 // TestWebVpnRevokePersistAcrossMemoryReset 验证 P1-8 修复：
@@ -59,6 +60,9 @@ func TestWebVpnRevokeUsersBatch(t *testing.T) {
 	ast := assert.New(t)
 	preIpData(t)
 	defer closeIpdata()
+	// 模拟 WebVPN 已启用（批量吊销在 WebVPN 未启用时直接跳过，不写库）
+	base.UpdateCfg(func(c *base.ServerConfig) { c.WebVpnDomain = "test" })
+	defer base.UpdateCfg(func(c *base.ServerConfig) { c.WebVpnDomain = "" })
 
 	WebVpnRevokeUsers([]string{"u1", "u2", "u3"})
 

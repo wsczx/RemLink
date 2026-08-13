@@ -77,7 +77,7 @@ func WebVpnAppList(pageSize, page int, name string) ([]WebVpnApp, int, error) {
 		err := Find(&datas, pageSize, page)
 		return datas, count, err
 	}
-	like := "%" + escapeLike(name) + "%"
+	like := "%" + EscapeLike(name) + "%"
 	count := FindWhereCount(&WebVpnApp{}, "name LIKE ? OR note LIKE ?", like, like)
 	err := FindWhere(&datas, pageSize, page, "name LIKE ? OR note LIKE ?", like, like)
 	return datas, count, err
@@ -306,7 +306,10 @@ type WebVpnAuditSearch struct {
 	Date     []string `json:"date"`
 }
 
-// 导出查询：按条件返回全部审计记录
+// 导出查询：按条件返回审计记录。
+// 审计表可能极大，导出设硬上限防止一次性拉爆内存（命中条数超过上限时截断）
+const webVpnAuditExportLimit = 100000
+
 func WebVpnAuditExportList(search WebVpnAuditSearch) ([]WebVpnAudit, error) {
 	var datas []WebVpnAudit
 	session := xdb.Where("1=1")
@@ -322,8 +325,11 @@ func WebVpnAuditExportList(search WebVpnAuditSearch) ([]WebVpnAudit, error) {
 	if len(search.Date) == 2 && search.Date[0] != "" {
 		session.And("created_at BETWEEN ? AND ?", search.Date[0], search.Date[1])
 	}
-	if err := session.OrderBy("id desc").Find(&datas); err != nil {
+	if err := session.OrderBy("id desc").Limit(webVpnAuditExportLimit).Find(&datas); err != nil {
 		return nil, err
+	}
+	if len(datas) >= webVpnAuditExportLimit {
+		base.Warn("WebVPN 审计导出达到上限，仅返回前 ", webVpnAuditExportLimit, " 条，请缩小时间/筛选范围")
 	}
 	return datas, nil
 }
@@ -432,7 +438,14 @@ func WebVpnRevokeReset() {
 }
 
 // 批量吊销一批用户的 WebVPN 会话（权限变更后让已签发会话立即失效）。
+// WebVPN 未启用（WebVpnDomain 为空）时直接跳过，避免无意义地逐用户写库。
 func WebVpnRevokeUsers(usernames []string) {
+	if len(usernames) == 0 {
+		return
+	}
+	if base.GetCfg().WebVpnDomain == "" {
+		return
+	}
 	for _, u := range usernames {
 		WebVpnRevokeUser(u)
 	}
@@ -444,14 +457,24 @@ func WebVpnRevokeGroupMembers(groupNames []string) {
 	if len(groupNames) == 0 {
 		return
 	}
+	// WebVPN 未启用时无需吊销，直接返回。
+	if base.GetCfg().WebVpnDomain == "" {
+		return
+	}
 	want := make(map[string]bool, len(groupNames))
 	for _, g := range groupNames {
 		want[g] = true
 	}
+	// 精确组名匹配，避免误吊销
 	var users []User
-	if err := Find(&users, -1, 0); err != nil {
-		base.Error("WebVPN 查询组成员失败:", err)
-		return
+	for _, g := range groupNames {
+		like := `%"` + EscapeLike(g) + `"%`
+		var part []User
+		if err := FindWhere(&part, 0, 0, "groups LIKE ?", like); err != nil {
+			base.Error("WebVPN 查询组成员失败:", err)
+			continue
+		}
+		users = append(users, part...)
 	}
 	kicked := make(map[string]bool)
 	for _, u := range users {

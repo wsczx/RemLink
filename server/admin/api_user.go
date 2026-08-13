@@ -103,7 +103,6 @@ func UserList(w http.ResponseWriter, r *http.Request) {
 		"datas":          datas,
 		"stats_total":    stats.Total,
 		"stats_local":    stats.Local,
-		"stats_ldap":     stats.Ldap,
 		"stats_external": stats.External,
 		"stats_active":   stats.Active,
 		"stats_disable":  stats.Disable,
@@ -113,7 +112,7 @@ func UserList(w http.ResponseWriter, r *http.Request) {
 }
 
 // 在数据库侧做聚合统计（COUNT + CASE WHEN）
-// 不全量加载用户对象，并覆盖三方登录类型（wxwork/dingtalk/feishu），避免遗漏
+// 不全量加载用户对象；external 覆盖所有非本地用户类型（ldap/radius/wxwork/dingtalk/feishu/external）
 func userListStats(wheres []string, args []any) (dbdata.UserStats, error) {
 	where := ""
 	if len(wheres) > 0 {
@@ -411,29 +410,32 @@ func UserBatchDelete(w http.ResponseWriter, r *http.Request) {
 	failCount := 0
 	skipCount := 0
 
-	for _, userId := range req.UserIds {
-		user := &dbdata.User{}
-		err := dbdata.One("Id", userId, user)
-		if err != nil {
-			// 用户已不存在（可能已被并发删除/页面刷新后重复提交），视为跳过而非失败
-			if errors.Is(err, dbdata.ErrNotFound) {
-				skipCount++
-			} else {
-				base.Error("批量删除用户-查询失败:", userId, err)
-				failCount++
-			}
-			continue
-		}
+	// 一次性查出待删除用户（1 次查询，避免逐个 One 的 N+1），同时收集 username 供后续吊销 WebVPN 会话
+	var users []dbdata.User
+	if err := dbdata.GetXdb().In("id", req.UserIds).Find(&users); err != nil {
+		base.Error("批量删除用户-查询失败:", err)
+		RespError(w, RespInternalErr, err)
+		return
+	}
+	usernames := make([]string, 0, len(users))
+	for _, u := range users {
+		usernames = append(usernames, u.Username)
+	}
 
-		err = dbdata.Del(user)
-		if err != nil {
-			base.Error("批量删除用户失败:", user.Username, err)
-			failCount++
-		} else {
-			// 删除用户后，令其已签发的 WebVPN 会话立即失效
-			dbdata.WebVpnRevokeUser(user.Username)
-			successCount++
-		}
+	// 单条 DELETE ... WHERE id IN (?) 一次删完（1 次写，避免逐个 Del 在 SQLite 单写锁下反复竞争导致部分删除失败）
+	affected, err := dbdata.GetXdb().In("id", req.UserIds).Delete(&dbdata.User{})
+	if err != nil {
+		base.Error("批量删除用户失败:", err)
+		RespError(w, RespInternalErr, err)
+		return
+	}
+	successCount = int(affected)
+	// 列表里不在库中的（已删除/重复提交）计入跳过
+	skipCount = len(req.UserIds) - successCount
+
+	// 删除后令其已签发的 WebVPN 会话失效（纯收尾安全动作，异步执行避免阻塞响应）
+	if len(usernames) > 0 {
+		go dbdata.WebVpnRevokeUsers(usernames)
 	}
 
 	dbdata.AdminLog("用户管理", "批量操作", "批量删除了"+strconv.Itoa(successCount)+"个用户", r.RemoteAddr)

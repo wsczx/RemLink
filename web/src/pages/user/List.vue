@@ -339,7 +339,6 @@ export default {
       // 统计卡片（后端按当前筛选条件全量聚合，不受分页影响）
       statsTotal: 0,
       statsLocal: 0,
-      statsLdap: 0,
       statsExternal: 0,
       statsActive: 0,
       statsDisable: 0,
@@ -604,7 +603,6 @@ export default {
         this.count = data.count || 0;
         this.statsTotal = data.stats_total || 0;
         this.statsLocal = data.stats_local || 0;
-        this.statsLdap = data.stats_ldap || 0;
         this.statsExternal = data.stats_external || 0;
         this.statsActive = data.stats_active || 0;
         this.statsDisable = data.stats_disable || 0;
