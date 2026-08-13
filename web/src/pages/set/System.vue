@@ -33,13 +33,12 @@
         </div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon stat-icon-go">
-          <i class="el-icon-s-platform"></i>
+        <div class="stat-icon stat-icon-uptime">
+          <i class="el-icon-time"></i>
         </div>
         <div class="stat-body">
-          <div class="stat-value" v-if="system.sys">{{ system.sys.goVersion }}</div>
-          <div class="stat-value" v-else>-</div>
-          <div class="stat-label">Go 版本</div>
+          <div class="stat-value">{{ formattedUptime }}</div>
+          <div class="stat-label">运行时长</div>
         </div>
       </div>
     </div>
@@ -52,7 +51,7 @@
           <el-progress type="circle" :percentage="system.cpu.percent" :width="130" :stroke-width="10" :show-text="false"
             :color="progressColor(system.cpu.percent)" />
           <span class="progress-num" :style="{ color: progressColor(system.cpu.percent) }">{{ system.cpu.percent
-            }}%</span>
+          }}%</span>
         </div>
         <div class="info-list">
           <div class="info-item">
@@ -80,7 +79,7 @@
           <el-progress type="circle" :percentage="system.mem.percent" :width="130" :stroke-width="10" :show-text="false"
             :color="progressColor(system.mem.percent)" />
           <span class="progress-num" :style="{ color: progressColor(system.mem.percent) }">{{ system.mem.percent
-            }}%</span>
+          }}%</span>
         </div>
         <div class="info-list">
           <div class="info-item">
@@ -100,7 +99,7 @@
           <el-progress type="circle" :percentage="system.disk.percent" :width="130" :stroke-width="10"
             :show-text="false" :color="progressColor(system.disk.percent)" />
           <span class="progress-num" :style="{ color: progressColor(system.disk.percent) }">{{ system.disk.percent
-            }}%</span>
+          }}%</span>
         </div>
         <div class="info-list">
           <div class="info-item">
@@ -247,6 +246,7 @@ export default {
   data() {
     return {
       system: {},
+      uptimeSeconds: 0,
       checkingUpdate: false,
       upgradeInfo: null,
       upgradeDialog: {
@@ -262,6 +262,17 @@ export default {
     }
   },
   computed: {
+    formattedUptime() {
+      const s = Math.max(0, Math.floor(this.uptimeSeconds || 0));
+      const d = Math.floor(s / 86400);
+      const h = Math.floor((s % 86400) / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const parts = [];
+      if (d > 0) parts.push(d + ' 天');
+      if (h > 0) parts.push(h + ' 小时');
+      parts.push(m + ' 分钟');
+      return parts.join(' ');
+    },
     stageText() {
       const map = {
         downloading: '正在下载...',
@@ -279,6 +290,7 @@ export default {
     getData() {
       axios.get('/set/system', {}).then(resp => {
         this.system = resp.data.data;
+        this.uptimeSeconds = (this.system.sys && this.system.sys.uptime) || 0;
       }).catch(() => {
         this.$message.error('请求出错');
       });
@@ -367,9 +379,9 @@ export default {
                     // 重启后尝试重连
                     self.startReconnect();
                   }
-                  } catch (e) {
-                    // 忽略单行解析错误，继续处理后续行
-                  }
+                } catch (e) {
+                  // 忽略单行解析错误，继续处理后续行
+                }
               }
             }
             processChunk();
@@ -436,9 +448,9 @@ export default {
   color: var(--color-warning);
 }
 
-.stat-icon-go {
-  background: var(--danger-bg);
-  color: var(--color-danger);
+.stat-icon-uptime {
+  background: var(--info-bg);
+  color: var(--color-info);
 }
 
 /* 资源详情卡片 */

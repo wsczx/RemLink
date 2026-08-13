@@ -28,6 +28,9 @@ import (
 	"xorm.io/xorm"
 )
 
+// 进程启动时间，用于计算运行时长
+var serverStartTime = time.Now()
+
 func SetHome(w http.ResponseWriter, r *http.Request) {
 	data := make(map[string]any)
 
@@ -99,6 +102,8 @@ func SetSystem(w http.ResponseWriter, r *http.Request) {
 		"kernel":   hi.KernelVersion,
 
 		"load": fmt.Sprint(l.Load1, l.Load5, l.Load15),
+
+		"uptime": int64(time.Since(serverStartTime).Seconds()),
 	}
 
 	RespSucess(w, data)
