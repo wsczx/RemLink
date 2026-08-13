@@ -4,7 +4,8 @@ export function applyBrandToDocument(brand) {
   if (!brand) return
 
   // 网站标题
-  document.title = brand.title ? brand.title : "RemLink"
+  const inline = inlineBrand()
+  document.title = brand.title || inline.title || "RemLink"
 
   // 网站图标
   const href = normalizeImageSrc(brand.favicon || "")
@@ -20,6 +21,15 @@ export function applyBrandToDocument(brand) {
     const base = (typeof process !== "undefined" && process.env && process.env.BASE_URL) || "/"
     link.href = base + "favicon.svg"
   }
+}
+
+// 读取后端在 index.html 内联注入的品牌
+export function inlineBrand() {
+  if (typeof window !== "undefined" && window.__BRAND__) {
+    const b = window.__BRAND__
+    return { title: b.title || "", favicon: b.favicon || "" }
+  }
+  return { title: "", favicon: "" }
 }
 export function normalizeImageSrc(src) {
   if (!src) return ""
