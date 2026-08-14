@@ -98,6 +98,9 @@ func StartAdmin() {
 	r.HandleFunc("/set/audit/act_log_list", UserActLogList)
 	r.HandleFunc("/set/audit/admin_op_log_list", AdminOpLogList)
 	r.HandleFunc("/set/syslog/ws", SyslogWS) // WebSocket 系统日志实时推送
+	r.HandleFunc("/set/syslog/history_enabled", SyslogHistoryEnabled)
+	r.HandleFunc("/set/syslog/history_dates", SyslogHistoryDates)
+	r.HandleFunc("/set/syslog/history_list", SyslogHistoryList)
 	r.HandleFunc("/set/other/createcert", CreatCert).Methods(http.MethodPost)
 	r.HandleFunc("/set/other/getcertset", GetCertSetting)
 	r.HandleFunc("/set/other/customcert", CustomCert).Methods(http.MethodPost)

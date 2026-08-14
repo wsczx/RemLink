@@ -1,56 +1,114 @@
 <template>
   <div class="syslog-page">
-    <!-- 控制栏 -->
-    <div class="syslog-toolbar">
-      <div class="toolbar-left">
-        <el-switch v-model="syslogWsLive" active-text="实时" inactive-text="暂停" @change="onLiveToggle" size="small">
-        </el-switch>
-        <span class="conn-status" v-if="syslogWsLive" :class="{ connected: syslogWsConnected }">
-          <span class="live-dot"></span>
-          {{ syslogWsConnected ? '已连接' : '连接中...' }}
-        </span>
-        <span class="conn-status offline" v-else>已暂停</span>
-        <el-select v-model="filterLevel" size="mini" placeholder="日志级别" clearable
-          style="width: 100px; margin-left: 12px">
-          <el-option label="Trace" value="Trace"></el-option>
-          <el-option label="Debug" value="Debug"></el-option>
-          <el-option label="Info" value="Info"></el-option>
-          <el-option label="Warn" value="Warn"></el-option>
-          <el-option label="Error" value="Error"></el-option>
-          <el-option label="Fatal" value="Fatal"></el-option>
-        </el-select>
-        <el-input v-model="searchText" size="mini" placeholder="搜索关键字..." clearable
-          style="width: 200px; margin-left: 8px">
-          <i slot="prefix" class="el-icon-search"></i>
-        </el-input>
+    <div v-if="mode === 'live'" style="flex:1; display:flex; flex-direction:column; min-height:0; overflow:hidden">
+      <div class="syslog-toolbar">
+        <div class="toolbar-left">
+          <el-switch v-model="syslogWsLive" active-text="实时" inactive-text="暂停" @change="onLiveToggle" size="small">
+          </el-switch>
+          <span class="conn-status" v-if="syslogWsLive" :class="{ connected: syslogWsConnected }">
+            <span class="live-dot"></span>
+            {{ syslogWsConnected ? '已连接' : '连接中...' }}
+          </span>
+          <span class="conn-status offline" v-else>已暂停</span>
+          <el-select v-model="filterLevel" size="mini" placeholder="日志级别" clearable
+            style="width: 100px; margin-left: 12px">
+            <el-option label="Trace" value="Trace"></el-option>
+            <el-option label="Debug" value="Debug"></el-option>
+            <el-option label="Info" value="Info"></el-option>
+            <el-option label="Warn" value="Warn"></el-option>
+            <el-option label="Error" value="Error"></el-option>
+            <el-option label="Fatal" value="Fatal"></el-option>
+          </el-select>
+          <el-input v-model="searchText" size="mini" placeholder="搜索关键字..." clearable
+            style="width: 200px; margin-left: 8px">
+            <i slot="prefix" class="el-icon-search"></i>
+          </el-input>
+          <el-button size="mini" :disabled="!historyEnabled" @click="switchToHistory" style="margin-left: 8px"
+            :title="historyEnabled ? '查看历史日志' : '未配置日志文件路径，历史日志不可用'">
+            历史日志
+          </el-button>
+        </div>
+        <div class="toolbar-right">
+          <span class="log-count">{{ filteredLogs.length }} / {{ logs.length }} 条</span>
+          <el-button size="mini" type="text" @click="clearLogs" style="margin-left: 8px">清空</el-button>
+          <el-button size="mini" type="text" @click="autoScroll = !autoScroll" style="margin-left: 4px">
+            {{ autoScroll ? '锁定滚动' : '跟随滚动' }}
+          </el-button>
+        </div>
       </div>
-      <div class="toolbar-right">
-        <span class="log-count">{{ filteredLogs.length }} / {{ logs.length }} 条</span>
-        <el-button size="mini" type="text" @click="clearLogs" style="margin-left: 8px">清空</el-button>
-        <el-button size="mini" type="text" @click="autoScroll = !autoScroll" style="margin-left: 4px">
-          {{ autoScroll ? '锁定滚动' : '跟随滚动' }}
-        </el-button>
+
+      <div class="syslog-container" ref="logContainer" @scroll="onScroll">
+        <div v-if="filteredLogs.length === 0" class="syslog-empty">
+          <i class="el-icon-document"></i>
+          <span>{{ logs.length === 0 ? '等待日志...' : '无匹配日志' }}</span>
+          <p v-if="logs.length === 0 && !syslogWsConnected && syslogWsLive" class="empty-hint">正在建立连接...</p>
+        </div>
+        <div v-for="(entry, idx) in filteredLogs" :key="idx"
+          :class="['syslog-line', 'level-' + entry.level.toLowerCase()]">
+          <span class="log-time">{{ entry.time }}</span>
+          <span class="log-level">{{ entry.level }}</span>
+          <span class="log-msg" v-html="highlightLine(entry)"></span>
+        </div>
       </div>
     </div>
 
-    <!-- 日志列表 -->
-    <div class="syslog-container" ref="logContainer" @scroll="onScroll">
-      <div v-if="filteredLogs.length === 0" class="syslog-empty">
-        <i class="el-icon-document"></i>
-        <span>{{ logs.length === 0 ? '等待日志...' : '无匹配日志' }}</span>
-        <p v-if="logs.length === 0 && !syslogWsConnected && syslogWsLive" class="empty-hint">正在建立连接...</p>
+    <div v-if="mode === 'history'" style="flex:1; display:flex; flex-direction:column; min-height:0; overflow:hidden">
+      <div class="syslog-toolbar">
+        <div class="toolbar-left">
+          <el-date-picker v-model="historyDate" type="date" value-format="yyyy-MM-dd" size="mini" placeholder="选择日期"
+            :clearable="false" @change="onHistoryFilterChange" style="margin-left: 4px">
+          </el-date-picker>
+          <el-select v-model="historyLevel" size="mini" placeholder="日志级别" clearable
+            style="width: 100px; margin-left: 8px" @change="onHistoryFilterChange">
+            <el-option label="Trace" value="Trace"></el-option>
+            <el-option label="Debug" value="Debug"></el-option>
+            <el-option label="Info" value="Info"></el-option>
+            <el-option label="Warn" value="Warn"></el-option>
+            <el-option label="Error" value="Error"></el-option>
+            <el-option label="Fatal" value="Fatal"></el-option>
+          </el-select>
+          <el-input v-model="historyKeyword" size="mini" placeholder="搜索关键字..." clearable
+            style="width: 200px; margin-left: 8px" @keyup.enter.native="onHistoryFilterChange"
+            @clear="onHistoryFilterChange">
+            <i slot="prefix" class="el-icon-search"></i>
+          </el-input>
+          <el-button size="mini" type="primary" icon="el-icon-search" @click="loadHistory(1)"
+            style="margin-left: 8px">查询</el-button>
+          <el-button size="mini" @click="switchToLive" style="margin-left: 8px">返回实时</el-button>
+        </div>
+        <div class="toolbar-right">
+          <span class="log-count">{{ historyLogs.length }} 条（共 {{ historyTotal }} 条）</span>
+        </div>
       </div>
-      <div v-for="(entry, idx) in filteredLogs" :key="idx"
-        :class="['syslog-line', 'level-' + entry.level.toLowerCase()]">
-        <span class="log-time">{{ entry.time }}</span>
-        <span class="log-level">{{ entry.level }}</span>
-        <span class="log-msg" v-html="highlightLine(entry)"></span>
+
+      <div class="syslog-container" ref="historyContainer" @scroll="onHistoryScroll">
+        <div v-if="historyLoading && historyLogs.length === 0" class="syslog-empty">
+          <i class="el-icon-loading"></i>
+          <span>加载中...</span>
+        </div>
+        <div v-else-if="historyLogs.length === 0" class="syslog-empty">
+          <i class="el-icon-document"></i>
+          <span>当日无日志或无匹配记录</span>
+        </div>
+        <div v-for="(entry, idx) in historyLogs" :key="idx"
+          :class="['syslog-line', 'level-' + entry.level.toLowerCase()]">
+          <span class="log-time">{{ entry.time }}</span>
+          <span class="log-level">{{ entry.level }}</span>
+          <span class="log-msg" v-html="highlightHistoryLine(entry)"></span>
+        </div>
+        <div v-if="historyLogs.length > 0 && historyLoading" class="syslog-loadmore">
+          <i class="el-icon-loading"></i> 加载更多...
+        </div>
+        <div v-else-if="historyLogs.length > 0 && historyNoMore" class="syslog-loadmore">
+          已经到底了
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script>
+import axios from "axios";
 import syslogWsMixin from "../../mixins/syslogWs";
 
 export default {
@@ -62,6 +120,7 @@ export default {
   created() {
     this.$emit('update:route_path', this.$route.path)
     this.$emit('update:route_name', ['日志审计', '系统日志'])
+    this.checkHistoryEnabled()
   },
   data() {
     return {
@@ -70,6 +129,17 @@ export default {
       searchText: '',
       maxLogs: 2000,
       autoScroll: true,
+      mode: 'live',
+      historyEnabled: false,
+      historyDate: '',
+      historyLevel: '',
+      historyKeyword: '',
+      historyLogs: [],
+      historyTotal: 0,
+      historyPage: 1,
+      historyPageSize: 200,
+      historyLoading: false,
+      historyNoMore: false,
     }
   },
   computed: {
@@ -124,14 +194,13 @@ export default {
     onScroll() {
       const el = this.$refs.logContainer
       if (!el) return
-      // 用户手动滚动到底部附近时自动恢复跟随
+      // 滚到底部附近时恢复跟随
       const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60
       if (nearBottom && !this.autoScroll) {
         this.autoScroll = true
       }
     },
 
-    /** 关键字高亮 */
     highlightLine(entry) {
       let text = this.escapeHtml(entry.msg)
       if (this.searchText) {
@@ -148,6 +217,110 @@ export default {
       const div = document.createElement('div')
       div.textContent = str
       return div.innerHTML
+    },
+
+    highlightHistoryLine(entry) {
+      let text = this.escapeHtml(entry.msg)
+      if (this.historyKeyword) {
+        const kw = this.escapeHtml(this.historyKeyword)
+        if (kw) {
+          const re = new RegExp('(' + kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi')
+          text = text.replace(re, '<mark class="log-highlight">$1</mark>')
+        }
+      }
+      return text
+    },
+
+    async checkHistoryEnabled() {
+      try {
+        const resp = await axios.get('/set/syslog/history_enabled')
+        if (resp.data && resp.data.code === 0) {
+          this.historyEnabled = !!resp.data.data.enabled
+          if (this.historyEnabled) {
+            const today = new Date()
+            this.historyDate = today.getFullYear() + '-' +
+              String(today.getMonth() + 1).padStart(2, '0') + '-' +
+              String(today.getDate()).padStart(2, '0')
+          }
+        }
+      } catch (e) {
+        this.historyEnabled = false
+      }
+    },
+
+    switchToHistory() {
+      if (!this.historyEnabled) return
+      this.mode = 'history'
+      this.loadHistory(1, true)
+    },
+
+    switchToLive() {
+      this.mode = 'live'
+    },
+
+    onHistoryFilterChange() {
+      this.loadHistory(1, true)
+    },
+
+    onHistoryScroll() {
+      const el = this.$refs.historyContainer
+      if (!el) return
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60
+      if (nearBottom && !this.historyLoading && !this.historyNoMore) {
+        this.loadHistory(this.historyPage + 1)
+      }
+    },
+
+    async loadHistory(page, reset) {
+      if (!this.historyDate) return
+      if (reset) {
+        this.historyLogs = []
+        this.historyNoMore = false
+        this.historyPage = 1
+      } else {
+        this.historyPage = page
+      }
+      this.historyLoading = true
+      try {
+        const params = {
+          date: this.historyDate,
+          page: this.historyPage,
+          page_size: this.historyPageSize,
+        }
+        if (this.historyLevel) params.level = this.historyLevel
+        if (this.historyKeyword) params.keyword = this.historyKeyword
+        const resp = await axios.get('/set/syslog/history_list', { params })
+        if (resp.data && resp.data.code === 0) {
+          const d = resp.data.data
+          const datas = d.datas || []
+          this.historyTotal = d.count || 0
+          if (reset) {
+            this.historyLogs = datas
+            const el = this.$refs.historyContainer
+            if (el) el.scrollTop = 0
+          } else {
+            this.historyLogs = this.historyLogs.concat(datas)
+          }
+          // 返回不足一页即视为已加载完所有匹配记录
+          if (datas.length < this.historyPageSize) {
+            this.historyNoMore = true
+          }
+        } else {
+          this.$message.error((resp.data && resp.data.msg) || '加载历史日志失败')
+          if (reset) {
+            this.historyLogs = []
+            this.historyTotal = 0
+          }
+        }
+      } catch (e) {
+        this.$message.error('加载历史日志失败：' + (e.message || e))
+        if (reset) {
+          this.historyLogs = []
+          this.historyTotal = 0
+        }
+      } finally {
+        this.historyLoading = false
+      }
     },
   },
   beforeDestroy() {
@@ -387,6 +560,14 @@ export default {
 .level-fatal .log-msg {
   color: #ff7b72;
   font-weight: bold;
+}
+
+/* 历史日志加载更多提示 */
+.syslog-loadmore {
+  text-align: center;
+  padding: 10px 0;
+  color: #8b949e;
+  font-size: 12px;
 }
 </style>
 
