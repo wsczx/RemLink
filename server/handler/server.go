@@ -9,6 +9,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -210,7 +212,25 @@ func initRoute() http.Handler {
 		w.Write(b)
 	}).Methods(http.MethodGet)
 	// 静态文件服务（运行时动态读取 FilesPath）
-	r.PathPrefix("/files/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	r.PathPrefix("/files").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			notFound(w, r)
+			return
+		}
+		rel := strings.TrimPrefix(r.URL.Path, "/files")
+		if rel == "" {
+			http.Redirect(w, r, "/files/", http.StatusMovedPermanently)
+			return
+		}
+		name := filepath.Join(base.GetCfg().FilesPath, strings.TrimPrefix(r.URL.Path, "/files/"))
+		if fi, err := os.Stat(name); err != nil || fi.IsDir() {
+			if r.Method == http.MethodGet {
+				admin.ServeIndex(w, r)
+			} else {
+				notFound(w, r)
+			}
+			return
+		}
 		http.StripPrefix("/files/",
 			http.FileServer(http.Dir(base.GetCfg().FilesPath)),
 		).ServeHTTP(w, r)

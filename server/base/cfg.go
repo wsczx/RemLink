@@ -349,6 +349,9 @@ func (m *ConfigManager) SetField(name string, data any) (restart bool, err error
 	if name == "log_path" {
 		ReinitLog()
 	}
+	if name == "files_path" {
+		m.InitDirs()
+	}
 	return restart, nil
 }
 
