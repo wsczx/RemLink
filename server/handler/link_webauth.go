@@ -602,18 +602,27 @@ func webAuthOnPass(w http.ResponseWriter, r *http.Request,
 
 	// 签发门户 JWT cookie（浏览器端可直接访问 /ui/#/portal）
 	user := &dbdata.User{}
+	found := false
 	if err := dbdata.One("Username", username, user); err == nil && user.Status == 1 {
-		token, pErr := portalIssueToken(user)
-		if pErr == nil {
-			http.SetCookie(w, &http.Cookie{
-				Name:     portalCookieName,
-				Value:    token,
-				Path:     "/",
-				HttpOnly: true,
-				Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
-				SameSite: http.SameSiteLaxMode,
-			})
+		found = true
+	}
+	if !found {
+		user = &dbdata.User{
+			Type:     "external",
+			Username: username,
+			Groups:   webAuthExternalGroups(groupName),
+			Status:   1,
 		}
+	}
+	if token, pErr := portalIssueToken(user); pErr == nil {
+		http.SetCookie(w, &http.Cookie{
+			Name:     portalCookieName,
+			Value:    token,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+			SameSite: http.SameSiteLaxMode,
+		})
 	}
 
 	webAuthJSON(w, http.StatusOK, map[string]any{
@@ -624,7 +633,15 @@ func webAuthOnPass(w http.ResponseWriter, r *http.Request,
 	})
 }
 
-// webAuthBuildSSOURL 为 WebAuth 流程构建 SSO OAuth 跳转 URL。
+// 将 SSO 授权的单组名转为门户 JWT 所需的组列表，空组会导致门户侧拒绝该会话
+func webAuthExternalGroups(groupName string) []string {
+	if groupName == "" {
+		return nil
+	}
+	return []string{groupName}
+}
+
+// 为 WebAuth 流程构建 SSO OAuth 跳转 URL
 // 生成子会话（ssoState）关联回当前 WebAuth 会话，回调到 /web-auth/sso-callback。
 func webAuthBuildSSOURL(r *http.Request, ssoType, groupName, webAuthState string) string {
 	// 生成 SSO 子状态，关联回当前 WebAuth 会话
@@ -652,7 +669,7 @@ func webAuthBuildSSOURL(r *http.Request, ssoType, groupName, webAuthState string
 	return authURL
 }
 
-// WebAuthSSOCallback SSO OAuth 回调端点：企微/飞书扫码授权后回调到此。
+// SSO OAuth 回调端点：企微/飞书扫码授权后回调到此
 // 将认证结果写入 WebAuth 会话 SSO 状态，然后 302 回到 SPA 继续管道。
 func WebAuthSSOCallback(w http.ResponseWriter, r *http.Request) {
 	webState := r.URL.Query().Get("web_state")
