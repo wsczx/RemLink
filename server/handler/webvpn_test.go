@@ -569,9 +569,8 @@ func TestWebVpnExchangeFromPortal(t *testing.T) {
 	assert.True(t, gotWebVpn, "应种回 webvpn_session cookie")
 }
 
-// TestWebVpnGrantIsOneTime 验证 P0 修复：一次性免登授权（grant）兑换后自身 jti 被吊销，
-// 同一 grant 二次兑换必须失败（防重放）；且兑换过程不得误杀门户会话 jti。
-func TestWebVpnGrantIsOneTime(t *testing.T) {
+// 免登授权（grant）跟随门户会话寿命
+func TestWebVpnGrantIsReusable(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
 
@@ -590,16 +589,36 @@ func TestWebVpnGrantIsOneTime(t *testing.T) {
 	assert.True(t, WebVpnHandler(rec1, req1), "首次兑换应消费请求")
 	assert.Equal(t, http.StatusOK, rec1.Code, "首次兑换应放行")
 
-	// 第二次用同一 grant 兑换：应失败（grant 自身 jti 已吊销）
+	// 第二次用同一 grant 兑换：仍应成功（可重复兑换，不再一次性吊销）
 	req2, rec2, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
 	req2.AddCookie(&http.Cookie{Name: "webvpn_grant", Value: grantTok})
-	consumed2 := WebVpnHandler(rec2, req2)
-	assert.True(t, consumed2, "二次兑换请求仍应被本处理器消费")
-	assert.NotEqual(t, http.StatusOK, rec2.Code, "已兑换的 grant 二次兑换必须失败（防重放）")
+	assert.True(t, WebVpnHandler(rec2, req2), "二次兑换请求仍应被本处理器消费")
+	assert.Equal(t, http.StatusOK, rec2.Code, "可重复兑换：同一 grant 二次兑换仍应放行")
 
 	// 门户会话 jti 未被误杀：用门户 token 解析仍有效（GetJwtData 会校验 jti 吊销）
 	_, err = admin.GetJwtData(portalTok)
 	assert.NoError(t, err, "兑换 grant 不应吊销门户会话 jti，门户登录态仍有效")
+}
+
+// 验证时效边界：grant 过期后（跟随门户会话寿命之外）兑换必须失败，
+// 确保可重复兑换不会退化为永久有效的长效令牌。
+func TestWebVpnGrantExpires(t *testing.T) {
+	_, teardown := setupWebVpnTest(t)
+	defer teardown()
+
+	portalJTI := "portal-jti-expired"
+	// 直接构造一个已过期的 grant（绕过 IssueGrant 的正常时效）
+	expiredTok, err := admin.SetJwtData(map[string]any{
+		"webvpn_grant_user": "alice",
+		"webvpn_grant_type": "local",
+		"webvpn_grant_jti":  portalJTI,
+	}, time.Now().Add(-time.Hour).Unix())
+	assert.NoError(t, err)
+
+	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
+	req.AddCookie(&http.Cookie{Name: "webvpn_grant", Value: expiredTok})
+	WebVpnHandler(rec, req)
+	assert.NotEqual(t, http.StatusOK, rec.Code, "过期 grant 兑换必须失败")
 }
 
 // TestWebVpnExchangeKeepsPortalSession 验证 P0 修复：兑换 grant 不会把用户踢出门户。

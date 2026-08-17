@@ -54,7 +54,6 @@ func WebVpnHandler(w http.ResponseWriter, r *http.Request) bool {
 			// 注入请求 cookie，使同一次请求内后续 webVpnProxy 的 CurrentUser 能读到，
 			// 避免兑换成功却又误判未登录而跳登录页。
 			r.AddCookie(&http.Cookie{Name: webVpnSessionCookie, Value: token})
-			mgr.Session().ClearGrantCookie(w, r)
 			user = gu
 			ok = true
 		}

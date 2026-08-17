@@ -38,8 +38,8 @@ const (
 	// 会话绝对寿命上限（分钟），默认 480（8h），自首次登录起算
 	sessionMaxLifetimeDefaultMin = 480
 
-	// grant 免登授权时效（秒），默认 30s。一次性、短时效，仅用于兑换正式会话
-	grantTTLSec = 30
+	// grant 免登授权时效（秒）跟随门户会话寿命
+	grantTTLSec = 3600 * 3
 )
 
 func NewSessionManager() *AuthSessionManager {
@@ -89,8 +89,8 @@ func (m *AuthSessionManager) Issue(w http.ResponseWriter, r *http.Request, user 
 	return token, nil
 }
 
-// 在门户登录成功后签发一次性的免登授权（webvpn_grant cookie）
-// 绑定门户会话 jti，供 WebVPN 侧 ExchangeGrant 兑换正式会话。短时效、单用途
+// 在门户登录成功后签发免登授权（webvpn_grant cookie）
+// 绑定门户会话 jti，供 WebVPN 侧 ExchangeGrant 兑换正式会话
 func (m *AuthSessionManager) IssueGrant(w http.ResponseWriter, r *http.Request, user *dbdata.User, portalJTI string) (string, error) {
 	expiresAt := time.Now().Add(grantTTLSec * time.Second).Unix()
 	token, err := admin.SetJwtData(map[string]any{
@@ -106,22 +106,16 @@ func (m *AuthSessionManager) IssueGrant(w http.ResponseWriter, r *http.Request, 
 	return token, nil
 }
 
-// 用一次性免登授权换取正式 WebVPN 会话并写入 cookie（通过 w），返回 (token, user, ok)
+// 用免登授权换取正式 WebVPN 会话并写入 cookie（通过 w），返回 (token, user, ok)
 // grant 不可用（缺失/过期）时，若门户会话（portal_session JWT）仍然有效，则基于门户身份
 // 直接签发 WebVPN 会话，实现免登自动续接
 func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Request) (string, *dbdata.User, bool) {
-	// 优先用一次性免登授权（webvpn_grant）
+	// 优先用免登授权（webvpn_grant）
 	if c, err := r.Cookie(grantCookieName); err == nil && c.Value != "" {
 		data, err := admin.GetJwtData(c.Value)
 		if err == nil {
 			username, _ := data["webvpn_grant_user"].(string)
 			if username != "" {
-				// 吊销 grant 自身 jti，确保一次性（防重放）；不可吊销门户 jti，否则会误杀门户登录态
-				if grantJTI, err := admin.JtiOf(c.Value); err == nil && grantJTI != "" {
-					if exp, ok := data["exp"].(float64); ok {
-						admin.RevokeJwt(grantJTI, int64(exp))
-					}
-				}
 				user := m.freshUser(username)
 				if user == nil {
 					// 本地库查不到：回退到 grant 携带的三方认证身份
