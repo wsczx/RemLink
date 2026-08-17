@@ -190,6 +190,9 @@ func (ua *UserActLogProcess) GetInfoOpsById(id uint8) string {
 
 var ieVerRe = regexp.MustCompile(`trident/.*rv:([0-9.]+)`)
 
+// 匹配纯版本号串（如 4.10.05085）
+var verRe = regexp.MustCompile(`^(\d+\.?)+$`)
+
 // 从常见浏览器 UA 中提取浏览器名称和版本
 func parseBrowserUA(userAgent string) (name, version string) {
 	ua := strings.ToLower(userAgent)
@@ -237,32 +240,41 @@ func (ua *UserActLogProcess) ParseUserAgent(userAgent string) (os_idx, client_id
 	if len(userAgent) == 0 {
 		return 0, 0, ""
 	}
-	os_idx = 0
-	if strings.Contains(userAgent, "windows") {
+	// 首个命中即生效，iOS 必须早于 android/macOS，macOS 的 darwin 兜底必须在最后。
+	switch {
+	case strings.Contains(userAgent, "windows"):
 		os_idx = 1
-	} else if strings.Contains(userAgent, "mac os") || strings.Contains(userAgent, "darwin_i386") || strings.Contains(userAgent, "darwin_amd64") || strings.Contains(userAgent, "darwin_arm64") {
-		os_idx = 2
-	} else if strings.Contains(userAgent, "darwin_arm") || strings.Contains(userAgent, "apple") {
+	case strings.Contains(userAgent, "iphone") || strings.Contains(userAgent, "ipad") ||
+		strings.Contains(userAgent, "applesslvpn") || strings.Contains(userAgent, "ios"):
+		// iOS：仅用精准子串判定。禁止使用 "apple"（会误匹配 AppleWebKit）或 "darwin_arm"（会误匹配 macOS Apple 芯片）。
 		os_idx = 5
-	} else if strings.Contains(userAgent, "android") {
+	case strings.Contains(userAgent, "android"):
 		os_idx = 4
-	} else if strings.Contains(userAgent, "linux") {
+	case strings.Contains(userAgent, "mac os") || strings.Contains(userAgent, "macos") || strings.Contains(userAgent, "darwin"):
+		// macOS：darwin 全系兜底（iPad/iPhone 已在上面的 iOS 分支拦截）
+		os_idx = 2
+	case strings.Contains(userAgent, "linux"):
 		os_idx = 3
+	default:
+		os_idx = 0
 	}
-	client_idx = 0
-	if strings.Contains(userAgent, "anyconnect") {
+	// 客户端类型判定
+	switch {
+	case strings.Contains(userAgent, "anyconnect"):
 		client_idx = 1
-	} else if strings.Contains(userAgent, "openconnect") {
+	case strings.Contains(userAgent, "openconnect"):
 		client_idx = 2
-	} else if strings.Contains(userAgent, "anylink") {
+	case strings.Contains(userAgent, "anylink"):
 		client_idx = 3
+	default:
+		client_idx = 0
 	}
 	uaSlice := strings.Split(userAgent, " ")
 	ver = uaSlice[len(uaSlice)-1]
-	if ver[0] == 'v' {
+	if len(ver) > 0 && ver[0] == 'v' {
 		ver = ver[1:]
 	}
-	if !regexp.MustCompile(`^(\d+\.?)+$`).MatchString(ver) {
+	if !verRe.MatchString(ver) {
 		ver = ""
 	}
 	return
