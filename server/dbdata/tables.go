@@ -65,6 +65,7 @@ type UserActLog struct {
 	PlatformVersion string    `json:"platform_version" xorm:"varchar(128) not null default ''"`
 	Status          uint8     `json:"status" xorm:"not null default 0 Int"`
 	Info            string    `json:"info" xorm:"varchar(255) not null default ''"` // 详情
+	IsLockedFail    bool      `json:"-" xorm:"-"`                                   // 因锁定而拒绝的登录，限频写入
 	CreatedAt       time.Time `json:"created_at" xorm:"DateTime created"`
 }
 

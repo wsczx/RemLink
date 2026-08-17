@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/pkg/utils"
@@ -13,33 +14,35 @@ import (
 )
 
 const (
-	UserAuthFail       = 0 // 认证失败
-	UserAuthSuccess    = 1 // 认证成功
-	UserConnected      = 2 // 连线成功
-	UserLogout         = 3 // 用户登出
-	UserLogoutLose     = 0 // 用户掉线
-	UserLogoutBanner   = 1 // 用户banner弹窗取消
-	UserLogoutClient   = 2 // 用户主动登出
-	UserLogoutTimeout  = 3 // 用户超时登出
-	UserLogoutAdmin    = 4 // 账号被管理员踢下线
-	UserLogoutExpire   = 5 // 账号过期被踢下线
-	UserIdleTimeout    = 6 // 用户空闲链接超时
-	UserLogoutOneAdmin = 7 // 账号被管理员一键下线
-	UserLogoutQuota    = 8 // 流量配额超限被踢下线
-	UserLogoutReconn   = 9 // 客户端自动重连，旧连接已关闭
+	UserAuthFail       = 0  // 认证失败
+	UserAuthSuccess    = 1  // 认证成功
+	UserConnected      = 2  // 连线成功
+	UserLogout         = 3  // 用户登出
+	UserLogoutLose     = 0  // 用户掉线
+	UserLogoutBanner   = 1  // 用户banner弹窗取消
+	UserLogoutClient   = 2  // 用户主动登出
+	UserLogoutTimeout  = 3  // 用户超时登出
+	UserLogoutAdmin    = 4  // 账号被管理员踢下线
+	UserLogoutExpire   = 5  // 账号过期被踢下线
+	UserIdleTimeout    = 6  // 用户空闲链接超时
+	UserLogoutOneAdmin = 7  // 账号被管理员一键下线
+	UserLogoutQuota    = 8  // 流量配额超限被踢下线
+	UserLogoutReconn   = 9  // 客户端自动重连，旧连接已关闭
 	UserLogoutLink     = 10 // 链路读写异常/超时断开
 	UserLogoutTunErr   = 11 // 虚拟网卡建立失败
 
 	UserPortalClient = 4 // 门户/浏览器登录
 	UserPortalOs     = 6 // 门户登录操作系统
+	UserAdminClient  = 5 // 管理后台登录
 )
 
 type UserActLogProcess struct {
-	Pool      *utils.WorkerPool
-	StatusOps []string
-	OsOps     []string
-	ClientOps []string
-	InfoOps   []string
+	Pool        *utils.WorkerPool
+	StatusOps   []string
+	OsOps       []string
+	ClientOps   []string
+	InfoOps     []string
+	failLimiter *base.WarnLimiter
 }
 
 var (
@@ -66,6 +69,7 @@ var (
 			2: "OpenConnect",
 			3: "RemLink",
 			4: "门户",
+			5: "后台",
 		},
 		InfoOps: []string{ // 信息
 			UserLogoutLose:     "用户掉线",
@@ -81,11 +85,24 @@ var (
 			UserLogoutLink:     "链路异常断开",
 			UserLogoutTunErr:   "虚拟网卡建立失败",
 		},
+		failLimiter: base.NewWarnLimiter(time.Minute),
 	}
 )
 
-// 异步写入用户操作日志
+// 异步写入用户操作日志。isPortal 为 true 时按门户（浏览器）解析客户端与系统。
 func (ua *UserActLogProcess) Add(u UserActLog, userAgent string, isPortal ...bool) {
+	// 账号/IP 已被锁定后的重复登录失败没有新的审计价值，按 username|ip 每分钟限频一条，
+	// 避免前端自动重试刷屏撑爆数据库。
+	if u.Status == UserAuthFail && u.IsLockedFail {
+		host, _, _ := net.SplitHostPort(u.RemoteAddr)
+		if host == "" {
+			host = u.RemoteAddr
+		}
+		key := u.Username + "|" + host
+		if !ua.failLimiter.Allow(key, time.Now()) {
+			return
+		}
+	}
 	os_idx, client_idx, ver := ua.ParseUserAgent(userAgent)
 	if len(isPortal) > 0 && isPortal[0] {
 		u.Os = UserPortalOs
@@ -97,9 +114,23 @@ func (ua *UserActLogProcess) Add(u UserActLog, userAgent string, isPortal ...boo
 			u.PlatformVersion = browserVer
 		}
 	} else {
-		u.Os = os_idx
-		u.Client = client_idx
-		u.Version = ver
+		// 调用方已指定客户端类型（如后台管理员）时，仍需按 User-Agent 识别操作系统。
+		if u.Os == 0 {
+			u.Os = os_idx
+		}
+		if u.Client == 0 {
+			u.Client = client_idx
+			u.Version = ver
+		}
+		// 后台/门户等浏览器场景，补充浏览器信息
+		if (u.Client == UserPortalClient || u.Client == UserAdminClient) && u.DeviceType == "" {
+			browserName, browserVer := parseBrowserUA(userAgent)
+			if browserName != "" {
+				u.DeviceType = browserName
+				u.PlatformVersion = browserVer
+			}
+		}
+		// 调用方已提供设备信息时直接保留（如 WebAuth 失败路径传入了 DeviceType/PlatformVer），无需覆盖
 	}
 	u.RemoteAddr, _, _ = net.SplitHostPort(u.RemoteAddr)
 	// 去除 Info 中的用户名前缀和分隔符

@@ -38,6 +38,7 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	if !lm.Check(adminUser, r.RemoteAddr) {
 		RespError(w, 1, "登录过于频繁，请稍后再试")
 		base.Error(adminUser, "管理员登录被锁定:", r.RemoteAddr)
+		dbdata.UserActLogIns.Add(dbdata.UserActLog{Username: adminUser, RemoteAddr: r.RemoteAddr, Status: dbdata.UserAuthFail, Info: "账号已被锁定，请稍后重试", Client: dbdata.UserAdminClient, IsLockedFail: true}, r.UserAgent())
 		return
 	}
 
@@ -46,6 +47,7 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		lm.Fail(adminUser, r.RemoteAddr)
 		RespError(w, RespUserOrPassErr)
 		base.Error(adminUser, "管理员用户名或密码错误")
+		dbdata.UserActLogIns.Add(dbdata.UserActLog{Username: adminUser, RemoteAddr: r.RemoteAddr, Status: dbdata.UserAuthFail, Info: "管理员登录失败", Client: dbdata.UserAdminClient}, r.UserAgent())
 		return
 	}
 
@@ -62,12 +64,13 @@ func Login(w http.ResponseWriter, r *http.Request) {
 			"otp_required": true,
 			"otp_token":    otpToken,
 		})
+		dbdata.UserActLogIns.Add(dbdata.UserActLog{Username: adminUser, RemoteAddr: r.RemoteAddr, Status: dbdata.UserAuthSuccess, Info: "管理员登录成功", Client: dbdata.UserAdminClient}, r.UserAgent())
 		return
 	}
 
 	// 未启用 OTP：直接签发 JWT
 	lm.Success(adminUser, r.RemoteAddr)
-	dbdata.AdminLog("管理员登录", "", "登录成功", r.RemoteAddr)
+	dbdata.UserActLogIns.Add(dbdata.UserActLog{Username: adminUser, RemoteAddr: r.RemoteAddr, Status: dbdata.UserAuthSuccess, Info: "管理员登录成功", Client: dbdata.UserAdminClient}, r.UserAgent())
 	issueLoginJWT(w, r, adminUser)
 }
 
@@ -112,6 +115,7 @@ func LoginOTP(w http.ResponseWriter, r *http.Request) {
 	if !lm.Check(adminUser, r.RemoteAddr) {
 		RespError(w, RespParamErr, "登录过于频繁，请稍后再试")
 		base.Error(adminUser, "管理员 OTP 登录尝试次数超限，已锁定:", r.RemoteAddr)
+		dbdata.UserActLogIns.Add(dbdata.UserActLog{Username: adminUser, RemoteAddr: r.RemoteAddr, Status: dbdata.UserAuthFail, Info: "账号已被锁定，请稍后重试", Client: dbdata.UserAdminClient, IsLockedFail: true}, r.UserAgent())
 		return
 	}
 
@@ -120,12 +124,13 @@ func LoginOTP(w http.ResponseWriter, r *http.Request) {
 		lm.Fail(adminUser, r.RemoteAddr)
 		RespError(w, RespParamErr, "OTP 验证码错误")
 		base.Error(adminUser, "管理员 OTP 验证失败")
+		dbdata.UserActLogIns.Add(dbdata.UserActLog{Username: adminUser, RemoteAddr: r.RemoteAddr, Status: dbdata.UserAuthFail, Info: "管理员登录失败", Client: dbdata.UserAdminClient}, r.UserAgent())
 		return
 	}
 
 	// 验证成功，清除锁定计数
 	lm.Success(adminUser, r.RemoteAddr)
-	dbdata.AdminLog("管理员登录", "", "OTP登录成功", r.RemoteAddr)
+	dbdata.UserActLogIns.Add(dbdata.UserActLog{Username: adminUser, RemoteAddr: r.RemoteAddr, Status: dbdata.UserAuthSuccess, Info: "管理员登录成功", Client: dbdata.UserAdminClient}, r.UserAgent())
 	issueLoginJWT(w, r, adminUser)
 }
 

@@ -46,11 +46,13 @@ func PortalLogin(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<16) // 64KB
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		portalError(w, "参数错误")
+		dbdata.UserActLogIns.Add(dbdata.UserActLog{Username: req.Username, RemoteAddr: r.RemoteAddr, Status: dbdata.UserAuthFail, Info: "[门户]参数解析失败"}, r.UserAgent(), true)
 		return
 	}
 	resp := portalStartAuth(w, req.Username, req.Password, r)
 	if resp.Code != 0 {
 		portalError(w, resp.Msg)
+		dbdata.UserActLogIns.Add(dbdata.UserActLog{Username: req.Username, RemoteAddr: r.RemoteAddr, Status: dbdata.UserAuthFail, Info: "[门户]" + resp.Msg, IsLockedFail: resp.IsLocked}, r.UserAgent(), true)
 		return
 	}
 	portalOK(w, resp.Data)
@@ -73,6 +75,7 @@ func PortalVerify(w http.ResponseWriter, r *http.Request) {
 	resp := portalResumeAuth(w, req.SessionID, req.Code, r)
 	if resp.Code != 0 {
 		portalError(w, resp.Msg)
+		dbdata.UserActLogIns.Add(dbdata.UserActLog{RemoteAddr: r.RemoteAddr, Status: dbdata.UserAuthFail, Info: "[门户]" + resp.Msg}, r.UserAgent(), true)
 		return
 	}
 	portalOK(w, resp.Data)
@@ -133,6 +136,7 @@ func PortalSmsVerify(w http.ResponseWriter, r *http.Request) {
 	// 防暴力破解
 	if !lockManager.Check(req.Phone, r.RemoteAddr) {
 		portalError(w, "验证过于频繁，请稍后重试")
+		dbdata.UserActLogIns.Add(dbdata.UserActLog{RemoteAddr: r.RemoteAddr, Status: dbdata.UserAuthFail, Info: "验证过于频繁，请稍后重试", IsLockedFail: true}, r.UserAgent(), true)
 		return
 	}
 
@@ -141,6 +145,7 @@ func PortalSmsVerify(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		lockManager.Fail(req.Phone, r.RemoteAddr)
 		portalError(w, err.Error())
+		dbdata.UserActLogIns.Add(dbdata.UserActLog{RemoteAddr: r.RemoteAddr, Status: dbdata.UserAuthFail, Info: "门户登录失败"}, r.UserAgent(), true)
 		return
 	}
 
@@ -148,6 +153,7 @@ func PortalSmsVerify(w http.ResponseWriter, r *http.Request) {
 	user := &dbdata.User{}
 	if err := dbdata.One("Phone", req.Phone, user); err != nil || user.Status != 1 {
 		portalError(w, "用户不存在或已禁用")
+		dbdata.UserActLogIns.Add(dbdata.UserActLog{RemoteAddr: r.RemoteAddr, Status: dbdata.UserAuthFail, Info: "门户登录失败"}, r.UserAgent(), true)
 		return
 	}
 
@@ -155,6 +161,7 @@ func PortalSmsVerify(w http.ResponseWriter, r *http.Request) {
 	resp := portalIssueLoginResponse(w, r, user, "短信验证码登录成功")
 	if resp.Code != 0 {
 		portalError(w, resp.Msg)
+		dbdata.UserActLogIns.Add(dbdata.UserActLog{Username: user.Username, RemoteAddr: r.RemoteAddr, Status: dbdata.UserAuthFail, Info: "门户登录失败"}, r.UserAgent(), true)
 		return
 	}
 	portalOK(w, resp.Data)
@@ -743,9 +750,10 @@ func PortalResetPassword(w http.ResponseWriter, r *http.Request) {
 }
 
 type portalAuthResponse struct {
-	Code int
-	Msg  string
-	Data map[string]any
+	Code     int
+	Msg      string
+	Data     map[string]any
+	IsLocked bool `json:"-"` // 是否因账号/IP 被锁定而失败，用于日志限频
 }
 
 func portalStartAuth(w http.ResponseWriter, username, password string, r *http.Request) portalAuthResponse {
@@ -755,7 +763,11 @@ func portalStartAuth(w http.ResponseWriter, username, password string, r *http.R
 
 	// 防暴力破解：检查锁定状态
 	if !lockManager.Check(username, r.RemoteAddr) {
-		return portalAuthError("账号已被锁定，请稍后重试")
+		recordFailAudit(auth.ConnInfo{Username: username, RemoteAddr: r.RemoteAddr, UserAgent: r.UserAgent()},
+			username, r.RemoteAddr, "[门户]账号已被锁定，请稍后重试", true)
+		resp := portalAuthError("账号已被锁定，请稍后重试")
+		resp.IsLocked = true
+		return resp
 	}
 
 	user, userExists, err := portalLoadUser(username)
@@ -783,6 +795,7 @@ func portalStartAuth(w http.ResponseWriter, username, password string, r *http.R
 		flow := &Flow{
 			Ctx:      ctx,
 			Username: username,
+			Source:   "门户",
 			Callbacks: FlowCallbacks{
 				OnPass: func(fl *Flow, w http.ResponseWriter, r *http.Request) {
 					portalUser, err := portalResolveUser(username, group, user, userExists)
@@ -862,6 +875,7 @@ func portalResumeAuth(w http.ResponseWriter, sessionID, code string, r *http.Req
 	flow := &Flow{
 		Ctx:      ctx,
 		Username: username,
+		Source:   "门户",
 		Session:  sess,
 		Callbacks: FlowCallbacks{
 			OnPass: func(fl *Flow, w http.ResponseWriter, r *http.Request) {

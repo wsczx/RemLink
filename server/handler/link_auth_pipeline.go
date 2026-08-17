@@ -40,6 +40,8 @@ func authFailMessage(err error) string {
 		return "单点登录认证失败"
 	case strings.HasPrefix(msg, "otp:"):
 		return "动态码验证失败"
+	case strings.Contains(msg, "锁定"):
+		return "账号已被锁定，请稍后重试"
 	default:
 		// local/ldap/radius 等凭据认证：统一文案，避免用户枚举
 		return "用户名或密码错误"
@@ -128,9 +130,7 @@ func handlePipelineResult(w http.ResponseWriter, r *http.Request,
 					errMsg = fl.Result.Err.Error()
 				}
 				base.Warn("认证失败:", fl.Result.Err, r.RemoteAddr)
-				sessionData.UserActLog.Info = errMsg
-				sessionData.UserActLog.Status = dbdata.UserAuthFail
-				dbdata.UserActLogIns.Add(*sessionData.UserActLog, ctx.Conn.UserAgent)
+				fl.RecordFail()
 
 				w.WriteHeader(http.StatusOK)
 				data := RequestData{

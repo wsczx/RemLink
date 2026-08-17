@@ -20,6 +20,41 @@ const (
 	LogLevelFatal
 )
 
+// 按 key 对日志做限频，避免暴力破解等高频场景下日志被刷爆。
+// 同一 key 在 interval 窗口内最多放行一次（首次），其余直接丢弃。
+type WarnLimiter struct {
+	mu       sync.Mutex
+	last     map[string]time.Time
+	interval time.Duration
+}
+
+// 创建一个限频器，interval 为同一 key 的最小记录间隔。
+func NewWarnLimiter(interval time.Duration) *WarnLimiter {
+	return &WarnLimiter{last: make(map[string]time.Time), interval: interval}
+}
+
+// 返回 true 表示本次允许输出日志（并刷新时间戳）。
+func (t *WarnLimiter) Allow(key string, now time.Time) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if lt, ok := t.last[key]; ok && now.Sub(lt) < t.interval {
+		return false
+	}
+	t.last[key] = now
+	return true
+}
+
+// 清除超过 interval 的历史时间戳，防止 last 随不同 key 无限增长。
+func (t *WarnLimiter) Clear(now time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for k, v := range t.last {
+		if now.Sub(v) >= t.interval {
+			delete(t.last, k)
+		}
+	}
+}
+
 var (
 	baseLwPtr  atomic.Pointer[logWriter]
 	baseLogPtr atomic.Pointer[log.Logger]

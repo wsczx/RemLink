@@ -46,7 +46,7 @@ type LockManager struct {
 	cleanupTicker *time.Ticker
 	cleanupDone   chan struct{}
 	cleanupOnce   sync.Once
-	warnLimiter   *WarnLimiter
+	warnLimiter   *base.WarnLimiter
 }
 
 type ipListItem struct {
@@ -67,7 +67,7 @@ func GetLockManager() *LockManager {
 			userLocks:   make(map[string]*LockState),
 			ipUserLocks: make(map[string]map[string]*LockState),
 			ipLists:     make(map[IPListType][]ipListItem),
-			warnLimiter: newWarnLimiter(warnLogInterval),
+			warnLimiter: base.NewWarnLimiter(warnLogInterval),
 		}
 	})
 	return lm
@@ -88,39 +88,6 @@ const (
 	warnKeyGlobalUser = "guplock:"
 	warnKeyUserIP     = "uiplock:"
 )
-
-// 按 key 对日志做限频，避免暴力破解等高频场景下日志被刷爆。
-type WarnLimiter struct {
-	mu       sync.Mutex
-	last     map[string]time.Time
-	interval time.Duration
-}
-
-func newWarnLimiter(interval time.Duration) *WarnLimiter {
-	return &WarnLimiter{last: make(map[string]time.Time), interval: interval}
-}
-
-// 返回 true 表示本次允许输出日志（并刷新时间戳）。
-func (t *WarnLimiter) allow(key string, now time.Time) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if lt, ok := t.last[key]; ok && now.Sub(lt) < t.interval {
-		return false
-	}
-	t.last[key] = now
-	return true
-}
-
-// 清除超过 interval 的历史时间戳，防止 last 随不同 key 无限增长。
-func (t *WarnLimiter) clear(now time.Time) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	for k, v := range t.last {
-		if now.Sub(v) >= t.interval {
-			delete(t.last, k)
-		}
-	}
-}
 
 // 初始化并启动清理协程（服务启动时调用一次）
 func (m *LockManager) Init() {
@@ -163,7 +130,7 @@ func (m *LockManager) LoadIPList(listType IPListType, config string) {
 
 // 限频后输出日志：同一 key 在 warnLogInterval 内仅放行一次
 func (m *LockManager) warnRateLimited(key string, fn func()) {
-	if m.warnLimiter.allow(key, time.Now()) {
+	if m.warnLimiter.Allow(key, time.Now()) {
 		fn()
 	}
 }
@@ -496,5 +463,5 @@ func (m *LockManager) cleanup() {
 		}
 	}
 	// 回收日志限频表，防止不同 key 持续累积导致内存增长
-	m.warnLimiter.clear(now)
+	m.warnLimiter.Clear(now)
 }

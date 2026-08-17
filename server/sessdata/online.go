@@ -13,6 +13,7 @@ import (
 
 type Online struct {
 	Token             string    `json:"token"`
+	IsActive          bool      `json:"is_active"`
 	Username          string    `json:"username"`
 	Nickname          string    `json:"nickname"`
 	Group             string    `json:"group"`
@@ -90,7 +91,8 @@ func GetOnlineSess(search_cate string, search_text string, show_sleeper bool) []
 				return
 			}
 
-			if show_sleeper || v.IsActive {
+			// 真实在线：活跃且仍有活动连接；show_sleeper 额外展示已掉线但仍在等待清理/重连的休眠态
+			if (show_sleeper && !v.IsActive) || (v.IsActive && cSess != nil && cSess.IpAddr != nil) {
 				transportProtocol := "TCP"
 				dSess := cSess.GetDtlsSession()
 				if dSess != nil {
@@ -106,6 +108,7 @@ func GetOnlineSess(search_cate string, search_text string, show_sleeper bool) []
 				}
 				val := Online{
 					Token:             v.Token,
+					IsActive:          v.IsActive,
 					Ip:                cSess.IpAddr,
 					Username:          v.Username,
 					Nickname:          u.Nickname,

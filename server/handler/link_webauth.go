@@ -343,6 +343,7 @@ func WebAuthIdentify(w http.ResponseWriter, r *http.Request) {
 
 	// 防暴力/枚举：单 IP 高频探查多用户名可形成枚举攻击
 	if !lockManager.Check(req.Username, r.RemoteAddr) {
+		recordFailAudit(pending.Ctx.Conn, req.Username, r.RemoteAddr, "[WebAuth]账号已被锁定，请稍后重试")
 		webAuthError(w, "操作过于频繁，请稍后重试")
 		return
 	}
@@ -413,6 +414,7 @@ func WebAuthStep(w http.ResponseWriter, r *http.Request) {
 		pending.UserActLog.Username = user.Username
 
 		if !lockManager.Check(user.Username, r.RemoteAddr) {
+			recordFailAudit(pending.Ctx.Conn, user.Username, r.RemoteAddr, "[WebAuth]账号已被锁定，请稍后重试")
 			webAuthError(w, "账号已被锁定，请稍后重试")
 			return
 		}
@@ -443,6 +445,7 @@ func WebAuthStep(w http.ResponseWriter, r *http.Request) {
 	// 锁定检查（与 LinkAuth 一致）
 	username := pending.Ctx.Conn.Username
 	if username != "" && !lockManager.Check(username, r.RemoteAddr) {
+		recordFailAudit(pending.Ctx.Conn, username, r.RemoteAddr, "[WebAuth]账号已被锁定，请稍后重试")
 		webAuthError(w, "账号已被锁定，请稍后重试")
 		return
 	}
@@ -485,6 +488,7 @@ func newWebAuthFlow(state string, pending *AuthSession, username string) *Flow {
 	return &Flow{
 		Ctx:      pending.Ctx,
 		Username: username,
+		Source:   "WebAuth",
 		Session:  pending,
 		Callbacks: FlowCallbacks{
 			OnPass: func(fl *Flow, w http.ResponseWriter, r *http.Request) {
@@ -496,6 +500,7 @@ func newWebAuthFlow(state string, pending *AuthSession, username string) *Flow {
 					errMsg = stripStepPrefix(fl.Result.Err.Error())
 				}
 				base.Warn("WebAuth 认证失败:", fl.Result.Err)
+				fl.RecordFail()
 				webAuthError(w, errMsg)
 			},
 			OnChallenge: func(fl *Flow, w http.ResponseWriter, r *http.Request) {
@@ -755,6 +760,7 @@ func WebAuthContinue(w http.ResponseWriter, r *http.Request) {
 	// 锁定检查
 	username := pending.Ctx.Conn.Username
 	if username != "" && !lockManager.Check(username, r.RemoteAddr) {
+		recordFailAudit(pending.Ctx.Conn, username, r.RemoteAddr, "[WebAuth]账号已被锁定，请稍后重试")
 		webAuthError(w, "账号已被锁定，请稍后重试")
 		return
 	}

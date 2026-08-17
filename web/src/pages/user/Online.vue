@@ -95,6 +95,12 @@
               <i v-else class="el-icon-s-platform client-desktop" title="桌面端"></i>
             </template>
           </el-table-column>
+          <el-table-column label="状态" width="90" align="center">
+            <template slot-scope="scope">
+              <el-tag v-if="scope.row.is_active" type="success" size="mini" effect="dark">在线</el-tag>
+              <el-tag v-else type="info" size="mini" effect="plain">休眠</el-tag>
+            </template>
+          </el-table-column>
           <el-table-column label="实时上行/下行" width="180" align="center">
             <template slot-scope="scope">
               <span class="bw-up">{{ scope.row.bandwidth_up }}</span>
@@ -131,9 +137,9 @@
                 </el-button>
                 <el-dropdown-menu slot="dropdown">
                   <el-dropdown-item command="reline" icon="el-icon-refresh"
-                    :disabled="!scope.row.remote_addr">重连</el-dropdown-item>
+                    :disabled="!scope.row.is_active">重连</el-dropdown-item>
                   <el-dropdown-item command="offline" icon="el-icon-switch-button" divided
-                    class="dropdown-danger">下线</el-dropdown-item>
+                    :disabled="!scope.row.is_active" class="dropdown-danger">下线</el-dropdown-item>
                 </el-dropdown-menu>
               </el-dropdown>
             </template>
@@ -170,10 +176,14 @@ export default {
     }
   },
   computed: {
-    statOnline() { return this.tableData.length },
-    statMobile() { return this.tableData.filter(r => r.client === 'mobile').length },
-    statDesktop() { return this.tableData.filter(r => r.client !== 'mobile').length },
-    statSleeper() { return this.tableData.filter(r => !r.remote_addr).length },
+    // 当前在线：仅统计真实在线（is_active=true）的会话
+    statOnline() { return this.tableData.filter(r => r.is_active).length },
+    // 全部展示行数（含休眠态）
+    statTotal() { return this.tableData.length },
+    statMobile() { return this.tableData.filter(r => r.is_active && r.client === 'mobile').length },
+    statDesktop() { return this.tableData.filter(r => r.is_active && r.client !== 'mobile').length },
+    // 休眠用户：已掉线但仍在等待清理/重连
+    statSleeper() { return this.tableData.filter(r => !r.is_active).length },
   },
   methods: {
     handleRowCmd(row, cmd) {
