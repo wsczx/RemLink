@@ -54,6 +54,7 @@ type User struct {
 type UserActLog struct {
 	Id              int       `json:"id" xorm:"pk autoincr not null"`
 	Username        string    `json:"username" xorm:"varchar(60)"`
+	Nickname        string    `json:"nickname" xorm:"-"`
 	GroupName       string    `json:"group_name" xorm:"varchar(60)"`
 	IpAddr          string    `json:"ip_addr" xorm:"varchar(64)"`
 	RemoteAddr      string    `json:"remote_addr" xorm:"varchar(64)"`
@@ -88,6 +89,7 @@ type AdminOpLog struct {
 type AccessAudit struct {
 	Id          int       `json:"id" xorm:"pk autoincr not null"`
 	Username    string    `json:"username" xorm:"varchar(60) not null"`
+	Nickname    string    `json:"nickname" xorm:"-"`
 	GroupName   string    `json:"group_name" xorm:"varchar(60) not null default ''"`
 	Protocol    uint8     `json:"protocol" xorm:"Int not null"`
 	Src         string    `json:"src" xorm:"varchar(60) not null"`

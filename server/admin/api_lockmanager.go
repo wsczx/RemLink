@@ -12,6 +12,14 @@ import (
 // 查询锁定信息
 func GetLocksInfo(w http.ResponseWriter, r *http.Request) {
 	infos := auth.GetLockManager().LockInfo()
+	names := make([]string, 0, len(infos))
+	for _, info := range infos {
+		names = append(names, info.Username)
+	}
+	nickMap := dbdata.NicknameMap(names)
+	for i := range infos {
+		infos[i].Nickname = nickMap[infos[i].Username]
+	}
 	RespSucess(w, infos)
 }
 

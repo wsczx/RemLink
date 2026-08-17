@@ -14,6 +14,7 @@ type IpMap struct {
 	Group     string    `json:"group" xorm:"varchar(60) not null default '' 'ip_group' unique(MacGroup)"` // 所属组/出口；同 MAC 跨组允许多行
 	UniqueMac bool      `json:"unique_mac" xorm:"Bool index"`
 	Username  string    `json:"username" xorm:"varchar(60)"`
+	Nickname  string    `json:"nickname" xorm:"-"`
 	Keep      bool      `json:"keep" xorm:"Bool"` // 保留 ip-mac 绑定
 	KeepTime  time.Time `json:"keep_time" xorm:"DateTime"`
 	Note      string    `json:"note" xorm:"varchar(255)"` // 备注

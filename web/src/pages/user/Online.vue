@@ -66,7 +66,7 @@
           <el-table-column sortable type="index" label="#" width="50" align="center"></el-table-column>
           <el-table-column prop="username" label="用户名" width="120" sortable>
             <template slot-scope="scope">
-              <span class="online-username">{{ scope.row.nickname || scope.row.username }}</span>
+              <span class="online-username">{{ userLabel(scope.row.username, scope.row.nickname) }}</span>
             </template>
           </el-table-column>
           <el-table-column prop="group" label="登录组" width="100" align="center" sortable>
@@ -146,9 +146,11 @@
 
 <script>
 import axios from "axios";
+import userLabel from "@/mixins/userLabel";
 
 export default {
   name: "Online",
+  mixins: [userLabel],
   created() {
     this.$emit('update:route_path', this.$route.path)
     this.$emit('update:route_name', ['用户管理', '在线用户'])

@@ -79,6 +79,9 @@
             prop="username"
             label="用户名"
             width="140">
+            <template slot-scope="scope">
+              {{ userLabel(scope.row.username, scope.row.nickname) }}
+            </template>
         </el-table-column>
         <el-table-column
             prop="group_name"
@@ -156,11 +159,12 @@
 
 <script>
 import axios from "axios";
+import userLabel from "@/mixins/userLabel";
 
 export default {
   name: "List",
   components: {},
-  mixins: [],
+  mixins: [userLabel],
   created() {
   },
   data() {

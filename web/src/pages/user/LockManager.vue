@@ -59,7 +59,7 @@
         </el-table-column>
         <el-table-column prop="username" label="用户名" width="120" sortable>
           <template slot-scope="scope">
-            <span class="lock-user">{{ scope.row.username || '-' }}</span>
+            <span class="lock-user">{{ userLabel(scope.row.username, scope.row.nickname) || '-' }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="ip" label="IP地址" width="140" sortable></el-table-column>
@@ -98,9 +98,11 @@
 
 <script>
 import axios from 'axios';
+import userLabel from '@/mixins/userLabel';
 
 export default {
   name: 'LockManager',
+  mixins: [userLabel],
   created() {
     this.$emit('update:route_path', this.$route.path)
     this.$emit('update:route_name', ['用户管理', '锁定管理'])

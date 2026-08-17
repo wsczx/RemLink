@@ -13,6 +13,7 @@ import (
 type LockInfo struct {
 	Description string     `json:"description"`
 	Username    string     `json:"username"`
+	Nickname    string     `json:"nickname"`
 	IP          string     `json:"ip"`
 	State       *LockState `json:"state"`
 }

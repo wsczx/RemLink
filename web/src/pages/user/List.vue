@@ -104,8 +104,7 @@
           </el-table-column>
           <el-table-column prop="username" label="用户名" min-width="120">
             <template slot-scope="scope">
-              <span class="user-name">{{ scope.row.username }}</span>
-              <span v-if="scope.row.nickname" class="user-nickname">({{ scope.row.nickname }})</span>
+              <span class="user-name">{{ userLabel(scope.row.username, scope.row.nickname) }}</span>
             </template>
           </el-table-column>
           <el-table-column prop="email" label="邮箱" min-width="160" show-overflow-tooltip></el-table-column>
@@ -315,9 +314,11 @@
 
 <script>
 import axios from "axios";
+import userLabel from "@/mixins/userLabel";
 
 export default {
   name: "UserList",
+  mixins: [userLabel],
   created() {
     this.$emit('update:route_path', this.$route.path)
     this.$emit('update:route_name', ['用户管理', '用户列表'])

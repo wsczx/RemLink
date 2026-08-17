@@ -62,6 +62,9 @@
         </el-table-column>
 
         <el-table-column prop="username" label="用户名" width="140">
+          <template slot-scope="scope">
+            {{ userLabel(scope.row.username, scope.row.nickname) }}
+          </template>
         </el-table-column>
 
         <el-table-column prop="group_name" label="用户组" width="100">
@@ -97,10 +100,11 @@
 
 <script>
 import axios from "axios";
+import userLabel from "@/mixins/userLabel";
 
 export default {
   name: "auditAccess",
-  mixins: [],
+  mixins: [userLabel],
   data() {
     return {
       tableData: [],

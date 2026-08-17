@@ -26,6 +26,16 @@ func SetAuditList(w http.ResponseWriter, r *http.Request) {
 	if datas == nil {
 		datas = []dbdata.AccessAudit{}
 	}
+
+	names := make([]string, 0, len(datas))
+	for _, d := range datas {
+		names = append(names, d.Username)
+	}
+	nickMap := dbdata.NicknameMap(names)
+	for i := range datas {
+		datas[i].Nickname = nickMap[datas[i].Username]
+	}
+
 	data := map[string]any{
 		"count":     count,
 		"page_size": dbdata.PageSize,
@@ -75,6 +85,16 @@ func UserActLogList(w http.ResponseWriter, r *http.Request) {
 	if datas == nil {
 		datas = []dbdata.UserActLog{}
 	}
+
+	names := make([]string, 0, len(datas))
+	for _, d := range datas {
+		names = append(names, d.Username)
+	}
+	nickMap := dbdata.NicknameMap(names)
+	for i := range datas {
+		datas[i].Nickname = nickMap[datas[i].Username]
+	}
+
 	data := map[string]any{
 		"count":     count,
 		"page_size": dbdata.PageSize,

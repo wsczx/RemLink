@@ -78,6 +78,15 @@ func UserIpMapList(w http.ResponseWriter, r *http.Request) {
 		datas = []dbdata.IpMap{}
 	}
 
+	names := make([]string, 0, len(datas))
+	for _, d := range datas {
+		names = append(names, d.Username)
+	}
+	nickMap := dbdata.NicknameMap(names)
+	for i := range datas {
+		datas[i].Nickname = nickMap[datas[i].Username]
+	}
+
 	data := map[string]any{
 		"count":     count,
 		"page_size": pageSize,

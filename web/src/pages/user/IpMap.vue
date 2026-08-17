@@ -96,7 +96,7 @@
           </el-table-column>
           <el-table-column prop="username" label="用户名" min-width="120" sortable>
             <template slot-scope="scope">
-              <span v-if="scope.row.username" class="bound-user">{{ scope.row.username }}</span>
+              <span v-if="scope.row.username" class="bound-user">{{ userLabel(scope.row.username, scope.row.nickname) }}</span>
               <span v-else class="text-muted">未绑定</span>
             </template>
           </el-table-column>
@@ -166,9 +166,11 @@
 
 <script>
 import axios from "axios";
+import userLabel from "@/mixins/userLabel";
 
 export default {
   name: "IpMap",
+  mixins: [userLabel],
   created() {
     this.$emit('update:route_path', this.$route.path)
     this.$emit('update:route_name', ['用户管理', 'IP映射'])

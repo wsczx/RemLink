@@ -388,7 +388,7 @@
               <i class="el-icon-user-solid"></i>
             </div>
             <div class="stat-body">
-              <div class="stat-value">{{ user.name || user.username || '-' }}</div>
+              <div class="stat-value">{{ userLabel(user.username, user.name) || '-' }}</div>
               <div class="stat-label">用户名</div>
             </div>
           </div>
@@ -703,9 +703,11 @@
 import axios from "axios"
 import { applyBrandToDocument } from "../plugins/brand"
 import { defaultClientGuide } from "../plugins/clientGuide"
+import userLabel from "@/mixins/userLabel"
 
 export default {
   name: "Portal",
+  mixins: [userLabel],
   data() {
     return {
       loggedIn: false,
@@ -779,7 +781,7 @@ export default {
   },
   computed: {
     displayName() {
-      return this.user.name || this.user.username || "用户"
+      return this.userLabel(this.user.username, this.user.name) || "用户"
     },
     otpDialogTitle() {
       return this.otpStep === "password" ? "重新绑定 OTP" : "OTP 密钥"
