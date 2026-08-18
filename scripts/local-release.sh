@@ -100,13 +100,7 @@ docker buildx build --push \
   -f docker/Dockerfile \
   -t "wsczx/remlink:${VER}" .
 if [ "$LATEST_TAG" = "1" ] && [ "$PRERELEASE" != "1" ]; then
-  docker buildx build --push \
-    --platform "$ARCH" \
-    --build-arg "appVer=${VER}" \
-    --build-arg "commitId=${COMMIT}" \
-    --build-arg "CN=${CN}" \
-    -f docker/Dockerfile \
-    -t "wsczx/remlink:latest" .
+  docker buildx imagetools create -t "wsczx/remlink:latest" "wsczx/remlink:${VER}"
 elif [ "$LATEST_TAG" = "1" ] && [ "$PRERELEASE" = "1" ]; then
   echo "==> 预发布版不打 latest 标签（避免 latest 指向 beta 镜像）"
 fi
