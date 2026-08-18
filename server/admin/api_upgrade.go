@@ -23,9 +23,18 @@ type UpgradeState struct {
 	Info     *base.ReleaseInfo `json:"info,omitempty"`
 }
 
+// 读取用户配置的更新源（gitee / github）
+func getUpgradeSource() string {
+	sc := &dbdata.SettingServerConfig{}
+	if err := dbdata.SettingGet(sc); err != nil {
+		return "gitee"
+	}
+	return sc.Config.UpgradeSource
+}
+
 // 检查是否有新版本
 func CheckUpgrade(w http.ResponseWriter, r *http.Request) {
-	info, needUpgrade, err := base.CheckUpdate()
+	info, needUpgrade, err := base.CheckUpdate(getUpgradeSource())
 	if err != nil {
 		RespError(w, RespInternalErr, "检查更新失败: ", err)
 		return
@@ -34,6 +43,7 @@ func CheckUpgrade(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
 		"current_version": "v" + base.APP_VER,
 		"need_upgrade":    needUpgrade,
+		"upgrade_source":  info.UpgradeSource,
 		"latest":          info,
 	}
 	RespSucess(w, data)
@@ -47,7 +57,7 @@ func StartUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, needUpgrade, err := base.CheckUpdate()
+	info, needUpgrade, err := base.CheckUpdate(getUpgradeSource())
 	if err != nil {
 		upgradeMux.Unlock()
 		RespError(w, RespInternalErr, "获取更新信息失败: ", err)

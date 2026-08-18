@@ -51,7 +51,7 @@
           <el-progress type="circle" :percentage="system.cpu.percent" :width="130" :stroke-width="10" :show-text="false"
             :color="progressColor(system.cpu.percent)" />
           <span class="progress-num" :style="{ color: progressColor(system.cpu.percent) }">{{ system.cpu.percent
-          }}%</span>
+            }}%</span>
         </div>
         <div class="info-list">
           <div class="info-item">
@@ -79,7 +79,7 @@
           <el-progress type="circle" :percentage="system.mem.percent" :width="130" :stroke-width="10" :show-text="false"
             :color="progressColor(system.mem.percent)" />
           <span class="progress-num" :style="{ color: progressColor(system.mem.percent) }">{{ system.mem.percent
-          }}%</span>
+            }}%</span>
         </div>
         <div class="info-list">
           <div class="info-item">
@@ -99,7 +99,7 @@
           <el-progress type="circle" :percentage="system.disk.percent" :width="130" :stroke-width="10"
             :show-text="false" :color="progressColor(system.disk.percent)" />
           <span class="progress-num" :style="{ color: progressColor(system.disk.percent) }">{{ system.disk.percent
-          }}%</span>
+            }}%</span>
         </div>
         <div class="info-list">
           <div class="info-item">
@@ -127,6 +127,10 @@
                 class="upgrade-check-btn">检查更新</el-button>
               <el-tag v-if="upgradeInfo" type="success" size="mini" class="upgrade-tag">
                 新版本 {{ upgradeInfo.latest.version }}
+              </el-tag>
+              <el-tag v-if="upgradeInfo && upgradeInfo.upgrade_source" type="info" size="mini"
+                class="upgrade-source-tag">
+                更新源：{{ upgradeInfo.upgrade_source === 'github' ? 'GitHub' : 'Gitee' }}
               </el-tag>
             </span>
           </div>
@@ -661,6 +665,10 @@ export default {
 }
 
 .upgrade-tag {
+  margin-left: 8px;
+}
+
+.upgrade-source-tag {
   margin-left: 8px;
 }
 

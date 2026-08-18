@@ -20,13 +20,14 @@ type SystemWarning struct {
 
 type ServerConfig struct {
 	// 基础信息
-	ProfileName string `json:"profile_name"`
-	Issuer      string `json:"issuer"`
-	AdminUser   string `json:"admin_user"`
-	AdminPass   string `json:"admin_pass"`
-	AdminOtp    string `json:"admin_otp"`
-	JwtSecret   string `json:"jwt_secret"`
-	AdminTemp   bool   `json:"admin_temp"`
+	ProfileName   string `json:"profile_name"`
+	Issuer        string `json:"issuer"`
+	AdminUser     string `json:"admin_user"`
+	AdminPass     string `json:"admin_pass"`
+	AdminOtp      string `json:"admin_otp"`
+	JwtSecret     string `json:"jwt_secret"`
+	AdminTemp     bool   `json:"admin_temp"`
+	UpgradeSource string `json:"upgrade_source"`
 
 	// 服务监听
 	ServerAddr        string `json:"server_addr"`
@@ -132,13 +133,14 @@ type configMeta struct {
 }
 
 var configMetas = map[string]configMeta{
-	"profile_name": {usage: "profile name(用于区分不同服务端的配置)", group: "基础信息", defaultVal: "profile"},
-	"issuer":       {usage: "系统名称", group: "基础信息", defaultVal: "XX公司VPN"},
-	"admin_user":   {usage: "管理用户名", group: "基础信息", defaultVal: "admin", restart: true},
-	"admin_pass":   {usage: "管理用户密码", group: "基础信息", defaultVal: "defaultPwd", sensitive: true, hidden: true},
-	"admin_otp":    {usage: "管理用户OTP两步验证密钥,可在安全设置页面扫码绑定", group: "基础信息", sensitive: true, hidden: true},
-	"jwt_secret":   {usage: "JWT密钥", group: "基础信息", sensitive: true},
-	"admin_temp":   {usage: "管理员仍在使用首次生成或重置后的临时密码", group: "基础信息", hidden: true},
+	"profile_name":   {usage: "profile name(用于区分不同服务端的配置)", group: "基础信息", defaultVal: "profile"},
+	"issuer":         {usage: "系统名称", group: "基础信息", defaultVal: "XX公司VPN"},
+	"admin_user":     {usage: "管理用户名", group: "基础信息", defaultVal: "admin", restart: true},
+	"admin_pass":     {usage: "管理用户密码", group: "基础信息", defaultVal: "defaultPwd", sensitive: true, hidden: true},
+	"admin_otp":      {usage: "管理用户OTP两步验证密钥,可在安全设置页面扫码绑定", group: "基础信息", sensitive: true, hidden: true},
+	"jwt_secret":     {usage: "JWT密钥", group: "基础信息", sensitive: true},
+	"admin_temp":     {usage: "管理员仍在使用首次生成或重置后的临时密码", group: "基础信息", hidden: true},
+	"upgrade_source": {usage: "在线升级更新源：gitee / github；部署在国内的服务端建议选 gitee", group: "基础信息", defaultVal: "gitee", options: map[string]string{"Gitee": "gitee", "GitHub": "github"}},
 
 	"server_addr":         {usage: "TCP服务监听地址，可只填端口(如 8443)监听所有网卡，或 IP:端口", group: "服务监听", defaultVal: ":443", restart: true},
 	"server_dtls":         {usage: "开启DTLS", group: "服务监听", restart: true},

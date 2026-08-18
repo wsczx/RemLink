@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -23,12 +24,12 @@ const (
 )
 
 type ReleaseInfo struct {
-	Version     string `json:"version"`
-	Body        string `json:"body"`
-	URL         string `json:"url"`
-	BackupURL   string `json:"backup_url,omitempty"` // 备用下载源（Gitee 镜像），主源失败时回退
-	Size        int64  `json:"size"`
-	PublishedAt string `json:"published_at"`
+	Version       string `json:"version"`
+	Body          string `json:"body"`
+	URL           string `json:"url"`
+	UpgradeSource string `json:"upgrade_source"`
+	Size          int64  `json:"size"`
+	PublishedAt   string `json:"published_at"`
 }
 
 type UpgradeProgress struct {
@@ -64,24 +65,22 @@ var (
 	upgradeProgMux  sync.RWMutex
 )
 
-// 检查最新版本，返回 ReleaseInfo、是否需要更新。
-// 依次尝试多个更新源（GitHub → Gitee 镜像）
-func CheckUpdate() (*ReleaseInfo, bool, error) {
-	sources := []string{
-		fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", upgradeRepoOwner, upgradeRepoName),
-		fmt.Sprintf("https://gitee.com/api/v5/repos/%s/%s/releases/latest", upgradeRepoOwner, upgradeRepoName),
+// 检查最新版本，返回 ReleaseInfo、是否需要更新
+func CheckUpdate(source string) (*ReleaseInfo, bool, error) {
+	var apiURL string
+	switch source {
+	case "github":
+		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", upgradeRepoOwner, upgradeRepoName)
+	default: // gitee
+		apiURL = fmt.Sprintf("https://gitee.com/api/v5/repos/%s/%s/releases/latest", upgradeRepoOwner, upgradeRepoName)
+		source = "gitee"
 	}
-	var lastErr error
-	for _, apiURL := range sources {
-		ri, need, err := getLatestRelease(apiURL)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		ri.BackupURL = swapReleaseHost(ri.URL)
-		return ri, need, nil
+	ri, need, err := getLatestRelease(apiURL)
+	if err != nil {
+		return nil, false, fmt.Errorf("更新源 %s 不可用: %w", source, err)
 	}
-	return nil, false, fmt.Errorf("所有更新源均不可用: %v", lastErr)
+	ri.UpgradeSource = source
+	return ri, need, nil
 }
 
 // 从指定 releases/latest API 获取最新版本信息
@@ -141,18 +140,6 @@ func getLatestRelease(apiURL string) (*ReleaseInfo, bool, error) {
 	return ri, needUpgrade, nil
 }
 
-// 在 GitHub 与 Gitee 发布资源地址间互转，作为备用下载源。
-func swapReleaseHost(url string) string {
-	switch {
-	case strings.Contains(url, "github.com"):
-		return strings.Replace(url, "github.com", "gitee.com", 1)
-	case strings.Contains(url, "gitee.com"):
-		return strings.Replace(url, "gitee.com", "github.com", 1)
-	default:
-		return ""
-	}
-}
-
 // 执行升级：下载 → 替换 → 重启
 func DoUpgrade(info *ReleaseInfo, progressCh chan<- UpgradeProgress) {
 	defer close(progressCh)
@@ -164,12 +151,12 @@ func DoUpgrade(info *ReleaseInfo, progressCh chan<- UpgradeProgress) {
 	upgradeRunning.Store(true)
 	defer func() { upgradeRunning.Store(false) }()
 
-	// 阶段1：下载（主源失败则回退备用源）
+	// 阶段1：下载（更新源由用户配置决定，无备用源回退）
 	sendProgress(progressCh, "downloading", 0, 0, info.Size)
+	Info("在线升级：从更新源 ", strings.ToUpper(info.UpgradeSource), " 开始下载 (", info.URL, ")")
 	binFile, err := downloadBinary(info.URL, info.Size, progressCh)
-	if err != nil && info.BackupURL != "" {
-		Warn("主下载源失败，尝试备用源:", err)
-		binFile, err = downloadBinary(info.BackupURL, info.Size, progressCh)
+	if err == nil {
+		Info("在线升级：下载完成")
 	}
 	if err != nil {
 		sendError(progressCh, "下载失败: "+err.Error())
@@ -199,11 +186,18 @@ func DoUpgrade(info *ReleaseInfo, progressCh chan<- UpgradeProgress) {
 
 // 下载二进制到临时文件，通过 progressCh 推送进度
 func downloadBinary(url string, totalSize int64, progressCh chan<- UpgradeProgress) (string, error) {
-	client := &http.Client{Timeout: 30 * time.Minute}
+	client := &http.Client{
+		Timeout: 15 * time.Minute,
+		Transport: &http.Transport{
+			DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 15 * time.Second,
+		},
+	}
 
 	var resp *http.Response
 	var err error
-	for retry := range 3 {
+	for retry := range 2 {
 		req, reqErr := http.NewRequest("GET", url, nil)
 		if reqErr != nil {
 			return "", fmt.Errorf("创建下载请求失败: %w", reqErr)
@@ -217,8 +211,8 @@ func downloadBinary(url string, totalSize int64, progressCh chan<- UpgradeProgre
 		if resp != nil {
 			resp.Body.Close()
 		}
-		if retry < 2 {
-			time.Sleep(time.Duration(retry+1) * time.Second)
+		if retry < 1 {
+			time.Sleep(2 * time.Second)
 		}
 	}
 	if err != nil {

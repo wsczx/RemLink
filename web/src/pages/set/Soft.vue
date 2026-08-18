@@ -125,9 +125,8 @@
                     </div>
                   </div>
                   <el-radio-group v-else-if="item.options" v-model="item.edit_data"
-                    :disabled="item.readonly || item.saving" size="mini" style="display:flex;width:100%">
-                    <el-radio-button v-for="(val, label) in item.options" :key="val" :label="val"
-                      style="flex:1;text-align:center">
+                    :disabled="item.readonly || item.saving" size="mini">
+                    <el-radio-button v-for="(val, label) in item.options" :key="val" :label="val">
                       {{ label }}
                     </el-radio-button>
                   </el-radio-group>
