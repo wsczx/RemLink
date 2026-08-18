@@ -348,6 +348,12 @@ func (m *LockManager) incrLock(ip, username string, maxCount, resetTime, lockTim
 		}
 	}
 
+	if ls.Locked && !ls.LockTime.IsZero() && now.After(ls.LockTime) {
+		ls.FailureCount = 0
+		ls.Locked = false
+		ls.LockTime = time.Time{}
+	}
+
 	if ls.Locked || ls.LockTime.After(now) {
 		return
 	}
@@ -443,17 +449,35 @@ func (m *LockManager) cleanup() {
 	defer m.mu.Unlock()
 
 	for ip, s := range m.ipLocks {
+		if s.Locked && !s.LockTime.IsZero() && now.After(s.LockTime) {
+			s.FailureCount = 0
+			s.Locked = false
+			s.LockTime = time.Time{}
+			continue
+		}
 		if now.Sub(s.LastAttempt) > expireTime && !s.Locked {
 			delete(m.ipLocks, ip)
 		}
 	}
 	for user, s := range m.userLocks {
+		if s.Locked && !s.LockTime.IsZero() && now.After(s.LockTime) {
+			s.FailureCount = 0
+			s.Locked = false
+			s.LockTime = time.Time{}
+			continue
+		}
 		if now.Sub(s.LastAttempt) > expireTime && !s.Locked {
 			delete(m.userLocks, user)
 		}
 	}
 	for ip, userMap := range m.ipUserLocks {
 		for username, s := range userMap {
+			if s.Locked && !s.LockTime.IsZero() && now.After(s.LockTime) {
+				s.FailureCount = 0
+				s.Locked = false
+				s.LockTime = time.Time{}
+				continue
+			}
 			if now.Sub(s.LastAttempt) > expireTime && !s.Locked {
 				delete(userMap, username)
 			}
