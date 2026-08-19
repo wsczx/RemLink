@@ -364,6 +364,118 @@ func TestCleanupExpiredLocks(t *testing.T) {
 	})
 }
 
+// 场景1+2 联动：单用户IP锁不跨IP，但全局用户锁跨IP生效
+func TestUserIPLockNotCrossIP_ButGlobalUserLockDoes(t *testing.T) {
+	resetLockManager()
+	base.Test()
+	setupTestConfig()
+
+	lm := GetLockManager()
+	username := "linkageuser"
+	ip1 := "192.168.2.1:12345"
+	ip2 := "192.168.2.2:12345"
+
+	// 在 IP1 失败 5 次触发单用户IP锁
+	for range 5 {
+		lm.Fail(username, ip1)
+	}
+	// IP1 上该用户被拒
+	assert.False(t, lm.Check(username, ip1), "IP1 上失败5次后应被单用户IP锁拒")
+	// 换 IP2 仍可在 Check 阶段尝试（单用户IP锁不跨IP）
+	assert.True(t, lm.Check(username, ip2), "单用户IP锁不应跨IP，IP2 上应允许尝试")
+
+	// IP2 继续失败到 20 次触发全局用户锁
+	for range 15 {
+		lm.Fail(username, ip2)
+	}
+	// 全局用户锁生效：IP1 和 IP2 都被拒
+	assert.False(t, lm.Check(username, ip1), "全局用户锁生效后 IP1 应被拒")
+	assert.False(t, lm.Check(username, ip2), "全局用户锁生效后 IP2 应被拒")
+	// 另一个用户不受全局用户锁影响
+	assert.True(t, lm.Check("otheruser", ip2), "全局用户锁只锁该用户，其他用户应可尝试")
+}
+
+// 场景3 联动：全局IP锁跨用户生效，但单用户IP锁只限该用户
+func TestGlobalIPLockBlocksAllUsersOnIP(t *testing.T) {
+	resetLockManager()
+	base.Test()
+	setupTestConfig()
+
+	lm := GetLockManager()
+	ip := "192.168.2.3:12345"
+
+	// 多用户累计 40 次失败触发全局IP锁
+	for i := range 40 {
+		username := fmt.Sprintf("ipuser%d", i)
+		lm.Fail(username, ip)
+	}
+	// 该 IP 上任意用户都被拒（包括全新用户）
+	assert.False(t, lm.Check("brandnewuser", ip), "全局IP锁生效后该IP上任何用户都应被拒")
+	// 其他 IP 不受影响
+	assert.True(t, lm.Check("brandnewuser", "192.168.2.4:12345"), "全局IP锁只限该IP，其他IP应可尝试")
+}
+
+// incrLock 内部 resetTime 滑动窗口：失败间隔超过 resetTime 后计数清零重算
+func TestIncrLockSlidingResetWindow(t *testing.T) {
+	resetLockManager()
+	base.Test()
+	setupTestConfig()
+
+	lm := GetLockManager()
+	username := "slideuser"
+	ip := "192.168.2.5:12345"
+
+	// 失败 4 次（未到阈值 5）
+	for range 4 {
+		lm.Fail(username, ip)
+	}
+	lm.mu.Lock()
+	host, _, _ := net.SplitHostPort(ip)
+	st := lm.ipUserLocks[host][username]
+	assert.Equal(t, 4, st.FailureCount, "失败4次后计数应为4")
+	// 模拟上次尝试发生在超过 BanResetTime(600s) 之前
+	st.LastAttempt = time.Now().Add(-700 * time.Second)
+	lm.mu.Unlock()
+
+	// 再次失败：因超过 reset 窗口，计数应先清零再加1，仍为 1，不触发锁定
+	lm.Fail(username, ip)
+	lm.mu.Lock()
+	st = lm.ipUserLocks[host][username]
+	assert.Equal(t, 1, st.FailureCount, "超过reset窗口后计数应清零重算为1")
+	assert.False(t, st.Locked, "清零重算后不应锁定")
+	lm.mu.Unlock()
+
+	// 紧接着再失败 4 次（窗口内连续），共 5 次触发锁定
+	for range 4 {
+		lm.Fail(username, ip)
+	}
+	assert.False(t, lm.Check(username, ip), "连续5次失败后应被锁定")
+}
+
+// 全局锁到期后自动失效（过期锁在 Check 时不再拒绝）
+func TestGlobalUserLockExpiresAfterLockTime(t *testing.T) {
+	resetLockManager()
+	base.Test()
+	setupTestConfig()
+
+	lm := GetLockManager()
+	username := "expireuser"
+
+	for range 20 {
+		lm.Fail(username, fmt.Sprintf("192.168.2.%d:12345", 200+0))
+	}
+	assert.False(t, lm.Check(username, "192.168.2.250:12345"), "全局用户锁生效前应被拒")
+
+	// 手动把 LockTime 设为已过期
+	lm.mu.Lock()
+	ls := lm.userLocks[username]
+	ls.LockTime = time.Now().Add(-1 * time.Second)
+	lm.mu.Unlock()
+
+	// Check 时应检测到过期并自动解锁
+	assert.True(t, lm.Check(username, "192.168.2.250:12345"), "全局用户锁过期后应自动失效允许登录")
+}
+
 func TestCheckLockState(t *testing.T) {
 	resetLockManager()
 	base.Test()
