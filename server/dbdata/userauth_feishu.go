@@ -176,6 +176,7 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 	if len(feishuUserMap) == 0 {
 		return fmt.Errorf("飞书拉取到的用户列表为空（可能部门配置错误、access_token 权限不足或应用可见范围未覆盖），组: %s", g.Name)
 	}
+	base.Info("飞书用户同步完成，组:", g.Name, " 新增:", added, " 更新:", updated, " 跳过:", skipped)
 
 	// 清理已不在飞书部门中的本地 feishu 用户
 	var localFeishuUsers []User
@@ -229,7 +230,9 @@ func SyncFeishuUsers() {
 		go func(g Group, a *AuthFeishu) {
 			if err := a.SaveUsers(&g); err != nil {
 				base.Error("飞书用户同步失败", g.Name, err)
+				return
 			}
+			base.Info("飞书用户组同步成功:", g.Name)
 		}(g, authFs)
 	}
 }

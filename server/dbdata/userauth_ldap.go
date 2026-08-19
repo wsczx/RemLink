@@ -80,6 +80,7 @@ func (a *AuthLdap) SaveUsers(g *Group) error {
 	}
 	// 创建LDAP用户映射
 	ldapUserMap := make(map[string]bool)
+	var added, updated int
 	// 处理搜索结果
 	for _, entry := range sr.Entries {
 		if a.SyncUserStatus {
@@ -139,10 +140,12 @@ func (a *AuthLdap) SaveUsers(g *Group) error {
 		if err := Set(u); err != nil {
 			return fmt.Errorf("更新ldap用户%s失败:%v", u.Username, err.Error())
 		}
+		updated++
 	}
 	if len(sr.Entries) == 0 {
 		return fmt.Errorf("LDAP 搜索到的用户列表为空（可能连接失败、base DN 配置错误或搜索权限不足），组: %s", g.Name)
 	}
+	base.Info("LDAP用户同步完成，组:", g.Name, " 新增:", added, " 更新:", updated)
 
 	// 查询本地LDAP用户
 	var localLdapUsers []User

@@ -157,6 +157,7 @@ func (a *AuthWXwork) SaveUsers(g *Group) error {
 	if len(wxUserMap) == 0 {
 		return fmt.Errorf("企微拉取到的用户列表为空（可能部门配置错误、access_token 权限不足或应用可见范围未覆盖），组: %s", g.Name)
 	}
+	base.Info("企微用户同步完成，组:", g.Name, " 新增:", added, " 更新:", updated, " 跳过:", skipped)
 
 	// 清理已不在企微部门中的本地 wxwork 用户
 	var localWxUsers []User
@@ -210,7 +211,9 @@ func SyncWXworkUsers() {
 		go func(g Group, a *AuthWXwork) {
 			if err := a.SaveUsers(&g); err != nil {
 				base.Error("企微用户同步失败", g.Name, err)
+				return
 			}
+			base.Info("企微用户组同步成功:", g.Name)
 		}(g, authWx)
 	}
 }

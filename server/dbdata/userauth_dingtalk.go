@@ -164,6 +164,7 @@ func (a *AuthDingtalk) SaveUsers(g *Group) error {
 	if len(dtUserMap) == 0 {
 		return fmt.Errorf("钉钉拉取到的用户列表为空（可能部门配置错误、access_token 权限不足或应用可见范围未覆盖），组: %s", g.Name)
 	}
+	base.Info("钉钉用户同步完成，组:", g.Name, " 新增:", added, " 更新:", updated, " 跳过:", skipped)
 
 	// 清理已不在钉钉部门中的本地 dingtalk 用户
 	var localDingtalkUsers []User
@@ -217,7 +218,9 @@ func SyncDingtalkUsers() {
 		go func(g Group, a *AuthDingtalk) {
 			if err := a.SaveUsers(&g); err != nil {
 				base.Error("钉钉用户同步失败", g.Name, err)
+				return
 			}
+			base.Info("钉钉用户组同步成功:", g.Name)
 		}(g, authDt)
 	}
 }
