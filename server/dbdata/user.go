@@ -116,6 +116,31 @@ func RemoveGroupFromUsers(groupName string) error {
 	return nil
 }
 
+// 返回所有"Groups 字段包含 groups 中任一组名"的用户
+func UsersInGroups(groups []string) ([]User, error) {
+	if len(groups) == 0 {
+		return nil, nil
+	}
+	want := make(map[string]bool, len(groups))
+	for _, g := range groups {
+		want[g] = true
+	}
+	var allUsers []User
+	if err := Find(&allUsers, 0, 0); err != nil {
+		return nil, err
+	}
+	var matched []User
+	for _, u := range allUsers {
+		for _, g := range u.Groups {
+			if want[g] {
+				matched = append(matched, u)
+				break
+			}
+		}
+	}
+	return matched, nil
+}
+
 // 校验密码
 func VerifyPassword(password, pinCode string) bool {
 	if utils.IsBcryptHash(pinCode) {
