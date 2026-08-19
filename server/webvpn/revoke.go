@@ -5,24 +5,24 @@ import (
 	"github.com/wsczx/remlink/dbdata"
 )
 
-// 封装整用户/批量踢出逻辑。通过抬高吊销阈值（O(1)）使此前签发的会话立即失效
+// 整用户/批量踢出：通过抬高吊销阈值（O(1)）使此前签发的会话立即失效。
 type Revoker struct{}
 
 func NewRevoker() *Revoker { return &Revoker{} }
 
-// 吊销指定用户的全部 WebVPN 会话（整用户下线）
+// 吊销指定用户的全部 WebVPN 会话。
 func (r *Revoker) RevokeUser(username string) {
 	GetManager().Session().RevokeUser(username)
 }
 
-// 批量吊销一批用户的 WebVPN 会话（权限变更后让已签发会话立即失效）
+// 批量吊销一批用户的 WebVPN 会话。
 func (r *Revoker) RevokeUsers(usernames []string) {
 	for _, u := range usernames {
 		r.RevokeUser(u)
 	}
 }
 
-// 吊销指定用户组全部成员的 WebVPN 会话
+// 吊销指定用户组全部成员的 WebVPN 会话。
 func (r *Revoker) RevokeGroupMembers(groupNames []string) {
 	if len(groupNames) == 0 {
 		return

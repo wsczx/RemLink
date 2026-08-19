@@ -46,6 +46,12 @@ func WebVpnHandler(w http.ResponseWriter, r *http.Request) bool {
 
 	mgr := webvpn.GetManager()
 
+	// 跨域预检（OPTIONS）由网关直接回应 CORS 头，不走认证、不反代后端。
+	if r.Method == http.MethodOptions {
+		webVpnHandlePreflight(w, r)
+		return true
+	}
+
 	// 认证优先：已登录 WebVPN 会话用户直接放行。
 	user, ok := mgr.Session().CurrentUser(r)
 	if !ok || user == nil {
@@ -108,6 +114,28 @@ func webVpnLoginURL(r *http.Request) string {
 	}
 	redirect := r.URL.RequestURI()
 	return scheme + "://" + r.Host + "/ui/#/portal?redirect=" + url.QueryEscape(redirect)
+}
+
+// 处理跨域预检（OPTIONS）：直接回应 204 + CORS 头，不反代到后端。
+func webVpnHandlePreflight(w http.ResponseWriter, r *http.Request) {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		// 非浏览器请求（无 Origin）只返 204，不回 CORS 头
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS")
+	if reqHeaders := r.Header.Get("Access-Control-Request-Headers"); reqHeaders != "" {
+		w.Header().Set("Access-Control-Allow-Headers", reqHeaders)
+	} else {
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, Origin, X-Requested-With")
+	}
+	w.Header().Set("Access-Control-Max-Age", "86400")
+	w.Header().Set("Vary", "Origin")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // 返回当前 WebVPN 会话用户基本信息
@@ -377,6 +405,25 @@ func withAudit(next func(*http.Response) error, rec *webVpnAuditRecord, audit *w
 	}
 }
 
+// 给反代响应补 CORS 头：仅当入站带 Origin（浏览器跨域实际请求）时补，与预检一致。
+func withCORS(next func(*http.Response) error, r *http.Request) func(*http.Response) error {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return next
+	}
+	return func(resp *http.Response) error {
+		if next != nil {
+			if err := next(resp); err != nil {
+				return err
+			}
+		}
+		resp.Header.Set("Access-Control-Allow-Origin", origin)
+		resp.Header.Set("Access-Control-Allow-Credentials", "true")
+		resp.Header.Set("Vary", "Origin")
+		return nil
+	}
+}
+
 // 透出底层 writer 并记录状态码与写出字节数，供访问审计使用。
 type webVpnRespWriter struct {
 	http.ResponseWriter
@@ -497,6 +544,6 @@ func webVpnProxy(w http.ResponseWriter, r *http.Request, prefix string) {
 		w.Write([]byte("WebVPN 配置错误"))
 		return
 	}
-	proxy.ModifyResponse = withAudit(proxy.ModifyResponse, rec, mgr.Audit(), rw)
+	proxy.ModifyResponse = withCORS(withAudit(proxy.ModifyResponse, rec, mgr.Audit(), rw), r)
 	proxy.ServeHTTP(rw, r)
 }

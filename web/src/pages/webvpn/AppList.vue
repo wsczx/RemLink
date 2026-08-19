@@ -27,7 +27,8 @@
         <el-table-column label="授权用户" min-width="150">
           <template slot-scope="scope">
             <template v-if="scope.row.users && scope.row.users.length">
-              <el-tag v-for="u in scope.row.users" :key="u" size="mini" effect="plain" class="group-tag">{{ u }}</el-tag>
+              <el-tag v-for="u in scope.row.users" :key="u" size="mini" effect="plain" class="group-tag">{{ u
+              }}</el-tag>
             </template>
             <span v-else class="text-muted">全部用户</span>
           </template>
@@ -35,7 +36,8 @@
         <el-table-column label="授权用户组" min-width="150">
           <template slot-scope="scope">
             <template v-if="scope.row.groups && scope.row.groups.length">
-              <el-tag v-for="g in scope.row.groups" :key="g" size="mini" effect="plain" class="group-tag">{{ g }}</el-tag>
+              <el-tag v-for="g in scope.row.groups" :key="g" size="mini" effect="plain" class="group-tag">{{ g
+              }}</el-tag>
             </template>
             <span v-else class="text-muted">全部用户</span>
           </template>

@@ -9,8 +9,7 @@ import (
 	"github.com/wsczx/remlink/dbdata"
 )
 
-// 异步批量写入 WebVPN 访问审计：proxy 请求完成后投递一条记录到 channel
-// 由后台 goroutine 定时（1s）批量写库，避免高频请求直写库
+// 异步批量审计：proxy 投递记录到 channel，后台 goroutine 定时（1s）批量写库。
 type AuditBatcher struct {
 	queue   chan dbdata.WebVpnAudit
 	quit    chan struct{}
@@ -19,7 +18,6 @@ type AuditBatcher struct {
 	doneMu  sync.Mutex
 }
 
-// 构造审计批处理器
 func NewAuditBatcher() *AuditBatcher {
 	return &AuditBatcher{
 		queue: make(chan dbdata.WebVpnAudit, 1000),
@@ -27,9 +25,7 @@ func NewAuditBatcher() *AuditBatcher {
 	}
 }
 
-// 非阻塞投递审计记录：队列满则降级处理，审计不应影响代理主路径
-// 普通记录（risk=0）直接丢弃；可疑/高危记录（risk>=1）降级为本地日志打印
-// 避免突发高并发或 DB 写入慢时安全审计盲区
+// 非阻塞投递：队列满时普通记录丢弃，risk>=1 降级为本地日志，避免审计阻塞代理主路径。
 func (b *AuditBatcher) Log(rec dbdata.WebVpnAudit) {
 	select {
 	case b.queue <- rec:
@@ -41,7 +37,7 @@ func (b *AuditBatcher) Log(rec dbdata.WebVpnAudit) {
 	}
 }
 
-// 启动后台批处理（进程启动调用一次）
+// 启动后台批处理。
 func (b *AuditBatcher) Start() {
 	if !b.started.CompareAndSwap(false, true) {
 		return
@@ -52,7 +48,7 @@ func (b *AuditBatcher) Start() {
 	go b.batchWriter()
 }
 
-// 停止批处理并等待在途记录落库，避免在 DB 关闭后写入
+// 停止批处理并等待在途记录落库。
 func (b *AuditBatcher) Stop() {
 	if !b.started.Load() {
 		return
@@ -97,8 +93,7 @@ func (b *AuditBatcher) batchWriter() {
 	}
 }
 
-// 依据响应状态码给出审计风险等级：0=正常 1=可疑 2=高危。
-// 4xx 归为可疑，5xx 归为高危，其余正常。
+// 依据状态码给审计风险等级：4xx=1(可疑) 5xx=2(高危) 其余=0。
 func RiskOf(statusCode int) int8 {
 	switch {
 	case statusCode >= 500:

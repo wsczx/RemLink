@@ -15,8 +15,7 @@ import (
 	"github.com/wsczx/remlink/dbdata"
 )
 
-// RemLink 自有会话 cookie 名清单
-// WebVPN 反代转发给后端时必须剥离这些 cookie，避免把网关的会话令牌泄漏给被代理的内网应用
+// RemLink 自有会话 cookie，反代转发给后端时必须剥离，避免网关令牌泄漏内网。
 var remLinkSessionCookies = []string{
 	sessionCookieName, // webvpn_session
 	"portal_session",  // 门户会话（跨子域通配，同样须剥离）
@@ -24,9 +23,7 @@ var remLinkSessionCookies = []string{
 	"acSamlv2Token",   // SAML SSO 会话令牌
 }
 
-// 构造一个指向指定 WebVPN 应用的反向代理
-// 入参 r 仅用于获取原始子域 Host（改写 Location/Set-Cookie 时回指用户可见地址）
-// 代理本身不依赖 r 的会话状态，便于单元测试与复用。
+// 构造指向指定 WebVPN 应用的反向代理。originalHost 为原始子域，用于改写 Location/Set-Cookie。
 func NewReverseProxy(app *dbdata.WebVpnApp, originalHost string) (*httputil.ReverseProxy, error) {
 	target, err := url.Parse(app.Backend)
 	if err != nil {
@@ -36,7 +33,6 @@ func NewReverseProxy(app *dbdata.WebVpnApp, originalHost string) (*httputil.Reve
 		// 后端为自签/内网证书时跳过 TLS 校验（仅当后端是 https 且应用开启 SkipVerify）
 		Transport: backendTransport(app.SkipVerify && target.Scheme == "https"),
 		Director: func(req *http.Request) {
-			// 入站头清洗：完全剥掉客户端伪造的 X-Forwarded-*/X-Real-IP/X-RemLink-WebVpn
 			req.Header.Del("X-Forwarded-For")
 			req.Header.Del("X-Forwarded-Proto")
 			req.Header.Del("X-Forwarded-Host")
@@ -45,8 +41,6 @@ func NewReverseProxy(app *dbdata.WebVpnApp, originalHost string) (*httputil.Reve
 
 			req.URL.Scheme = target.Scheme
 			req.URL.Host = target.Host
-			// 子域名方案下相对链接天然正确，仅重写 Host 头为后端
-			// 若应用配置了 HostRewrite 则优先用其覆盖（部分后端按 Host 虚拟主机分发）
 			if app.HostRewrite != "" {
 				req.Host = app.HostRewrite
 			} else {
@@ -54,12 +48,10 @@ func NewReverseProxy(app *dbdata.WebVpnApp, originalHost string) (*httputil.Reve
 			}
 			req.Header.Set("X-Forwarded-Proto", "https")
 			req.Header.Set("X-Forwarded-Host", originalHost)
-			// 删除 RemLink 自有会话 cookie，避免令牌透传内网后端
 			req.Header.Set("Cookie", StripRemLinkCookies(req.Cookies()))
 			req.Header.Set("X-RemLink-WebVpn", "1")
 		},
 		ModifyResponse: func(resp *http.Response) error {
-			// 302 等 Location 指向后端地址时改写回子域名（仅精确/后缀匹配，防误判）
 			if loc := resp.Header.Get("Location"); loc != "" {
 				if u, e := url.Parse(loc); e == nil && u.Host != "" {
 					if HostMatchesBackend(u.Host, target.Host) {
@@ -68,9 +60,7 @@ func NewReverseProxy(app *dbdata.WebVpnApp, originalHost string) (*httputil.Reve
 					}
 				}
 			}
-			// 后端下发的 Set-Cookie 若带 Domain 指向后端主机，剥离 Domain 让浏览器按子域存储
 			scrubSetCookieDomain(resp, target.Host)
-			// 不继承任何全局安全头（被代理响应不应带 COEP/CORP require-corp 等）
 			resp.Header.Del("Content-Security-Policy")
 			resp.Header.Del("Cross-Origin-Embedder-Policy")
 			resp.Header.Del("Cross-Origin-Resource-Policy")
@@ -92,7 +82,7 @@ func NewReverseProxy(app *dbdata.WebVpnApp, originalHost string) (*httputil.Reve
 	return proxy, nil
 }
 
-// 校验用户/组/IP/路径白名单（请求级完整授权）
+// 校验用户/组/IP/路径白名单（请求级完整授权）。
 func Authorized(app *dbdata.WebVpnApp, user *dbdata.User, r *http.Request) bool {
 	if app.Status != 1 {
 		return false
@@ -209,8 +199,7 @@ func HostMatchesBackend(locHost, backendHost string) bool {
 	return strings.HasSuffix(lh, "."+bh)
 }
 
-// 后端 Transport 按 skipVerify 复用两个共享实例，避免每个请求新建连接池导致
-// TCP/TLS 握手风暴与空闲连接、goroutine 堆积（FD 耗尽风险）
+// 后端 Transport 按 skipVerify 复用两个共享实例，避免每请求新建连接池导致 FD 耗尽。
 var (
 	transportMu       sync.Mutex
 	transportNormal   *http.Transport
