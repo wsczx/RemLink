@@ -104,15 +104,24 @@ func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Reques
 		if err == nil {
 			username, _ := data["webvpn_grant_user"].(string)
 			if username != "" {
-				user := m.freshUser(username)
-				if user == nil {
-					// 本地库查不到时回退到 grant 携带的三方身份
-					user = m.externalUserFromClaims(username, data)
+				// 拒绝兑换，防止残留 grant 绕过吊销兑换新会话
+				grantRevoked := false
+				if before := dbdata.WebVpnRevokeBeforeOf(username); before > 0 && jwtInt64(data, "iat") <= before {
+					grantRevoked = true
 				}
-				if user != nil {
-					token, err := m.Issue(w, r, user, 0)
-					if err == nil {
-						return token, user, true
+				if !grantRevoked {
+					user := m.freshUser(username)
+					if user == nil {
+						// 本地库查不到时回退到 grant 携带的三方身份
+						user = m.externalUserFromClaims(username, data)
+					}
+					if user != nil {
+						token, err := m.Issue(w, r, user, 0)
+						if err == nil {
+							// 一次性免登授权：兑换成功后即失效
+							m.ClearGrantCookie(w, r)
+							return token, user, true
+						}
 					}
 				}
 			}
@@ -120,12 +129,28 @@ func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Reques
 	}
 	// 回退到门户会话
 	if user, ok := m.userFromPortalSession(r); ok && user != nil {
+		if before := dbdata.WebVpnRevokeBeforeOf(user.Username); before > 0 && m.portalIssuedAt(r) <= before {
+			return "", nil, false
+		}
 		token, err := m.Issue(w, r, user, 0)
 		if err == nil {
 			return token, user, true
 		}
 	}
 	return "", nil, false
+}
+
+// 返回请求携带的门户会话签发时间（unix 秒），无有效门户会话返回 0
+func (m *AuthSessionManager) portalIssuedAt(r *http.Request) int64 {
+	c, err := r.Cookie("portal_session")
+	if err != nil || c.Value == "" {
+		return 0
+	}
+	data, err := admin.GetJwtData(c.Value)
+	if err != nil {
+		return 0
+	}
+	return jwtInt64(data, "iat")
 }
 
 // 免登授权失效时，用仍有效的门户会话解析用户身份。返回 (nil, false) 表示无有效门户会话。
