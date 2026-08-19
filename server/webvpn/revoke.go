@@ -27,31 +27,18 @@ func (r *Revoker) RevokeGroupMembers(groupNames []string) {
 	if len(groupNames) == 0 {
 		return
 	}
-	want := make(map[string]bool, len(groupNames))
-	for _, g := range groupNames {
-		want[g] = true
-	}
-	var users []dbdata.User
-	for _, g := range groupNames {
-		like := `%"` + dbdata.EscapeLike(g) + `"%`
-		var part []dbdata.User
-		if err := dbdata.FindWhere(&part, 0, 0, "groups LIKE ?", like); err != nil {
-			base.Error("WebVPN 查询组成员失败:", err)
-			continue
-		}
-		users = append(users, part...)
+	users, err := dbdata.UsersInGroups(groupNames)
+	if err != nil {
+		base.Error("WebVPN 查询组成员失败:", err)
+		return
 	}
 	kicked := make(map[string]bool)
 	for _, u := range users {
-		for _, g := range u.Groups {
-			if want[g] {
-				if !kicked[u.Username] {
-					r.RevokeUser(u.Username)
-					kicked[u.Username] = true
-				}
-				break
-			}
+		if kicked[u.Username] {
+			continue
 		}
+		r.RevokeUser(u.Username)
+		kicked[u.Username] = true
 	}
 }
 

@@ -305,11 +305,12 @@ func clearTrafficResetAt(policyId int) {
 
 	var groups []Group
 	if err := FindWhere(&groups, 0, 0, "policy_id=?", policyId); err == nil {
-		for _, g := range groups {
-			var groupUsers []User
-			// groups 字段是 JSON 数组，转义 LIKE 特殊字符后精确匹配组名
-			escaped := EscapeLike(g.Name)
-			if err := FindWhere(&groupUsers, 0, 0, "groups like ?", `%"`+escaped+`"%`); err == nil {
+		if len(groups) > 0 {
+			groupNames := make([]string, 0, len(groups))
+			for _, g := range groups {
+				groupNames = append(groupNames, g.Name)
+			}
+			if groupUsers, err := UsersInGroups(groupNames); err == nil {
 				for _, u := range groupUsers {
 					usernames[u.Username] = struct{}{}
 				}

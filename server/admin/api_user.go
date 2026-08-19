@@ -61,29 +61,50 @@ func UserList(w http.ResponseWriter, r *http.Request) {
 		wheres = append(wheres, "type = ?")
 		args = append(args, userType)
 	}
-	if group != "" {
-		// groups 字段按成员名模糊匹配
-		wheres = append(wheres, "groups LIKE ?")
-		args = append(args, "%"+group+"%")
-	}
 	if status != "" {
 		wheres = append(wheres, "status = ?")
 		args = append(args, status)
 	}
 
+	var allDatas []dbdata.User
 	if len(wheres) > 0 {
 		where := strings.Join(wheres, " AND ")
-		count = dbdata.FindWhereCount(&dbdata.User{}, where, args...)
-		err = dbdata.FindWhere(&datas, pageSize, page, where, args...)
+		err = dbdata.FindWhere(&allDatas, 0, 0, where, args...)
 	} else {
-		count = dbdata.CountAll(&dbdata.User{})
-		err = dbdata.Find(&datas, pageSize, page)
+		err = dbdata.Find(&allDatas, 0, 0)
 	}
-
 	if err != nil && !dbdata.CheckErrNotFound(err) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
+	if allDatas == nil {
+		allDatas = []dbdata.User{}
+	}
+
+	if group != "" {
+		groupMembers, gerr := dbdata.UsersInGroups([]string{group})
+		if gerr != nil {
+			RespError(w, RespInternalErr, gerr)
+			return
+		}
+		memberSet := make(map[string]bool, len(groupMembers))
+		for _, u := range groupMembers {
+			memberSet[u.Username] = true
+		}
+		filtered := allDatas[:0]
+		for _, u := range allDatas {
+			if memberSet[u.Username] {
+				filtered = append(filtered, u)
+			}
+		}
+		allDatas = filtered
+	}
+
+	count = len(allDatas)
+	// 内存分页
+	start := min((page-1)*pageSize, count)
+	end := min(start+pageSize, count)
+	datas = allDatas[start:end]
 
 	// 确保空结果返回 [] 而非 null
 	if datas == nil {

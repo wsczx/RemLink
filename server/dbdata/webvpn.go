@@ -461,32 +461,18 @@ func WebVpnRevokeGroupMembers(groupNames []string) {
 	if base.GetCfg().WebVpnDomain == "" {
 		return
 	}
-	want := make(map[string]bool, len(groupNames))
-	for _, g := range groupNames {
-		want[g] = true
-	}
-	// 精确组名匹配，避免误吊销
-	var users []User
-	for _, g := range groupNames {
-		like := `%"` + EscapeLike(g) + `"%`
-		var part []User
-		if err := FindWhere(&part, 0, 0, "groups LIKE ?", like); err != nil {
-			base.Error("WebVPN 查询组成员失败:", err)
-			continue
-		}
-		users = append(users, part...)
+	users, err := UsersInGroups(groupNames)
+	if err != nil {
+		base.Error("WebVPN 查询用户失败:", err)
+		return
 	}
 	kicked := make(map[string]bool)
 	for _, u := range users {
-		for _, g := range u.Groups {
-			if want[g] {
-				if !kicked[u.Username] {
-					WebVpnRevokeUser(u.Username)
-					kicked[u.Username] = true
-				}
-				break
-			}
+		if kicked[u.Username] {
+			continue
 		}
+		WebVpnRevokeUser(u.Username)
+		kicked[u.Username] = true
 	}
 }
 

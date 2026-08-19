@@ -1,6 +1,8 @@
 package webvpn
 
 import (
+	"slices"
+
 	"github.com/wsczx/remlink/dbdata"
 )
 
@@ -19,32 +21,41 @@ func (s *AppStore) GetByName(name string) (*dbdata.WebVpnApp, error) {
 	return dbdata.GetWebVpnAppByName(name)
 }
 
-// 主动失效缓存（配置变更后调用）。委托给 dbdata 层统
+// 主动失效缓存（配置变更后调用）
 func (s *AppStore) Invalidate() {
 	dbdata.InvalidateWebVpnAppCache()
 }
 
 // 返回某用户有权访问的启用中的应用（用户维度授权）
 func (s *AppStore) AppsForUser(user *dbdata.User) ([]dbdata.WebVpnApp, error) {
-	// 候选 1：授权组含该用户任一组的 app
-	var byGroup []dbdata.WebVpnApp
+	var apps []dbdata.WebVpnApp
+	if err := dbdata.FindWhere(&apps, 0, 0, "status=1", nil); err != nil {
+		return nil, err
+	}
+	userGroups := make(map[string]bool, len(user.Groups))
 	for _, g := range user.Groups {
-		like := `%"` + dbdata.EscapeLike(g) + `"%`
-		var part []dbdata.WebVpnApp
-		if err := dbdata.FindWhere(&part, 0, 0, "groups LIKE ? AND status=1", like); err == nil {
-			byGroup = append(byGroup, part...)
+		userGroups[g] = true
+	}
+	var byGroup, byUser, fallback []dbdata.WebVpnApp
+	for _, a := range apps {
+		if len(a.Groups) == 0 {
+			fallback = append(fallback, a)
+			continue
 		}
-	}
-	// 候选 2：授权用户白名单直接含该用户的 app
-	likeU := `%"` + dbdata.EscapeLike(user.Username) + `"%`
-	var byUser []dbdata.WebVpnApp
-	if err := dbdata.FindWhere(&byUser, 0, 0, "users LIKE ? AND status=1", likeU); err != nil {
-		return nil, err
-	}
-	// 合并候选（含 groups 为空=不限组 的 app，需用 OR 条件兜底）
-	var fallback []dbdata.WebVpnApp
-	if err := dbdata.FindWhere(&fallback, 0, 0, "status=1 AND (groups IS NULL OR groups = '' OR groups = '[]' OR groups = 'null')", nil); err != nil {
-		return nil, err
+		matched := false
+		for _, g := range a.Groups {
+			if userGroups[g] {
+				byGroup = append(byGroup, a)
+				matched = true
+				break
+			}
+		}
+		if matched {
+			continue
+		}
+		if slices.Contains(a.Users, user.Username) {
+			byUser = append(byUser, a)
+		}
 	}
 	seen := make(map[int]bool)
 	result := make([]dbdata.WebVpnApp, 0)
