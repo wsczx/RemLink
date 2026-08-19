@@ -7,6 +7,7 @@ import (
 
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
+	"github.com/wsczx/remlink/dbdata"
 	"github.com/xlzd/gotp"
 )
 
@@ -114,7 +115,7 @@ func (a *OTPAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 		return auth.StepPending, nil
 	}
 
-	base.Info("OTP验证成功: user=", ctx.Conn.Username)
+	base.Info("OTP验证成功: user=", dbdata.UserLabel(ctx.Conn.Username, ctx.Conn.Nickname))
 	return auth.StepPass, nil
 }
 

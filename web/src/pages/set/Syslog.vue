@@ -251,7 +251,7 @@ export default {
     switchToHistory() {
       if (!this.historyEnabled) return
       this.mode = 'history'
-      this.loadHistory(1, true)
+      this.loadHistoryLastPage()
     },
 
     switchToLive() {
@@ -259,7 +259,7 @@ export default {
     },
 
     onHistoryFilterChange() {
-      this.loadHistory(1, true)
+      this.loadHistoryLastPage()
     },
 
     onHistoryScroll() {
@@ -271,7 +271,7 @@ export default {
       }
     },
 
-    async loadHistory(page, reset) {
+    async loadHistory(page, reset, scroll) {
       if (!this.historyDate) return
       if (reset) {
         this.historyLogs = []
@@ -296,8 +296,7 @@ export default {
           this.historyTotal = d.count || 0
           if (reset) {
             this.historyLogs = datas
-            const el = this.$refs.historyContainer
-            if (el) el.scrollTop = 0
+            if (scroll) this.scrollHistoryToBottom()
           } else {
             this.historyLogs = this.historyLogs.concat(datas)
           }
@@ -318,6 +317,38 @@ export default {
           this.historyLogs = []
           this.historyTotal = 0
         }
+      } finally {
+        this.historyLoading = false
+      }
+    },
+
+    // 将历史日志容器滚动到最底部（最新日志）。
+    scrollHistoryToBottom() {
+      const el = this.$refs.historyContainer
+      if (!el) return
+      const maxRetry = 8
+      const tick = (n) => {
+        el.scrollTop = el.scrollHeight
+        if (n > 0) requestAnimationFrame(() => tick(n - 1))
+      }
+      requestAnimationFrame(() => tick(maxRetry))
+    },
+
+    // 加载当天所有匹配的历史日志并定位到最底部（最新日志）
+    async loadHistoryLastPage() {
+      this.historyLoading = true
+      try {
+        this.historyLogs = []
+        this.historyNoMore = false
+        this.historyPage = 1
+        // 顺序累加每一页，直到不足一页（已到文件末尾）或超出安全上限
+        for (; ;) {
+          await this.loadHistory(this.historyPage, false, false)
+          if (this.historyNoMore) break
+          this.historyPage++
+          if (this.historyPage > 5000) break
+        }
+        this.scrollHistoryToBottom()
       } finally {
         this.historyLoading = false
       }

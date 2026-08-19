@@ -131,36 +131,36 @@ func (c *DingtalkConfig) GetAccessToken(code string) (string, error) {
 
 // 用 OAuth code 解析出登录用户标识。
 // 流程：code 换用户 token -> /contact/users/me -> (若无 userId) 依次尝试【手机号反查】和【unionid反查】。
-func (c *DingtalkConfig) GetDingtalkUser(code string) (string, string, error) {
+func (c *DingtalkConfig) GetDingtalkUser(code string) (string, string, string, error) {
 	accessToken, err := c.GetAccessToken(code)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
 	req, err := http.NewRequest(http.MethodGet, "https://api.dingtalk.com/v1.0/contact/users/me", nil)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	req.Header.Set("x-acs-dingtalk-access-token", accessToken)
 
 	resp, err := dingtalkHttpClient.Do(req)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if resp.StatusCode == http.StatusForbidden &&
 		strings.Contains(string(respBody), "AccessTokenPermissionDenied") {
-		return "", "", fmt.Errorf(
+		return "", "", "", fmt.Errorf(
 			"用户未授权 Contact.User.Read，请在钉钉应用的【权限管理】中开通【通讯录个人信息读权限(Contact.User.Read)】，并在 OAuth 链接的 scope 中包含 openid 与 Contact.User.Read")
 	}
 
 	var sr dingtalkSnsResp
 	if err := json.Unmarshal(respBody, &sr); err != nil {
-		return "", "", fmt.Errorf("解析钉钉用户信息失败: %w (raw=%s)", err, string(respBody))
+		return "", "", "", fmt.Errorf("解析钉钉用户信息失败: %w (raw=%s)", err, string(respBody))
 	}
 
 	userID := strings.TrimSpace(sr.UserId)
@@ -196,9 +196,9 @@ func (c *DingtalkConfig) GetDingtalkUser(code string) (string, string, error) {
 	}
 
 	if userID == "" {
-		return "", "", fmt.Errorf("钉钉未返回有效 userId (已尝试手机号与 unionId 反查): raw=%s", string(respBody))
+		return "", "", "", fmt.Errorf("钉钉未返回有效 userId (已尝试手机号与 unionId 反查): raw=%s", string(respBody))
 	}
-	return userID, accessToken, nil
+	return userID, sr.Nick, accessToken, nil
 }
 
 // 通过手机号获取 userid

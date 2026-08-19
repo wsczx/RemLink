@@ -137,10 +137,10 @@ type FeishuUserTokenResponse struct {
 }
 
 // 通过 code 获取飞书用户信息
-func (c *FeishuConfig) GetFeishuUser(code string) (string, error) {
+func (c *FeishuConfig) GetFeishuUser(code string) (string, string, error) {
 	tenantAccessToken, err := c.GetAppAccessToken()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	// 获取 user_access_token
@@ -150,21 +150,21 @@ func (c *FeishuConfig) GetFeishuUser(code string) (string, error) {
 	}
 	b, err := json.Marshal(tokenReq{GrantType: "authorization_code", Code: code})
 	if err != nil {
-		return "", fmt.Errorf("序列化请求体失败: %w", err)
+		return "", "", fmt.Errorf("序列化请求体失败: %w", err)
 	}
 	tokenResp := &FeishuUserTokenResponse{}
 	headers := map[string]string{"Authorization": "Bearer " + tenantAccessToken}
 	if err := fetchJSON("获取飞书user_access_token", "POST",
 		"https://open.feishu.cn/open-apis/authen/v1/access_token",
 		bytes.NewReader(b), headers, tokenResp, 0); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if tokenResp.Code != 0 {
-		return "", fmt.Errorf("获取 user_access_token 失败: code=%d msg=%s", tokenResp.Code, tokenResp.Msg)
+		return "", "", fmt.Errorf("获取 user_access_token 失败: code=%d msg=%s", tokenResp.Code, tokenResp.Msg)
 	}
 	userAccessToken := tokenResp.Data.AccessToken
 	if userAccessToken == "" {
-		return "", fmt.Errorf("获取 user_access_token 返回为空")
+		return "", "", fmt.Errorf("获取 user_access_token 返回为空")
 	}
 
 	// 获取登录用户信息
@@ -172,17 +172,17 @@ func (c *FeishuConfig) GetFeishuUser(code string) (string, error) {
 	userInfo := &FeishuUserResponse{}
 	userHeaders := map[string]string{"Authorization": "Bearer " + userAccessToken}
 	if err := fetchJSON("获取飞书用户信息", "GET", url, nil, userHeaders, userInfo, 0); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if userInfo.Code != 0 {
-		return "", fmt.Errorf("获取用户信息失败: code=%d msg=%s", userInfo.Code, userInfo.Msg)
+		return "", "", fmt.Errorf("获取用户信息失败: code=%d msg=%s", userInfo.Code, userInfo.Msg)
 	}
 	userID := userInfo.Data.UserID
 	if userID == "" {
 		base.Warn("飞书 user_info 未返回 user_id（可能缺少通讯录权限），回退使用 open_id")
 		userID = userInfo.Data.OpenID
 	}
-	return userID, nil
+	return userID, userInfo.Data.Name, nil
 }
 
 // 获取飞书用户详细信息（含部门、邮箱、手机号）

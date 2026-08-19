@@ -30,7 +30,7 @@ func (a *WXWorkAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 
 		// 管道内 SSO 流程，通过 OAuth code 换取用户信息
 		if sso.Code != "" {
-			userID, err := a.GetWeworkUser(sso.Code)
+			userID, name, err := a.GetWeworkUser(sso.Code)
 			if err != nil {
 				return auth.StepFail, fmt.Errorf("企业微信认证失败: %w", err)
 			}
@@ -53,6 +53,7 @@ func (a *WXWorkAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 			}
 
 			ctx.Conn.Username = userID
+			ctx.Conn.Nickname = name
 			ctx.SetInfo("用户通过企业微信认证登录")
 			return auth.StepPass, nil
 		}

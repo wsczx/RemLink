@@ -29,7 +29,7 @@ func (a *FeishuAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 
 		// 管道内 SSO 流程，通过 OAuth code 换取用户信息
 		if sso.Code != "" {
-			userID, err := a.GetFeishuUser(sso.Code)
+			userID, name, err := a.GetFeishuUser(sso.Code)
 			if err != nil {
 				return auth.StepFail, fmt.Errorf("飞书认证失败: %w", err)
 			}
@@ -54,6 +54,7 @@ func (a *FeishuAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 			}
 
 			ctx.Conn.Username = userID
+			ctx.Conn.Nickname = name
 			ctx.SetInfo("用户通过飞书认证登录")
 			return auth.StepPass, nil
 		}

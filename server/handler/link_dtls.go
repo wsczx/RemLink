@@ -68,7 +68,7 @@ func LinkDtls(conn net.Conn, cSess *sessdata.ConnSession) {
 			base.Trace("recv LinkDtls Keepalive", cSess.Username, cSess.IpAddr, conn.RemoteAddr())
 		case 0x05: // DISCONNECT
 			cSess.SetLogoutCode(dbdata.UserLogoutClient)
-			base.Info("DISCONNECT DTLS", cSess.Username, cSess.IpAddr, conn.RemoteAddr())
+			base.Info("DISCONNECT DTLS", dbdata.UserLabel(cSess.Username, cSess.Nickname), cSess.IpAddr, conn.RemoteAddr())
 			return
 		case 0x03: // DPD-REQ
 			base.Trace("recv LinkDtls DPD-REQ", cSess.Username, cSess.IpAddr, conn.RemoteAddr(), n)

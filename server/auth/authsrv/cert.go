@@ -57,7 +57,8 @@ func (a *CertAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 	u := &dbdata.User{}
 	if dbdata.One("Username", username, u) == nil {
 		ctx.SetUserInfo(u.ToAuthInfo())
+		ctx.Conn.Nickname = u.Nickname
 	}
-	base.Info("用户通过证书认证:", username)
+	base.Info("用户通过证书认证:", dbdata.UserLabel(username, u.Nickname))
 	return auth.StepPass, nil
 }

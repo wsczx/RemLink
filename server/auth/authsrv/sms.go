@@ -10,6 +10,7 @@ import (
 
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
+	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/notify"
 )
 
@@ -212,7 +213,7 @@ func (a *SmsAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 		sms.Code = "" // 清除旧码，允许重试
 		return auth.StepPending, nil
 	}
-	base.Info("SMS认证成功: user=", ctx.Conn.Username)
+	base.Info("SMS认证成功: user=", dbdata.UserLabel(ctx.Conn.Username, ctx.Conn.Nickname))
 	return auth.StepPass, nil
 }
 

@@ -95,7 +95,7 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	base.Info(sess.Username, cSess.IpAddr, cSess.MacHw, cSess.Client, mobile)
+	base.Info(dbdata.UserLabel(sess.Username, cSess.Nickname), cSess.IpAddr, cSess.MacHw, cSess.Client, mobile)
 
 	// 连接建立成功日志
 	connInfo := "连接成功"

@@ -102,21 +102,21 @@ func (c *WXWorkConfig) GetAccessToken() (string, error) {
 }
 
 // 通过 code 获取企微用户 ID
-func (c *WXWorkConfig) GetWeworkUser(code string) (string, error) {
+func (c *WXWorkConfig) GetWeworkUser(code string) (string, string, error) {
 	accessToken, err := c.GetAccessToken()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	url := fmt.Sprintf("https://qyapi.weixin.qq.com/cgi-bin/auth/getuserinfo?access_token=%s&code=%s", accessToken, code)
 	userInfo := &WXWorkUserResponse{}
 	if err := fetchJSON("获取企微用户信息", "GET", url, nil, nil, userInfo, 0); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if userInfo.ErrCode != 0 {
-		return "", fmt.Errorf("获取用户信息失败: %s", userInfo.ErrMsg)
+		return "", "", fmt.Errorf("获取用户信息失败: %s", userInfo.ErrMsg)
 	}
-	return userInfo.UserID, nil
+	return userInfo.UserID, userInfo.Name, nil
 }
 
 // 解析拒绝的用户ID列表

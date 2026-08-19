@@ -32,10 +32,11 @@ type ConnSession struct {
 	LocalIp             net.IP
 	MacHw               net.HardwareAddr // 客户端mac地址,从Session取出
 	Username            string
+	Nickname            string
 	RemoteAddr          string
 	Mtu                 int
 	IfName              string
-	Client              string // 客户端  mobile pc
+	Client              string        // 客户端  mobile pc
 	UserAgent           string        // 客户端信息
 	userLogoutCode      atomic.Uint32 // 登出原因码，多 goroutine 并发写，只保留首次设置的值
 	CstpDpd             int
@@ -228,6 +229,7 @@ func (s *Session) NewConn() *ConnSession {
 		Sess:           s,
 		MacHw:          macHw,
 		Username:       username,
+		Nickname:       user.Nickname,
 		Mtu:            user.Mtu,
 		IpAddr:         ip,
 		IpAddr6:        ip6,

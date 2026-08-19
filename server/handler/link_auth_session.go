@@ -202,7 +202,7 @@ func CreateSession(w http.ResponseWriter, authSession *AuthSession) {
 
 	w.WriteHeader(http.StatusOK)
 	tplRequest(tpl_complete, w, rd)
-	base.Info("login", ctx.Conn.Username, ctx.Conn.UserAgent)
+	base.Info("login", dbdata.UserLabel(ctx.Conn.Username, ctx.Conn.Nickname), ctx.Conn.UserAgent)
 }
 
 // 设置认证会话 Cookie

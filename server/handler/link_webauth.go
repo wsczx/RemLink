@@ -597,6 +597,7 @@ func webAuthOnPass(w http.ResponseWriter, r *http.Request,
 	}
 	pending.Ctx.GetSSO().WebAuthCompleted = true
 	pending.Ctx.SSO.WebAuthUsername = username
+	pending.Ctx.SSO.WebAuthNickname = pending.Ctx.Conn.Nickname
 	pending.Ctx.SSO.WebAuthGroup = groupName
 	AuthSessionManager.Save(state, pending)
 
@@ -703,22 +704,27 @@ func WebAuthSSOCallback(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "获取企微配置失败", http.StatusInternalServerError)
 			return
 		}
-		username, err = cfg.GetWeworkUser(code)
+		var name string
+		username, name, err = cfg.GetWeworkUser(code)
+		pending.Ctx.Conn.Nickname = name
 	case "feishu":
 		cfg, cErr := dbdata.GetAuthFeishu(pending.Ctx.Conn.GroupName)
 		if cErr != nil {
 			http.Error(w, "获取飞书配置失败", http.StatusInternalServerError)
 			return
 		}
-		username, err = cfg.GetFeishuUser(code)
+		var name string
+		username, name, err = cfg.GetFeishuUser(code)
+		pending.Ctx.Conn.Nickname = name
 	case "dingtalk":
 		cfg, cErr := dbdata.GetAuthDingtalk(pending.Ctx.Conn.GroupName)
 		if cErr != nil {
 			http.Error(w, "获取钉钉配置失败", http.StatusInternalServerError)
 			return
 		}
-		var userid string
-		userid, _, err = cfg.GetDingtalkUser(code)
+		var userid, name string
+		userid, name, _, err = cfg.GetDingtalkUser(code)
+		pending.Ctx.Conn.Nickname = name
 		username = userid
 	default:
 		http.Error(w, "不支持的 SSO 类型", http.StatusBadRequest)

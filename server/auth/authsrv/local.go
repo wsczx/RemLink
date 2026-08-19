@@ -44,6 +44,7 @@ func (a *LocalAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 
 	// 将用户信息写入 ctx.UserInfo，供后续步骤（otp 等）共享
 	ctx.SetUserInfo(v.ToAuthInfo())
+	ctx.Conn.Nickname = v.Nickname
 
 	// 实时检查过期时间
 	if v.LimitTime != nil && time.Now().After(*v.LimitTime) {

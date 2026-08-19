@@ -29,7 +29,7 @@ func (a *DingTalkAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) 
 
 		// 管道内 SSO 流程，通过 OAuth code 换取用户信息
 		if sso.Code != "" {
-			userID, accessToken, err := a.GetDingtalkUser(sso.Code)
+			userID, name, accessToken, err := a.GetDingtalkUser(sso.Code)
 			if err != nil {
 				return auth.StepFail, fmt.Errorf("钉钉认证失败: %w", err)
 			}
@@ -52,6 +52,7 @@ func (a *DingTalkAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) 
 			}
 
 			ctx.Conn.Username = userID
+			ctx.Conn.Nickname = name
 			ctx.SetInfo("用户通过钉钉认证登录")
 			return auth.StepPass, nil
 		}

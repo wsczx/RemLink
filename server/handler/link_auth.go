@@ -295,7 +295,8 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 	if samlSession.Ctx != nil && samlSession.Ctx.SSO != nil && samlSession.Ctx.SSO.WebAuthCompleted {
 		username := samlSession.Ctx.SSO.WebAuthUsername
 		groupName := samlSession.Ctx.SSO.WebAuthGroup
-		base.Info("WebAuth认证已完成 username: ", username, " group: ", groupName)
+		nickname := samlSession.Ctx.SSO.WebAuthNickname
+		base.Info("WebAuth认证已完成", dbdata.UserLabel(username, nickname), "group:", groupName)
 
 		if username == "" || groupName == "" {
 			base.Error("[handleSsoToken] WebAuth 会话缺少用户名或组名")

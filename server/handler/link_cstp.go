@@ -13,7 +13,7 @@ import (
 )
 
 func LinkCstp(conn net.Conn, bufRW *bufio.ReadWriter, cSess *sessdata.ConnSession) {
-	base.Debug("LinkCstp connect ip:", cSess.IpAddr, "user:", cSess.Username, "rip:", conn.RemoteAddr())
+	base.Debug("LinkCstp connect ip:", cSess.IpAddr, "user:", dbdata.UserLabel(cSess.Username, cSess.Nickname), "rip:", conn.RemoteAddr())
 	defer func() {
 		// 解析畸形报文等异常不应带崩整个进程
 		if err := recover(); err != nil {
@@ -82,7 +82,7 @@ func LinkCstp(conn net.Conn, bufRW *bufio.ReadWriter, cSess *sessdata.ConnSessio
 			}
 		case 0x05: // DISCONNECT
 			cSess.SetLogoutCode(dbdata.UserLogoutClient)
-			base.Debug("DISCONNECT", cSess.Username, cSess.IpAddr, conn.RemoteAddr())
+			base.Debug("DISCONNECT", dbdata.UserLabel(cSess.Username, cSess.Nickname), cSess.IpAddr, conn.RemoteAddr())
 			sessdata.CloseSess(cSess.Sess.Token, dbdata.UserLogoutClient)
 			return
 		case 0x03: // DPD-REQ

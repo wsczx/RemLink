@@ -31,6 +31,7 @@ func (s StepResult) String() string {
 // 客户端连接信息（ClientRequest）。
 type ConnInfo struct {
 	Username    string
+	Nickname    string
 	Password    string
 	GroupName   string
 	RemoteAddr  string
@@ -45,6 +46,7 @@ type ConnInfo struct {
 // 用户信息（dbdata.Users）
 type UserInfo struct {
 	Username   string
+	Nickname   string
 	Type       string
 	Groups     []string
 	OtpSecret  string
@@ -53,6 +55,14 @@ type UserInfo struct {
 	Phone      string
 	Email      string
 	ForcePwd   bool // 强制改密
+}
+
+// 返回「账号(昵称)」格式，昵称为空时仅返回账号
+func (u UserInfo) DisplayName() string {
+	if u.Nickname == "" {
+		return u.Username
+	}
+	return u.Username + "(" + u.Nickname + ")"
 }
 
 // otp 步骤私有状态。
@@ -85,6 +95,7 @@ type SSOState struct {
 	Code             string // OAuth code（管道内 SSO 流程）
 	WebAuthCompleted bool   // WebAuth 流程已完成
 	WebAuthUsername  string
+	WebAuthNickname  string // WebAuth 认证阶段的显示昵称，顺流携带避免反查
 	WebAuthGroup     string
 	Redirect         string // 登录成功后回跳地址（如 WebVPN 子域名 URL），空则回门户首页
 }
@@ -164,16 +175,16 @@ func (c *Context) LogInfo() string {
 
 // 认证步骤名 → 中文展示名
 var stepNameMap = map[string]string{
-	"local":  "本地密码",
-	"ldap":   "LDAP",
-	"radius": "RADIUS",
-	"cert":   "证书",
-	"otp":    "OTP",
-	"sms":    "短信验证",
-	"wxwork": "企微",
-	"feishu": "飞书",
+	"local":    "本地密码",
+	"ldap":     "LDAP",
+	"radius":   "RADIUS",
+	"cert":     "证书",
+	"otp":      "OTP",
+	"sms":      "短信验证",
+	"wxwork":   "企微",
+	"feishu":   "飞书",
 	"dingtalk": "钉钉",
-	"admin":  "管理员认证",
+	"admin":    "管理员认证",
 }
 
 func buildInfoFromSteps(steps []string) string {

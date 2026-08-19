@@ -91,7 +91,7 @@ func WXAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, err := wxworkConfig.GetWeworkUser(code)
+	userID, _, err := wxworkConfig.GetWeworkUser(code)
 	if err != nil {
 		base.Error("用户信息获取失败", err)
 		SAMLError(w, err)
@@ -231,7 +231,7 @@ func FeishuAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, err := feishuConfig.GetFeishuUser(code)
+	userID, _, err := feishuConfig.GetFeishuUser(code)
 	if err != nil {
 		base.Error("飞书用户信息获取失败", err)
 		SAMLError(w, err)
@@ -295,7 +295,7 @@ func DingtalkAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, accessToken, err := dingtalkConfig.GetDingtalkUser(code)
+	userID, _, accessToken, err := dingtalkConfig.GetDingtalkUser(code)
 	if err != nil {
 		base.Error("钉钉用户信息获取失败", err)
 		SAMLError(w, err)
