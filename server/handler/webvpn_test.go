@@ -11,12 +11,68 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wsczx/remlink/admin"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/webvpn"
 )
+
+func TestWebVpnSameOriginRejectsUnsafeOrigins(t *testing.T) {
+	cases := []struct {
+		name   string
+		origin string
+		secure bool
+		want   bool
+	}{
+		{name: "path", origin: "https://app.wv.example.com/evil", secure: true},
+		{name: "user-info", origin: "https://attacker@app.wv.example.com", secure: true},
+		{name: "cross-protocol", origin: "http://app.wv.example.com", secure: true},
+		{name: "cross-host", origin: "https://other.wv.example.com", secure: true},
+		{name: "same-origin", origin: "https://app.wv.example.com", secure: true, want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodPost, "https://app.wv.example.com/", nil)
+			r.Host = "app.wv.example.com"
+			r.Header.Set("Origin", tc.origin)
+			if !tc.secure {
+				r.Header.Set("X-Forwarded-Proto", "http")
+			} else {
+				r.Header.Set("X-Forwarded-Proto", "https")
+			}
+			assert.Equal(t, tc.want, webVpnSameOrigin(r))
+		})
+	}
+}
+
+func TestWebVpnPreflightRejectsUnsafeOrigins(t *testing.T) {
+	for _, origin := range []string{"https://app.wv.example.com/evil", "http://app.wv.example.com", "https://other.wv.example.com"} {
+		r := httptest.NewRequest(http.MethodOptions, "https://app.wv.example.com/", nil)
+		r.Host = "app.wv.example.com"
+		r.Header.Set("Origin", origin)
+		r.Header.Set("X-Forwarded-Proto", "https")
+		w := httptest.NewRecorder()
+		webVpnHandlePreflight(w, r)
+		assert.Equal(t, http.StatusForbidden, w.Code, "Origin=%s", origin)
+	}
+}
+
+func TestWebVpnWithCORSRejectsUnsafeOrigins(t *testing.T) {
+	for _, origin := range []string{"https://app.wv.example.com/evil", "http://app.wv.example.com", "https://other.wv.example.com"} {
+		r := httptest.NewRequest(http.MethodGet, "https://app.wv.example.com/", nil)
+		r.Host = "app.wv.example.com"
+		r.Header.Set("Origin", origin)
+		r.Header.Set("X-Forwarded-Proto", "https")
+		resp := &http.Response{Header: make(http.Header)}
+		callback := withCORS(nil, r)
+		if callback != nil {
+			require.NoError(t, callback(resp))
+		}
+		assert.Empty(t, resp.Header.Get("Access-Control-Allow-Origin"), "Origin=%s", origin)
+	}
+}
 
 // webVpnProxy 的集成测试：用 httptest 起后端，直接调用真实代理代码，
 // 覆盖 design-webvpn.md checklist M5 的代理层断言（入站头清洗 / Host 改写 /
@@ -548,11 +604,17 @@ func TestWebVpnExchangeFromPortal(t *testing.T) {
 	defer teardown()
 
 	// 模拟门户登录成功时签发的免登授权码（绑定门户会话 jti）。
+	portalTok, err := admin.SetJwtData(map[string]any{
+		"portal_user": "alice",
+	}, time.Now().Add(time.Hour).Unix())
+	assert.NoError(t, err)
+	portalJTI, err := admin.JtiOf(portalTok)
+	assert.NoError(t, err)
 	grantTok, err := webvpn.GetManager().Session().IssueGrant(
-		nil, nil, &dbdata.User{Username: "alice", Type: "local", Status: 1}, "portal-jti-alice")
+		nil, nil, &dbdata.User{Username: "alice", Type: "local", Status: 1}, portalJTI)
 	assert.NoError(t, err)
 
-	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
+	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true, portal: portalTok})
 	req.AddCookie(&http.Cookie{Name: "webvpn_grant", Value: grantTok})
 
 	consumed := WebVpnHandler(rec, req)
@@ -574,26 +636,26 @@ func TestWebVpnGrantIsReusable(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
 
-	// 构造一个带固定 jti 的门户会话 token（未过期），作为 grant 的门户登录态凭据
-	portalJTI := "portal-jti-alice"
-	portalTok, err := admin.SetJwtData(map[string]any{"username": "alice"}, time.Now().Add(time.Hour).Unix())
+	// 构造门户会话 token，并使用其 jti 绑定 grant。
+	portalTok, err := admin.SetJwtData(map[string]any{"portal_user": "alice"}, time.Now().Add(time.Hour).Unix())
 	assert.NoError(t, err)
-
+	portalJTI, err := admin.JtiOf(portalTok)
+	assert.NoError(t, err)
 	grantTok, err := webvpn.GetManager().Session().IssueGrant(
 		nil, nil, &dbdata.User{Username: "alice", Type: "local", Status: 1}, portalJTI)
 	assert.NoError(t, err)
 
 	// 第一次兑换：成功
-	req1, rec1, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
+	req1, rec1, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true, portal: portalTok})
 	req1.AddCookie(&http.Cookie{Name: "webvpn_grant", Value: grantTok})
 	assert.True(t, WebVpnHandler(rec1, req1), "首次兑换应消费请求")
 	assert.Equal(t, http.StatusOK, rec1.Code, "首次兑换应放行")
 
-	// 第二次用同一 grant 兑换：仍应成功（可重复兑换，不再一次性吊销）
+	// 第二次用同一 grant 兑换：必须失败，防止复制出的 grant 重放。
 	req2, rec2, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
 	req2.AddCookie(&http.Cookie{Name: "webvpn_grant", Value: grantTok})
 	assert.True(t, WebVpnHandler(rec2, req2), "二次兑换请求仍应被本处理器消费")
-	assert.Equal(t, http.StatusOK, rec2.Code, "可重复兑换：同一 grant 二次兑换仍应放行")
+	assert.NotEqual(t, http.StatusOK, rec2.Code, "同一 grant 二次兑换不得再次放行")
 
 	// 门户会话 jti 未被误杀：用门户 token 解析仍有效（GetJwtData 会校验 jti 吊销）
 	_, err = admin.GetJwtData(portalTok)
@@ -626,8 +688,9 @@ func TestWebVpnExchangeKeepsPortalSession(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
 
-	portalJTI := "portal-jti-bob"
 	portalTok, err := admin.SetJwtData(map[string]any{"username": "bob"}, time.Now().Add(time.Hour).Unix())
+	assert.NoError(t, err)
+	portalJTI, err := admin.JtiOf(portalTok)
 	assert.NoError(t, err)
 
 	// app1 在 setup 中授权给 alice，用 alice 兑换才能拿到 200；
@@ -636,7 +699,7 @@ func TestWebVpnExchangeKeepsPortalSession(t *testing.T) {
 		nil, nil, &dbdata.User{Username: "alice", Type: "local", Status: 1}, portalJTI)
 	assert.NoError(t, err)
 
-	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
+	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true, portal: portalTok})
 	req.AddCookie(&http.Cookie{Name: "webvpn_grant", Value: grantTok})
 	WebVpnHandler(rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -1223,10 +1286,14 @@ func TestWebVpnSessionScopedToAppPermission(t *testing.T) {
 	ast := assert.New(t)
 
 	// alice 在已授权的 app1 用 grant 兑换正式会话
-	grantTok, err := webvpn.GetManager().Session().IssueGrant(
-		nil, nil, &dbdata.User{Username: "alice", Type: "local", Status: 1}, "portal-jti-alice")
+	portalTok, err := admin.SetJwtData(map[string]any{"portal_user": "alice"}, time.Now().Add(time.Hour).Unix())
 	ast.NoError(err)
-	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
+	portalJTI, err := admin.JtiOf(portalTok)
+	ast.NoError(err)
+	grantTok, err := webvpn.GetManager().Session().IssueGrant(
+		nil, nil, &dbdata.User{Username: "alice", Type: "local"}, portalJTI)
+	ast.NoError(err)
+	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true, portal: portalTok})
 	req.AddCookie(&http.Cookie{Name: "webvpn_grant", Value: grantTok})
 	ast.True(WebVpnHandler(rec, req))
 	ast.Equal(http.StatusOK, rec.Code, "已授权应用 app1 应放行")

@@ -145,7 +145,6 @@ func TestCheckLinkAcl_v6_NoRule(t *testing.T) {
 	}
 }
 
-
 func TestCheckLinkAcl_v6_Allow(t *testing.T) {
 	rp := &dbdata.Policy{
 		LinkAcl: []dbdata.GroupLinkAcl{

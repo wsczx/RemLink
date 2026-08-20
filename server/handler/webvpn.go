@@ -119,20 +119,15 @@ func webVpnLoginURL(r *http.Request) string {
 // 处理跨域预检（OPTIONS）：直接回应 204 + CORS 头，不反代到后端。
 func webVpnHandlePreflight(w http.ResponseWriter, r *http.Request) {
 	origin := r.Header.Get("Origin")
-	if origin == "" {
-		// 非浏览器请求（无 Origin）只返 204，不回 CORS 头
-		w.WriteHeader(http.StatusNoContent)
+	if origin == "" || !webVpnSameOrigin(r) {
+		w.WriteHeader(http.StatusForbidden)
 		return
 	}
 
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS")
-	if reqHeaders := r.Header.Get("Access-Control-Request-Headers"); reqHeaders != "" {
-		w.Header().Set("Access-Control-Allow-Headers", reqHeaders)
-	} else {
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, Origin, X-Requested-With")
-	}
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, Origin, X-Requested-With")
 	w.Header().Set("Access-Control-Max-Age", "86400")
 	w.Header().Set("Vary", "Origin")
 	w.WriteHeader(http.StatusNoContent)
@@ -348,19 +343,25 @@ func webVpnSameOrigin(r *http.Request) bool {
 		return false
 	}
 	if origin := r.Header.Get("Origin"); origin != "" {
-		if u, err := url.Parse(origin); err == nil {
-			return strings.EqualFold(u.Host, host) &&
-				(u.Scheme == "https" || (u.Scheme == "http" && r.TLS == nil))
+		u, err := url.Parse(origin)
+		if err != nil || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Host == "" {
+			return false
 		}
-		return false
+		return strings.EqualFold(u.Host, host) &&
+			((u.Scheme == "https" && requestTLS(r)) || (u.Scheme == "http" && !requestTLS(r)))
 	}
 	if ref := r.Header.Get("Referer"); ref != "" {
-		if u, err := url.Parse(ref); err == nil {
-			return strings.EqualFold(u.Host, host)
+		u, err := url.Parse(ref)
+		if err != nil || u.User != nil || u.Host == "" {
+			return false
 		}
-		return false
+		return strings.EqualFold(u.Host, host)
 	}
 	return true
+}
+
+func requestTLS(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 // 记录 WebVPN 请求的审计信息
@@ -408,7 +409,7 @@ func withAudit(next func(*http.Response) error, rec *webVpnAuditRecord, audit *w
 // 给反代响应补 CORS 头：仅当入站带 Origin（浏览器跨域实际请求）时补，与预检一致。
 func withCORS(next func(*http.Response) error, r *http.Request) func(*http.Response) error {
 	origin := r.Header.Get("Origin")
-	if origin == "" {
+	if origin == "" || !webVpnSameOrigin(r) {
 		return next
 	}
 	return func(resp *http.Response) error {

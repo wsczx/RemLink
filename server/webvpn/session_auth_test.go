@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,9 +15,6 @@ import (
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 )
-
-//   1) 会话清除域必须与写入域一致
-//   2) 免登兑换的逆向安全：无 grant 且无门户会话时不得凭空造出会话
 
 func setupWebVpnDB(t *testing.T) {
 	t.Helper()
@@ -150,6 +148,70 @@ func TestExchangeGrantRevokedFallsBackToPortalSession(t *testing.T) {
 	assert.Equal(t, "carol", user.Username)
 }
 
+func TestExchangeGrantWorksWithoutPortalSessionCookie(t *testing.T) {
+	setupWebVpnDB(t)
+	defer dbdata.Stop()
+
+	m := GetManager()
+	require.NoError(t, dbdata.Add(&dbdata.User{Username: "grant-user", Status: 1}))
+	grantResp := httptest.NewRecorder()
+	grantReq := httptest.NewRequest(http.MethodGet, "https://portal.example.com/", nil)
+	_, err := m.Session().IssueGrant(grantResp, grantReq, &dbdata.User{Username: "grant-user"}, "portal-jti")
+	require.NoError(t, err)
+	grant := findCookie(t, grantResp, grantCookieName)
+	require.NotNil(t, grant)
+
+	r := httptest.NewRequest(http.MethodGet, "https://app.wv.example.com/", nil)
+	r.AddCookie(grant)
+	_, _, ok := m.Session().ExchangeGrant(httptest.NewRecorder(), r)
+	assert.True(t, ok, "缺少门户会话 Cookie 时，有效 grant 仍应允许兑换")
+}
+
+func TestExchangeGrantConcurrentConsume(t *testing.T) {
+	setupWebVpnDB(t)
+	defer dbdata.Stop()
+
+	m := GetManager()
+	require.NoError(t, dbdata.Add(&dbdata.User{Username: "race-user", Status: 1}))
+	portalToken, err := admin.SetJwtData(map[string]any{}, time.Now().Add(time.Hour).Unix())
+	require.NoError(t, err)
+	portalJTI, err := admin.JtiOf(portalToken)
+	require.NoError(t, err)
+	grantResp := httptest.NewRecorder()
+	_, err = m.Session().IssueGrant(grantResp, httptest.NewRequest(http.MethodGet, "https://portal.example.com/", nil), &dbdata.User{Username: "race-user"}, portalJTI)
+	require.NoError(t, err)
+	grant := findCookie(t, grantResp, grantCookieName)
+	require.NotNil(t, grant)
+
+	const workers = 16
+	start := make(chan struct{})
+	results := make(chan bool, workers)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			r := httptest.NewRequest(http.MethodGet, "https://app.wv.example.com/", nil)
+			r.AddCookie(&http.Cookie{Name: "portal_session", Value: portalToken})
+			r.AddCookie(grant)
+			_, _, ok := m.Session().ExchangeGrant(httptest.NewRecorder(), r)
+			results <- ok
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+
+	successes := 0
+	for ok := range results {
+		if ok {
+			successes++
+		}
+	}
+	assert.Equal(t, 1, successes, "同一 grant 并发兑换只能成功一次")
+}
+
 func TestExchangeGrantConsumes(t *testing.T) {
 	setupWebVpnDB(t)
 	defer dbdata.Stop()
@@ -158,16 +220,21 @@ func TestExchangeGrantConsumes(t *testing.T) {
 	// 用独立用户名，避免受前序踢出测试的吊销阈值影响
 	require.NoError(t, dbdata.Add(&dbdata.User{Username: "bob", Status: 1}))
 
-	// 签发 grant
+	// 签发门户会话，再用其 jti 绑定 grant。
+	portalToken, err := admin.SetJwtData(map[string]any{"portal_user": "bob"}, time.Now().Add(time.Hour).Unix())
+	require.NoError(t, err)
+	portalJTI, err := admin.JtiOf(portalToken)
+	require.NoError(t, err)
 	w0 := httptest.NewRecorder()
 	r0 := httptest.NewRequest(http.MethodGet, "https://portal.example.com/", nil)
-	_, err := m.Session().IssueGrant(w0, r0, &dbdata.User{Username: "bob"}, "portal-jti-2")
+	_, err = m.Session().IssueGrant(w0, r0, &dbdata.User{Username: "bob"}, portalJTI)
 	require.NoError(t, err)
 	grant := findCookie(t, w0, grantCookieName)
 	require.NotNil(t, grant, "应写出 grant cookie")
 
-	// 兑换成功
+	// 兑换成功：grant 必须携带匹配的门户会话。
 	r := httptest.NewRequest(http.MethodGet, "https://app.wv.example.com/", nil)
+	r.AddCookie(&http.Cookie{Name: "portal_session", Value: portalToken})
 	r.AddCookie(grant)
 	w := httptest.NewRecorder()
 	_, _, ok := m.Session().ExchangeGrant(w, r)

@@ -25,9 +25,7 @@ var (
 type LDAPConfig struct {
 	Addr           string `json:"addr"`
 	Tls            bool   `json:"tls"`
-	// Ldaps 直连 TLS（如 AD 的 636 端口），一上来就做 TLS 握手，不走 StartTLS。
-	// Windows Server 2025 的 AD 已移除 StartTLS，只接受 LDAPS 直连，必须开启此项。
-	Ldaps bool `json:"ldaps"`
+	Ldaps          bool   `json:"ldaps"`
 	BindName       string `json:"bind_name"`
 	BindPwd        string `json:"bind_pwd"`
 	BaseDn         string `json:"base_dn"`
@@ -37,8 +35,7 @@ type LDAPConfig struct {
 	SyncUserStatus bool   `json:"sync_user_status"`
 	EnableOtp      bool   `json:"enable_otp"` // 同步用户时启用 OTP
 	SyncUsers      bool   `json:"sync_users"` // 定时自动同步用户
-	// TlsVerify 校验 LDAP StartTLS 服务端证书（默认 false=不校验，保持历史行为；需要防中间人时显式开启）
-	TlsVerify bool `json:"tls_verify"`
+	TlsVerify      bool   `json:"tls_verify"`
 }
 
 // 填充 LDAP 默认值
@@ -76,7 +73,7 @@ func (c *LDAPConfig) ValidateConfig() error {
 
 // 建立 LDAP 连接
 func (c *LDAPConfig) Connect() (*ldap.Conn, error) {
-	// 默认不校验服务端证书（保持历史行为，兼容自签证书）；TlsVerify 开启后校验防中间人
+	// 默认不校验服务端证书；TlsVerify 开启后校验防中间人
 	tlsCfg := &tls.Config{
 		InsecureSkipVerify: !c.TlsVerify,
 	}
@@ -89,7 +86,7 @@ func (c *LDAPConfig) Connect() (*ldap.Conn, error) {
 	var l *ldap.Conn
 	var err error
 	if c.Ldaps {
-		// LDAPS 直连：一上来就完成 TLS 握手（适配 AD 2025 / 自定义 LDAPS 端口）
+		// LDAPS 直连 TLS 握手（适配 AD 2025 / 自定义 LDAPS 端口）
 		l, err = ldap.DialTLS("tcp", c.Addr, tlsCfg)
 		if err != nil {
 			return nil, fmt.Errorf("LDAP LDAPS 连接失败: %w", err)
@@ -100,7 +97,7 @@ func (c *LDAPConfig) Connect() (*ldap.Conn, error) {
 			return nil, fmt.Errorf("LDAP 连接失败: %w", err)
 		}
 		if c.Tls {
-			// StartTLS：在已建立的明文连接上升级加密（OpenLDAP / 旧版 AD）
+			// 在已建立的明文连接上升级加密（OpenLDAP / 旧版 AD）
 			if err := l.StartTLS(tlsCfg); err != nil {
 				l.Close()
 				return nil, fmt.Errorf("LDAP TLS 连接失败: %w", err)

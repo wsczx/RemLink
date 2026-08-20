@@ -20,12 +20,12 @@ func TestLDAPConfig_Defaults(t *testing.T) {
 
 func TestLDAPConfig_ValidateConfig(t *testing.T) {
 	base := LDAPConfig{
-		Addr:       "ldap.example.com:389",
-		BindName:   "cn=admin,dc=example,dc=com",
-		BindPwd:    "secret",
-		BaseDn:     "dc=example,dc=com",
+		Addr:        "ldap.example.com:389",
+		BindName:    "cn=admin,dc=example,dc=com",
+		BindPwd:     "secret",
+		BaseDn:      "dc=example,dc=com",
 		ObjectClass: "person",
-		SearchAttr: "cn",
+		SearchAttr:  "cn",
 	}
 
 	if err := base.ValidateConfig(); err != nil {

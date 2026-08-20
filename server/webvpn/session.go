@@ -15,7 +15,9 @@ import (
 
 // WebVPN 会话以 JWT（webvpn_session cookie）承载，与门户会话独立命名与域。
 type AuthSessionManager struct {
-	userMu    sync.Mutex
+	userMu  sync.Mutex
+	grantMu sync.Mutex
+
 	userCache map[string]*userCacheEntry
 	userTTL   time.Duration
 
@@ -96,32 +98,40 @@ func (m *AuthSessionManager) IssueGrant(w http.ResponseWriter, r *http.Request, 
 	return token, nil
 }
 
-// 用免登授权换取正式 WebVPN 会话，返回 (token, user, ok)；授权失效时回退门户会话自动续接。
+// 用免登授权换取正式 WebVPN 会话；授权失效时回退到门户会话。
 func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Request) (string, *dbdata.User, bool) {
-	// 优先用免登授权（webvpn_grant）
+	// 优先兑换一次性 grant；若携带门户会话则校验其 JTI。
 	if c, err := r.Cookie(grantCookieName); err == nil && c.Value != "" {
+		m.grantMu.Lock()
+		defer m.grantMu.Unlock()
+
 		data, err := admin.GetJwtData(c.Value)
 		if err == nil {
 			username, _ := data["webvpn_grant_user"].(string)
-			if username != "" {
-				// 拒绝兑换，防止残留 grant 绕过吊销兑换新会话
-				grantRevoked := false
+			grantJTI, _ := data["webvpn_grant_jti"].(string)
+			portal, portalOK := m.portalSessionData(r)
+			portalJTI, _ := portal["jti"].(string)
+			// 子域通常收不到主门户的 host-only cookie，因此无门户会话时仍允许兑换；
+			// 若携带门户会话，则必须校验 JTI 一致。
+			grantValid := username != "" && grantJTI != "" && (!portalOK || grantJTI == portalJTI)
+			if grantValid {
 				if before := dbdata.WebVpnRevokeBeforeOf(username); before > 0 && jwtInt64(data, "iat") <= before {
-					grantRevoked = true
+					grantValid = false
 				}
-				if !grantRevoked {
-					user := m.freshUser(username)
-					if user == nil {
-						// 本地库查不到时回退到 grant 携带的三方身份
-						user = m.externalUserFromClaims(username, data)
-					}
-					if user != nil {
-						token, err := m.Issue(w, r, user, 0)
-						if err == nil {
-							// 一次性免登授权：兑换成功后即失效
-							m.ClearGrantCookie(w, r)
-							return token, user, true
-						}
+			}
+			if grantValid {
+				user := m.freshUser(username)
+				if user == nil {
+					// 本地库查不到时回退到 grant 携带的三方身份
+					user = m.externalUserFromClaims(username, data)
+				}
+				if user != nil {
+					token, err := m.Issue(w, r, user, 0)
+					if err == nil {
+						// JWT 本身不可变；兑换成功后吊销其 jti，防止复制的 grant 重放。
+						admin.RevokeJwtToken(c.Value)
+						m.ClearGrantCookie(w, r)
+						return token, user, true
 					}
 				}
 			}
@@ -140,14 +150,22 @@ func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Reques
 	return "", nil, false
 }
 
-// 返回请求携带的门户会话签发时间（unix 秒），无有效门户会话返回 0
-func (m *AuthSessionManager) portalIssuedAt(r *http.Request) int64 {
+func (m *AuthSessionManager) portalSessionData(r *http.Request) (map[string]any, bool) {
 	c, err := r.Cookie("portal_session")
 	if err != nil || c.Value == "" {
-		return 0
+		return nil, false
 	}
 	data, err := admin.GetJwtData(c.Value)
 	if err != nil {
+		return nil, false
+	}
+	return data, true
+}
+
+// 返回有效门户会话的签发时间；不存在时返回 0。
+func (m *AuthSessionManager) portalIssuedAt(r *http.Request) int64 {
+	data, ok := m.portalSessionData(r)
+	if !ok {
 		return 0
 	}
 	return jwtInt64(data, "iat")
@@ -155,12 +173,8 @@ func (m *AuthSessionManager) portalIssuedAt(r *http.Request) int64 {
 
 // 免登授权失效时，用仍有效的门户会话解析用户身份。返回 (nil, false) 表示无有效门户会话。
 func (m *AuthSessionManager) userFromPortalSession(r *http.Request) (*dbdata.User, bool) {
-	c, err := r.Cookie("portal_session")
-	if err != nil || c.Value == "" {
-		return nil, false
-	}
-	data, err := admin.GetJwtData(c.Value)
-	if err != nil {
+	data, ok := m.portalSessionData(r)
+	if !ok {
 		return nil, false
 	}
 	username, _ := data["portal_user"].(string)

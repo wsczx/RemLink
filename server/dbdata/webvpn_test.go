@@ -101,4 +101,3 @@ func TestWebVpnAppNameValid(t *testing.T) {
 	ast.False(webVpnAppNameValid("a.b"), "点号应拒绝")
 	ast.False(webVpnAppNameValid("a b"), "空格应拒绝")
 }
-

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -522,9 +523,15 @@ func authMiddleware(next http.Handler) http.Handler {
 	fn := func(w http.ResponseWriter, r *http.Request) {
 		route := mux.CurrentRoute(r)
 		name := route.GetName()
-		if utils.InArrStr([]string{"login", "login_otp", "auth_check", "logout", "index", "static", "login_config"}, name) {
+		if utils.InArrStr([]string{"login", "login_otp", "auth_check", "index", "static", "login_config"}, name) {
 			// 不进行鉴权
 			next.ServeHTTP(w, r)
+			return
+		}
+
+		// 管理 Cookie 认证的写请求必须来自本站，防止跨站请求借用浏览器 Cookie
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && name != "logout" && !adminSameOrigin(r) {
+			w.WriteHeader(http.StatusForbidden)
 			return
 		}
 
@@ -539,6 +546,25 @@ func authMiddleware(next http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(fn)
+}
+
+func adminSameOrigin(r *http.Request) bool {
+	if r.Host == "" {
+		return false
+	}
+	if origin := r.Header.Get("Origin"); origin != "" {
+		u, err := url.Parse(origin)
+		if err != nil || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Host == "" {
+			return false
+		}
+		return strings.EqualFold(u.Host, r.Host) &&
+			((u.Scheme == "https" && isTLS(r)) || (u.Scheme == "http" && !isTLS(r)))
+	}
+	if ref := r.Header.Get("Referer"); ref != "" {
+		u, err := url.Parse(ref)
+		return err == nil && u.User == nil && strings.EqualFold(u.Host, r.Host)
+	}
+	return true
 }
 
 func recoverHttp(next http.Handler) http.Handler {
