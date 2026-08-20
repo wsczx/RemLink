@@ -37,8 +37,8 @@ func checkTun() {
 	if err = netlink.LinkSetUp(link); err != nil {
 		base.Fatal("testTun err: ", err)
 	}
-	// 默认不初始化防火墙后端
-	if !base.GetCfg().GlobalNat && base.GetCfg().Ipv6CIDR == "" {
+	// 未启用 NAT 时不初始化防火墙后端
+	if !base.GetCfg().GlobalNat && !base.GetCfg().GlobalNat6 {
 		return
 	}
 
@@ -72,9 +72,9 @@ func checkTun() {
 		}
 	}
 
-	// IPv6 双栈：只要配置了 Ipv6CIDR 就建立 stateful FORWARD 规则
-	if base.GetCfg().Ipv6CIDR != "" {
-		if err := fw.SetupGlobalNAT6(base.GetCfg().Ipv6CIDR, base.GetCfg().MasterDev, base.InContainer, base.GetCfg().GlobalNat6); err != nil {
+	// IPv6 NAT/转发由 GlobalNat6 独立控制。
+	if base.GetCfg().Ipv6CIDR != "" && base.GetCfg().GlobalNat6 {
+		if err := fw.SetupGlobalNAT6(base.GetCfg().Ipv6CIDR, base.GetCfg().MasterDev, base.InContainer); err != nil {
 			if _, ok := fw.(*sessdata.IPT); ok {
 				base.Error("设置 IPv6 NAT/转发失败:", err)
 				base.Error("请确认内核已加载 ip6table_nat/ip6table_filter 模块：lsmod | grep ip6table")
@@ -255,25 +255,35 @@ func setGroupNAT(cSess *sessdata.ConnSession) {
 		return
 	}
 
-	// 出网网卡：组级 out_dev 优先，空则沿用全局 master_dev
-	egress := cSess.Group.OutDev
-	if egress == "" {
-		egress = base.GetCfg().MasterDev
-	}
-	// 出网网卡不存在：下发无效规则只会残留在防火墙，告警并跳过，待网卡恢复后下次连接自动重试
-	if _, err := net.InterfaceByName(egress); err != nil {
-		base.Warn("组", cSess.Group.Name, "出网网卡", egress, "不存在，跳过 NAT 下发:", err)
-		return
-	}
-
 	cidr := cSess.IpPool.Ipv4IPNet.String()
 	v6cidr := ""
 	if cSess.IpPool.Ipv6IPNet != nil {
 		v6cidr = cSess.IpPool.Ipv6IPNet.String()
 	}
 
-	// 下发/自愈组自定义网段 NAT 规则
-	sessdata.EnsureGroupNAT(cidr, v6cidr, egress)
+	// 按协议族开关过滤组 NAT 规则，关闭后由用户自行负责路由和转发。
+	if !base.GetCfg().GlobalNat {
+		cidr = ""
+	}
+	if !base.GetCfg().GlobalNat6 {
+		v6cidr = ""
+	}
+	if cidr == "" && v6cidr == "" {
+		return
+	}
+
+	// 出网网卡：组级 out_dev 优先，空则沿用全局 master_dev。
+	egress := cSess.Group.OutDev
+	if egress == "" {
+		egress = base.GetCfg().MasterDev
+	}
+	// 出网网卡不存在时跳过下发，待下次连接重试
+	if _, err := net.InterfaceByName(egress); err != nil {
+		base.Warn("组", cSess.Group.Name, "出网网卡", egress, "不存在，跳过 NAT 下发:", err)
+		return
+	}
+
+	sessdata.SyncGroupNAT(cidr, v6cidr, egress)
 
 	// 组指定了独立的出网网卡且不同于全局 master_dev 时，确保该接口 IPv6 可用
 	if v6cidr != "" && egress != base.GetCfg().MasterDev {

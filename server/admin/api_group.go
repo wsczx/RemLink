@@ -165,7 +165,6 @@ func GroupSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 仅当网段(v4/v6)发生变更时才需清理旧 NAT 规则。
 	var oldGroup dbdata.Group
 	if v.Id > 0 {
 		dbdata.One("Id", v.Id, &oldGroup)
@@ -179,12 +178,12 @@ func GroupSet(w http.ResponseWriter, r *http.Request) {
 	// 组认证配置可能变更了 cert 步骤，立即使证书认证缓存失效（TLS 层下次握手即生效）
 	dbdata.InvalidateCertAuthCache()
 
-	// 网段变更则清理旧 NAT 规则
-	if oldGroup.ClientCidr != "" && oldGroup.ClientCidr != v.ClientCidr {
-		sessdata.RemoveGroupNAT(oldGroup.ClientCidr, "", oldGroup.OutDev)
-	}
-	if oldGroup.ClientCidr6 != "" && oldGroup.ClientCidr6 != v.ClientCidr6 {
-		sessdata.RemoveGroupNAT("", oldGroup.ClientCidr6, oldGroup.OutDev)
+	if oldGroup.ClientCidr != "" || oldGroup.ClientCidr6 != "" {
+		if oldGroup.ClientCidr != v.ClientCidr ||
+			oldGroup.ClientCidr6 != v.ClientCidr6 ||
+			oldGroup.OutDev != v.OutDev {
+			sessdata.RemoveGroupNAT(oldGroup.ClientCidr, oldGroup.ClientCidr6, oldGroup.OutDev)
+		}
 	}
 
 	// 组配置了外部认证 + OTP 时自动同步用户

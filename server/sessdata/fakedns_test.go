@@ -34,15 +34,17 @@ func newMockFirewall() *mockFirewall {
 
 func (m *mockFirewall) CreateChains(vpnCIDR, fakeIPRange string) error                   { return nil }
 func (m *mockFirewall) SetupGlobalNAT(vpnCIDR, masterDev string, inContainer bool) error { return nil }
-func (m *mockFirewall) SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool, useNat66 bool) error {
+func (m *mockFirewall) SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool) error {
 	return nil
 }
-func (m *mockFirewall) AddGroupNAT(groupCIDR, masterDev string, inContainer bool, useNat bool) error { return nil }
-func (m *mockFirewall) AddGroupNAT6(groupCIDR6, masterDev string, inContainer bool, useNat66 bool) error {
+func (m *mockFirewall) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error { return nil }
+func (m *mockFirewall) AddGroupNAT6(groupCIDR6, masterDev string, inContainer bool) error {
 	return nil
 }
-func (m *mockFirewall) DelGroupNAT(groupCIDR, masterDev string, inContainer bool, useNat bool) error { return nil }
-func (m *mockFirewall) DelGroupNAT6(groupCIDR6, masterDev string, inContainer bool, useNat66 bool) error {
+func (m *mockFirewall) DelGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
+	return nil
+}
+func (m *mockFirewall) DelGroupNAT6(groupCIDR6, masterDev string, inContainer bool) error {
 	return nil
 }
 func (m *mockFirewall) CleanupFakeIP() error { return nil }
