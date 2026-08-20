@@ -32,7 +32,6 @@ func TestGetGroupNames(t *testing.T) {
 	})
 	ast.Nil(err)
 
-	// 创建通用测试策略
 	defaultPolicy := &Policy{
 		Name:      "group-test-default",
 		ClientDns: []ValData{{Val: "114.114.114.114"}},
@@ -42,7 +41,6 @@ func TestGetGroupNames(t *testing.T) {
 	ast.Nil(err)
 	pid := defaultPolicy.Id
 
-	// 添加 group
 	g1 := Group{Name: "g1", PolicyId: pid}
 	err = SetGroup(&g1)
 	ast.Nil(err)
@@ -90,7 +88,6 @@ func TestGetGroupNames(t *testing.T) {
 	err = SetGroup(&g7)
 	ast.Nil(err)
 
-	// 判断所有数据
 	gAll := []string{"g1", "g2", "g3", "g4", "g5", "g6", "g7"}
 	gs := GetGroupNames()
 	for _, v := range gs {
@@ -104,7 +101,6 @@ func TestGetGroupNames(t *testing.T) {
 	}
 }
 
-// 测试 AnyGroupHasCertAuth：扫描组认证配置判断是否启用 cert 认证，带缓存。
 // 缓存核心语义：InvalidateCertAuthCache 后立即反映最新组配置。
 func TestAnyGroupHasCertAuth(t *testing.T) {
 	t.Run("有cert组返回true", func(t *testing.T) {
@@ -136,7 +132,6 @@ func TestAnyGroupHasCertAuth(t *testing.T) {
 	})
 }
 
-// 测试 InvalidateCertAuthCache：使缓存立即失效，失效后反映最新组配置，且并发安全。
 func TestInvalidateCertAuthCache(t *testing.T) {
 	t.Run("失效后反映最新配置", func(t *testing.T) {
 		ast := assert.New(t)
@@ -168,7 +163,6 @@ func TestInvalidateCertAuthCache(t *testing.T) {
 	})
 }
 
-// 测试 HasAuthType：解析 AuthProfile 判断是否包含指定认证类型。
 func TestHasAuthType(t *testing.T) {
 	ast := assert.New(t)
 
@@ -179,9 +173,7 @@ func TestHasAuthType(t *testing.T) {
 	ast.False(HasAuthType(nil, "cert"))
 }
 
-// TestCidrOverlaps 表驱动测试两个 CIDR 是否重叠的纯逻辑。
-// 这是组网段重叠检测（含母网卡段）的核心判定，任何回归都会直接影响
-// 保存组配置时的拦截行为，必须稳定。
+// 覆盖 IPv4/IPv6 网段的相交、包含和版本不匹配场景。
 func TestCidrOverlaps(t *testing.T) {
 	ast := assert.New(t)
 	cases := []struct {
@@ -209,8 +201,7 @@ func TestCidrOverlaps(t *testing.T) {
 	}
 }
 
-// TestCheckCidrOverlap 覆盖组自定义网段保存时的全部重叠拦截分支：
-// 全局 VPN 池、其他组、以及母网卡物理网段（macvtap/ipvtap 专属冲突）。
+// 覆盖组网段与全局池、其他组及母网卡网段的冲突检测。
 func TestCheckCidrOverlap(t *testing.T) {
 	ast := assert.New(t)
 	preIpData(t)
@@ -270,8 +261,7 @@ func TestCheckCidrOverlap(t *testing.T) {
 	mustOK("fd00:2::/48", g6, true)          // 不重叠
 }
 
-// TestCheckCidrOverlapMasterDev 补覆盖母网卡物理网段检测的两个边界：
-// MasterDev 为空时检测应完全跳过；版本不匹配（v4/v6）不互相误拦。
+// 覆盖未配置母网卡及 IPv4/IPv6 版本不匹配的边界。
 func TestCheckCidrOverlapMasterDev(t *testing.T) {
 	ast := assert.New(t)
 	preIpData(t)

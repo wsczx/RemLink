@@ -20,20 +20,19 @@ const (
 	LogLevelFatal
 )
 
-// 按 key 对日志做限频，避免暴力破解等高频场景下日志被刷爆。
-// 同一 key 在 interval 窗口内最多放行一次（首次），其余直接丢弃。
+// 按 key 限制日志输出频率
 type WarnLimiter struct {
 	mu       sync.Mutex
 	last     map[string]time.Time
 	interval time.Duration
 }
 
-// 创建一个限频器，interval 为同一 key 的最小记录间隔。
+// 创建指定时间间隔的日志限频器
 func NewWarnLimiter(interval time.Duration) *WarnLimiter {
 	return &WarnLimiter{last: make(map[string]time.Time), interval: interval}
 }
 
-// 返回 true 表示本次允许输出日志（并刷新时间戳）。
+// 判断本次日志是否允许输出
 func (t *WarnLimiter) Allow(key string, now time.Time) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -44,7 +43,7 @@ func (t *WarnLimiter) Allow(key string, now time.Time) bool {
 	return true
 }
 
-// 清除超过 interval 的历史时间戳，防止 last 随不同 key 无限增长。
+// 清理已过期的限频记录
 func (t *WarnLimiter) Clear(now time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -187,7 +186,6 @@ func output(l int, s ...any) {
 	msg := fmt.Sprintln(s...)
 	_ = baseLogPtr.Load().Output(3, lvl+msg)
 
-	// 实时推送到 WebSocket
 	broadcastSyslogIfSet(l, msg)
 }
 
@@ -197,7 +195,7 @@ func broadcastSyslogIfSet(l int, msg string) {
 	}
 }
 
-// 重新初始化日志输出
+// 重新初始化日志输出并切换日志文件。
 func ReinitLog() {
 	cfg := GetCfg()
 	oldLw := baseLwPtr.Load()

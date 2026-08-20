@@ -46,8 +46,7 @@ func TestNewCipherRejectsWrongKeySize(t *testing.T) {
 	}
 }
 
-// NewCipher 与全局密钥包级函数应基于同一密钥，密文可互相解密。
-// 注意：AES-GCM 每次加密使用随机 nonce，故密文字节本身不要求相同（这是安全特性）。
+// 覆盖实例方法与包级函数使用同一密钥；随机 nonce 不要求密文相同。
 func TestNewCipherMatchesGlobalKey(t *testing.T) {
 	enableForTest(t) // 全局 key 已加载
 
@@ -86,8 +85,7 @@ func TestNewCipherNonPrefixPassthrough(t *testing.T) {
 	}
 }
 
-// DecryptJSON 应递归解密 JSON 中所有密文字符串值（含嵌套对象、数组、混合字段），
-// 非密文字段原样保留，结构不破坏。
+// 覆盖嵌套对象、数组和明文混合时的递归解密。
 func TestDecryptJSON_Recursive(t *testing.T) {
 	enableForTest(t)
 
@@ -151,7 +149,7 @@ func TestDecryptJSON_Recursive(t *testing.T) {
 	}
 }
 
-// DecryptJSON 对非法 JSON 应返回错误而非 panic。
+// 非法 JSON 应返回错误而不是 panic。
 func TestDecryptJSON_InvalidJSON(t *testing.T) {
 	enableForTest(t)
 	if _, err := DecryptJSON([]byte(`{not-json`)); err == nil {
@@ -159,7 +157,7 @@ func TestDecryptJSON_InvalidJSON(t *testing.T) {
 	}
 }
 
-// DecryptJSON 对全明文 JSON 应原样返回（无密文时不改写）。
+// 全明文 JSON 应保持不变。
 func TestDecryptJSON_AllPlain(t *testing.T) {
 	enableForTest(t)
 	raw := []byte(`{"a":"x","b":1}`)

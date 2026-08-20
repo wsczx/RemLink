@@ -1,8 +1,6 @@
 package ndpdis
 
-// IPv6 邻居发现(NDP)代答，与 arpdis 的 ARP 代答对应。
-// 区别：客户端 v6 地址(/128)由服务端分配、会话期内静态，
-// 会话建立时注册、关闭时删除即可，无需老化过期和主动探测。
+// 提供 IPv6 邻居发现代答
 
 import (
 	"net"
@@ -46,7 +44,7 @@ var serializeOpts = gopacket.SerializeOptions{
 	ComputeChecksums: true,
 }
 
-// NewNAReply 构造邻居通告(NA)以太网帧，代答对客户端 v6 地址的邻居请求(NS)
+// 构造邻居通告帧
 func NewNAReply(targetIP net.IP, targetHw net.HardwareAddr, dstIP net.IP, dstHw net.HardwareAddr) ([]byte, error) {
 	eth := layers.Ethernet{
 		SrcMAC:       targetHw,

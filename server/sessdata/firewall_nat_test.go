@@ -7,7 +7,6 @@ import (
 	"github.com/wsczx/remlink/base"
 )
 
-// 验证 v4/v6 NAT 开关彼此独立。
 func TestGroupNatSwitches(t *testing.T) {
 	ast := assert.New(t)
 	original := base.GetCfg()

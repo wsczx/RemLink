@@ -48,7 +48,7 @@ func checkTun() {
 		return
 	}
 
-	// IPv4 全局 NAT：仅由 GlobalNat 控制，行为不变
+	// IPv4 全局 NAT
 	if base.GetCfg().GlobalNat {
 		// 校验主网卡是否存在
 		masterDev := base.GetCfg().MasterDev
@@ -272,12 +272,12 @@ func setGroupNAT(cSess *sessdata.ConnSession) {
 		return
 	}
 
-	// 出网网卡：组级 out_dev 优先，空则沿用全局 master_dev。
+	// 组级出网网卡优先，未配置时使用全局网卡
 	egress := cSess.Group.OutDev
 	if egress == "" {
 		egress = base.GetCfg().MasterDev
 	}
-	// 出网网卡不存在时跳过下发，待下次连接重试
+	// 出网网卡不存在时跳过，待下次连接重试
 	if _, err := net.InterfaceByName(egress); err != nil {
 		base.Warn("组", cSess.Group.Name, "出网网卡", egress, "不存在，跳过 NAT 下发:", err)
 		return

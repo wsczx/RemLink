@@ -52,11 +52,9 @@ func TestValidatePasswordStrength(t *testing.T) {
 	})
 }
 
-// 创建 Portal 登录所需的测试数据
 func createPortalLoginSetup(t *testing.T, username, password, groupName string) {
 	ast := assert.New(t)
 
-	// 创建策略
 	pt := &dbdata.Policy{
 		Name:      "plcy-" + groupName,
 		ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}},
@@ -65,7 +63,6 @@ func createPortalLoginSetup(t *testing.T, username, password, groupName string) 
 	err := dbdata.SetPolicy(pt)
 	ast.Nil(err)
 
-	// 创建组（仅 local 认证）
 	g := &dbdata.Group{
 		Name:        groupName,
 		Status:      1,
@@ -75,7 +72,6 @@ func createPortalLoginSetup(t *testing.T, username, password, groupName string) 
 	err = dbdata.SetGroup(g)
 	ast.Nil(err)
 
-	// 创建用户
 	hashedPwd, err := utils.PasswordHash(password)
 	ast.Nil(err)
 	u := &dbdata.User{
@@ -177,11 +173,9 @@ func TestPortalLogin_Disabled(t *testing.T) {
 	ast.Equal(http.StatusNotFound, w.Code)
 }
 
-// 创建可修改密码的测试用户和相关策略/组，返回 JWT token
 func createPortalPwdUser(t *testing.T, username, password string) (*dbdata.User, string) {
 	ast := assert.New(t)
 
-	// 确保策略和组存在
 	pt := &dbdata.Policy{
 		Name:      "plcy-pwd",
 		ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}},
@@ -242,7 +236,6 @@ func TestPortalChangePassword_Success(t *testing.T) {
 	ast.Nil(err)
 	ast.Equal(float64(0), resp["code"])
 
-	// 验证新密码可以登录
 	loginBody := `{"username":"testuser","password":"newpass123"}`
 	loginReq := httptest.NewRequest("POST", "/portal/login", strings.NewReader(loginBody))
 	loginReq.Header.Set("Content-Type", "application/json")
@@ -297,7 +290,6 @@ func TestPortalChangePassword_WeakNewPassword(t *testing.T) {
 	_, token := createPortalPwdUser(t, "testuser", "oldpass123")
 	ast := assert.New(t)
 
-	// 纯数字，不包含字母
 	body := `{"old_password":"oldpass123","new_password":"12345678"}`
 	req := httptest.NewRequest("POST", "/portal/change_password", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -328,7 +320,6 @@ func TestPortalChangePassword_TooShort(t *testing.T) {
 	_, token := createPortalPwdUser(t, "testuser", "oldpass123")
 	ast := assert.New(t)
 
-	// 仅 6 位
 	body := `{"old_password":"oldpass123","new_password":"abc123"}`
 	req := httptest.NewRequest("POST", "/portal/change_password", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -371,7 +362,6 @@ func TestPortalChangePassword_ExternalUser(t *testing.T) {
 
 	ast := assert.New(t)
 
-	// 确保默认组存在
 	pt := &dbdata.Policy{
 		Name:      "plcy-ext",
 		ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}},
@@ -385,7 +375,6 @@ func TestPortalChangePassword_ExternalUser(t *testing.T) {
 		AuthProfile: json.RawMessage(`{"step":[{"type":"local"}]}`),
 	})
 
-	// 创建 LDAP 类型用户
 	u := &dbdata.User{
 		Username: "ldapuser",
 		PinCode:  "notused",
@@ -443,7 +432,6 @@ func TestPortalResetPassword_EmptyFields(t *testing.T) {
 
 	ast := assert.New(t)
 
-	// 空 token
 	body := `{"token":"","new_password":"newpass123"}`
 	req := httptest.NewRequest("POST", "/portal/reset_password", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -468,7 +456,6 @@ func TestPortalResetPassword_Success(t *testing.T) {
 
 	ast := assert.New(t)
 
-	// 创建策略和组
 	pt := &dbdata.Policy{
 		Name:      "plcy-reset",
 		ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}},
@@ -486,7 +473,6 @@ func TestPortalResetPassword_Success(t *testing.T) {
 	err = dbdata.SetGroup(g)
 	ast.Nil(err)
 
-	// 创建用户
 	hashedPwd, _ := utils.PasswordHash("oldpass123")
 	u := &dbdata.User{
 		Username:   "resetuser",
@@ -498,7 +484,6 @@ func TestPortalResetPassword_Success(t *testing.T) {
 	err = dbdata.SetUser(u)
 	ast.Nil(err)
 
-	// 生成重置 token
 	token, err := admin.SetJwtData(map[string]any{
 		"purpose": "portal_reset_password",
 		"user_id": float64(u.Id),
@@ -518,7 +503,6 @@ func TestPortalResetPassword_Success(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.Equal(float64(0), resp["code"])
 
-	// 验证新密码可以登录
 	loginBody := `{"username":"resetuser","password":"newpass456"}`
 	loginReq := httptest.NewRequest("POST", "/portal/login", strings.NewReader(loginBody))
 	loginReq.Header.Set("Content-Type", "application/json")
@@ -542,7 +526,6 @@ func TestPortalLogout(t *testing.T) {
 	ast := assert.New(t)
 	ast.Equal(http.StatusOK, w.Code)
 
-	// 检查 Set-Cookie 清除了 portal_session
 	cookies := w.Result().Cookies()
 	found := false
 	for _, c := range cookies {
@@ -553,7 +536,6 @@ func TestPortalLogout(t *testing.T) {
 	ast.True(found, "should clear portal_session cookie")
 }
 
-// 验证强制改密走认证管道：首次登录返回 change_pwd 挑战，提交新密码后续跑管道并签发令牌。
 func TestPortalLogin_ForcePwd(t *testing.T) {
 	base.Test()
 	preIpData(t)
@@ -579,7 +561,6 @@ func TestPortalLogin_ForcePwd(t *testing.T) {
 	token, _ := data["token"].(string)
 	ast.NotEmpty(token)
 
-	// 提交新密码，续跑管道后应直接签发登录令牌
 	chgBody := `{"token":"` + token + `","new_password":"newpass123","new_password_confirm":"newpass123"}`
 	chgReq := httptest.NewRequest("POST", "/portal/force_change_password", strings.NewReader(chgBody))
 	chgReq.Header.Set("Content-Type", "application/json")
@@ -599,7 +580,6 @@ func TestPortalLogin_ForcePwd(t *testing.T) {
 	ast.Equal(float64(0), login2Resp["code"])
 }
 
-// 验证本地用户启用 OTP 时，登录走管道的 otp 步骤：返回 otp 挑战，提交正确动态码后通过。
 func TestPortalLogin_OTP(t *testing.T) {
 	base.Test()
 	preIpData(t)
@@ -609,7 +589,6 @@ func TestPortalLogin_OTP(t *testing.T) {
 		c.SendOtp = false
 	})
 
-	// 组含 local + otp 步骤
 	pt := &dbdata.Policy{Name: "plcy-otp", ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}}, Status: 1}
 	_ = dbdata.SetPolicy(pt)
 	_ = dbdata.SetGroup(&dbdata.Group{
@@ -629,7 +608,6 @@ func TestPortalLogin_OTP(t *testing.T) {
 	_ = dbdata.SetUser(u)
 
 	ast := assert.New(t)
-	// 登录 -> otp 挑战
 	loginReq := httptest.NewRequest("POST", "/portal/login", strings.NewReader(`{"username":"otpuser","password":"oldpass123"}`))
 	loginReq.Header.Set("Content-Type", "application/json")
 	loginW := httptest.NewRecorder()

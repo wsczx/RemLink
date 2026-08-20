@@ -12,7 +12,6 @@ func BenchmarkHeaderCopy(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
 		pl := getPayload()
-		// 初始化数据
 		pl.Data = pl.Data[:l]
 
 		b.StartTimer()
@@ -31,7 +30,6 @@ func BenchmarkHeaderAppend(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
 		pl := getPayload()
-		// 初始化数据
 		pl.Data = pl.Data[:l]
 
 		b.StartTimer()

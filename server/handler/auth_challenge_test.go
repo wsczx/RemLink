@@ -11,7 +11,6 @@ import (
 	"github.com/wsczx/remlink/pkg/utils"
 )
 
-// 构造仅携带用户名的最小认证上下文（供 ReloadUserInfo 使用）
 func newChallengeCtx(username string) *auth.Context {
 	return &auth.Context{Conn: auth.ConnInfo{Username: username}}
 }

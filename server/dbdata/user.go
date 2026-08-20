@@ -68,8 +68,7 @@ func SetUser(v *User) error {
 		err = Add(v)
 	}
 	if err == nil {
-		// 用户组/状态变更后，该用户已签发的 WebVPN 会话立即失效，
-		// 下次访问须重新登录并带入最新授权
+		// 用户组或状态变更后，使已签发的 WebVPN 会话失效
 		WebVpnRevokeUser(v.Username)
 	}
 
@@ -98,7 +97,7 @@ func (u *User) BeforeUpdate() {
 	}
 }
 
-// 删除用户组后，把该组名从所有用户的 Groups 里移除，避免用户列表残留已删组
+// 从所有用户的组列表中移除已删除的组
 func RemoveGroupFromUsers(groupName string) error {
 	var users []User
 	if err := Find(&users, 0, 0); err != nil {

@@ -179,12 +179,7 @@ func PortalSSO(w http.ResponseWriter, r *http.Request) {
 	}
 	redirect := r.URL.Query().Get("redirect")
 
-	// 子域名发起的第三方登录：跳转到「WebVPN 第三方登录专用门户域名」完成认证。
-	// 第三方平台（企微/飞书/钉钉）的 OAuth 回调地址固定绑定门户域名（VPN 服务地址），
-	// 无法为每个 WebVPN 子域单独配置；故未登录用户直接访问子域名时，需先跳到该门户域名
-	// 完成三方认证，设置 .WebVpnDomain 通配的 portal_session cookie，再回跳子域名，
-	// 由 webVpnExchangeFromPortal 兑换独立 WebVPN 会话。
-	// 该门户域名取自配置项 webvpn_sso_domain（仅 WebVPN 三方登录专用）；未配置时子域名三方登录不可用。
+	// WebVPN 子域的第三方登录先在配置的门户域名完成，再兑换独立会话
 	if _, ok := webVpnHostPrefix(r.Host); ok {
 		main := portalMainDomain(r)
 		if main == "" {
@@ -212,8 +207,7 @@ func PortalSSO(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, target, http.StatusFound)
 }
 
-// 返回 WebVPN 第三方登录专用的门户域名绝对地址（https://<webvpn_sso_domain>）
-// 仅取自配置项 webvpn_sso_domain，不带端口时沿用请求来源端口。未配置返回 ""（子域名三方登录不可用）
+// 返回 WebVPN 第三方登录使用的门户域名，未配置时返回空字符串
 func portalMainDomain(r *http.Request) string {
 	domain := base.GetCfg().WebVpnSsoDomain
 	if domain == "" {
@@ -296,9 +290,7 @@ func PortalChangePassword(w http.ResponseWriter, r *http.Request) {
 	portalOK(w, map[string]string{"message": "密码修改成功"})
 }
 
-// 处理门户首次登录强制改密提交（POST /portal/api/force_change_password）。
-// 复用登录时创建的认证会话（challenge 会话，token 字段即 session_id），更新密码并清除 ForcePwd 后
-// 续跑认证管道：若用户启用 OTP 则继续 OTP 二次认证，否则直接签发门户登录令牌。
+// 处理门户首次登录的强制改密，并继续认证流程
 func PortalForceChangePassword(w http.ResponseWriter, r *http.Request) {
 	if !base.GetCfg().EnableUserPortal {
 		http.NotFound(w, r)
@@ -411,12 +403,7 @@ func PortalLogout(w http.ResponseWriter, r *http.Request) {
 		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
 		SameSite: http.SameSiteLaxMode,
 	})
-	// WebVPN 会话（webvpn_session）与门户会话本已解耦、各自独立。
-	// 但门户登出意味着“用户主动结束本次身份”，若不联动回收 WebVPN 会话，
-	// 浏览器里残留的旧 webvpn_session 仍可用（要么滞留旧权限、要么卡在无权限用户），
-	// 只能等会话到期或管理员手动踢。故此处联动吊销该用户的 WebVPN 会话：
-	// 下次访问子域会因会话失效而重新免登兑换（用当前/新身份）
-	// 仅整用户吊销（O(1) 抬阈值），同用户名在其他设备/标签的子域会话一并失效
+	// 门户登出同时吊销该用户的 WebVPN 会话，避免旧会话继续使用
 	if base.GetCfg().WebVpnDomain != "" {
 		if user, ok := portalCurrentUser(r); ok && user != nil {
 			webvpn.GetManager().Session().RevokeUser(user.Username)
@@ -774,7 +761,7 @@ func portalStartAuth(w http.ResponseWriter, username, password string, r *http.R
 	if err != nil {
 		return portalAuthError(err.Error())
 	}
-	// 未同步用户走外部认证流程（LDAP/RADIUS）
+	// 未同步用户使用外部认证
 	if !userExists {
 		user = &dbdata.User{Username: username}
 	}

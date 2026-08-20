@@ -13,7 +13,6 @@ func TestRespSucess(t *testing.T) {
 	assert := assert.New(t)
 	w := httptest.NewRecorder()
 	RespSucess(w, "data")
-	// fmt.Println(w)
 	assert.Equal(w.Code, 200)
 	body, _ := io.ReadAll(w.Body)
 	res := Resp{}
@@ -28,7 +27,6 @@ func TestRespError(t *testing.T) {
 	assert := assert.New(t)
 	w := httptest.NewRecorder()
 	RespError(w, 10, "err-msg")
-	// fmt.Println(w)
 	assert.Equal(w.Code, 200)
 	body, _ := io.ReadAll(w.Body)
 	res := Resp{}

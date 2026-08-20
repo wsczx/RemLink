@@ -11,7 +11,6 @@ import (
 
 // ========== 辅助函数 ==========
 
-// 创建测试用户并返回用户对象
 func createTestUser(username, password string, disableOtp bool) *dbdata.User {
 	hashedPwd, _ := utils.PasswordHash(password)
 	u := &dbdata.User{
@@ -127,7 +126,6 @@ func TestLocalAuth_Success(t *testing.T) {
 	assert.Equal(t, auth.StepPass, result)
 	assert.Nil(t, err)
 
-	// 验证用户信息被写入 ctx.UserInfo（单一来源）
 	ub := ctx.UserInfoLoaded()
 	assert.NotNil(t, ub)
 	assert.Equal(t, u.OtpSecret, ub.OtpSecret)
@@ -275,7 +273,6 @@ func TestLocalAuth_ExistingOtpCode_WrongPwd(t *testing.T) {
 
 func TestLocalAuth_PasswordWithOTPEmbedded(t *testing.T) {
 	preTestData(t)
-	// 用户启用 OTP，真实密码 8 位；输入为"密码+后6位动态码"
 	createTestUser("testembed", "testpas0", false)
 	la := &LocalAuth{}
 	ctx := &auth.Context{

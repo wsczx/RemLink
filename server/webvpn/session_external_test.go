@@ -46,7 +46,6 @@ func TestExternalUserFromClaims_ForcePwdFlow(t *testing.T) {
 	})
 	assert.Nil(t, noGroup, "空 groups 的三方用户必须拒绝")
 
-	// 用户名为空拒绝
 	assert.Nil(t, m.Session().externalUserFromClaims("", map[string]any{
 		"webvpn_grant_type": "dingtalk",
 		"webvpn_groups":     []string{"g"},

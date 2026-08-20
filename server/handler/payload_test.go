@@ -61,24 +61,20 @@ func TestNewSniParser(t *testing.T) {
 
 func TestNewHttpParser(t *testing.T) {
 	ast := assert.New(t)
-	// Host
 	data := handlerTcpPayload(httpPacket)
 	proto, hostname := httpNewParser(data)
 	ast.Equal(hostname, httpHost)
 	ast.Equal(int(proto), acc_proto_http)
-	// HOST
 	data = handlerTcpPayload(httpPacket2)
 	proto, hostname = httpNewParser(data)
 	ast.Equal(hostname, httpHost)
 	ast.Equal(int(proto), acc_proto_http)
-	// GET http://www.google.com/index.html HTTP/1.1
 	data = handlerTcpPayload(httpPacket3)
 	proto, hostname = httpNewParser(data)
 	ast.Equal(hostname, httpHost)
 	ast.Equal(int(proto), acc_proto_http)
 }
 
-// v6 包经 checkLinkAcl 不被误丢（连通优先：v6 直接放行，不做 ACL 匹配）
 func TestCheckLinkAclV6Guard(t *testing.T) {
 	ast := assert.New(t)
 	// V2 语义：v6 包按 ACL 规则匹配，不再无条件放行（连通优先已在 V1 取消）
@@ -88,10 +84,8 @@ func TestCheckLinkAclV6Guard(t *testing.T) {
 	v6Data[0] = 0x60
 	v6pl := &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: v6Data}
 
-	// 场景1：无 ACL 规则，v6 包放行（与 v4 一致）
 	ast.True(checkLinkAcl(&dbdata.Policy{}, v6pl), "无 ACL 规则时 v6 包应放行")
 
-	// 场景2：命中 v6 deny 规则（::/0），v6 包被丢弃
 	_, denyNet6, _ := net.ParseCIDR("::/0")
 	rpDeny6 := &dbdata.Policy{
 		LinkAcl: []dbdata.GroupLinkAcl{
@@ -100,7 +94,6 @@ func TestCheckLinkAclV6Guard(t *testing.T) {
 	}
 	ast.False(checkLinkAcl(rpDeny6, v6pl), "命中 v6 deny 规则的 v6 包应被丢弃")
 
-	// 场景3：v4 deny-all 规则不匹配 v6 包（v4 CIDR 不含 v6 地址）→ 默认拒绝
 	_, denyNet4, _ := net.ParseCIDR("0.0.0.0/0")
 	rpDeny4 := &dbdata.Policy{
 		LinkAcl: []dbdata.GroupLinkAcl{

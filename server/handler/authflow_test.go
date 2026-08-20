@@ -6,9 +6,8 @@ import (
 	"github.com/wsczx/remlink/auth"
 )
 
-// TestFlowUsername_LockSemantics 固化跨端锁语义不变量：
+// 固化跨端锁语义不变量：
 // Flow.Username 始终取首认证用户名（Ctx.Conn.Username），与续跑场景管道可能
-// 重新解析出的 Result.Username 解耦。锁定计数与审计落库以 Flow.Username 为准，
 // 避免「锁错人」。端点不得在回调里用 Result.Username 覆盖 Flow.Username。
 func TestFlowUsername_LockSemantics(t *testing.T) {
 	const firstUser = "alice"
@@ -41,7 +40,7 @@ func TestFlowUsername_LockSemantics(t *testing.T) {
 	}
 }
 
-// TestSavePendingState_WritesBack 验证断点写回与可选持久化收口：
+// 验证断点写回与可选持久化收口：
 // 当 Flow.Session 注入且持有 SessionID 时，savePendingState 写回 StepIdx 后
 // 自动持久化；否则仅写回不持久化（调用方自行负责存储）。
 func TestSavePendingState_WritesBack(t *testing.T) {

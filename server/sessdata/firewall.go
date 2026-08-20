@@ -32,7 +32,6 @@ const (
 
 	iptDnatChain = "REMLINK_FAKEIP_DNAT"
 
-	// 组自定义网段 NAT 规则标记，按需删除且不影响全局规则
 	groupNATV4MagicPrefix = "REMLINK_GNAT_V4:"
 	groupNATV6MagicPrefix = "REMLINK_GNAT_V6:"
 )
@@ -59,14 +58,13 @@ var (
 	GlobalFirewallDone bool
 )
 
-// 组自定义网段 NAT 规则去重跟踪：key=网段(CIDR)字符串，value=安装该规则时使用的出网网卡(egress 字符串)。
-// 同网段多客户端并发连接时只下发一次；出网网卡变化时删除旧规则、按新网卡重新下发（无需重启服务）。
+// 记录组网段已使用的出网网卡，用于去重和配置变更时清理旧规则
 var (
 	groupNatCIDRs sync.Map
 	groupNatMu    sync.Mutex
 )
 
-// 获取全局防火墙单例（初始化失败时允许重试）
+// 获取全局防火墙实例
 func GetFirewall() Firewall {
 	GlobalFirewallMu.Lock()
 	defer GlobalFirewallMu.Unlock()
@@ -224,7 +222,7 @@ func (i *IPT) SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool) erro
 	return nil
 }
 
-// 为组自定义 v6 CIDR 添加 NAT66 和转发规则。
+// 为组 v6 CIDR 添加 NAT66 和转发规则
 func (i *IPT) AddGroupNAT6(groupCIDR6, masterDev string, inContainer bool) error {
 	ip6, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
 	if err != nil {
@@ -261,8 +259,7 @@ func (i *IPT) DelGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
 	return nil
 }
 
-// 删除组自定义 v6 CIDR 的 NAT66/转发规则（MASQUERADE + 源段 FORWARD ACCEPT）。
-// 注意：仅删除“源段相关”的规则，不删除共享的 ESTABLISHED,RELATED 回程规则（由全局规则提供，删除会影响全局 v6 转发）。
+// 删除组 v6 CIDR 的 NAT66 和转发规则
 func (i *IPT) DelGroupNAT6(groupCIDR6, masterDev string, inContainer bool) error {
 	ip6, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
 	if err != nil {
@@ -447,7 +444,7 @@ func ifname(name string) []byte {
 	return b
 }
 
-// 设置全局NAT规则，IP伪装(MASQUERADE)和转发(FORWARD)规则
+// 设置全局 IPv4 NAT 和转发规则
 func (n *NFT) SetupGlobalNAT(vpnCIDR, masterDev string, inContainer bool) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -569,8 +566,7 @@ func (n *NFT) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
 	return n.conn.Flush()
 }
 
-// 删除组自定义 v4 CIDR 的 NAT/转发规则（MASQUERADE + 源段 FORWARD ACCEPT）。
-// 通过 UserData 标记精准定位该组规则，不影响全局规则；全局 NAT 表/链不存在时忽略。
+// 按标记删除组 v4 CIDR 的 NAT 和转发规则
 func (n *NFT) DelGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -593,7 +589,7 @@ func (n *NFT) DelGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
 	return nil
 }
 
-// 为组自定义 v6 CIDR 添加 NAT66 和转发规则。
+// 为组 v6 CIDR 添加 NAT66 和转发规则
 func (n *NFT) AddGroupNAT6(groupCIDR6, masterDev string, inContainer bool) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -628,8 +624,7 @@ func (n *NFT) AddGroupNAT6(groupCIDR6, masterDev string, inContainer bool) error
 	return n.conn.Flush()
 }
 
-// 删除组自定义 v6 CIDR 的 NAT66/转发规则（MASQUERADE + 源段 FORWARD ACCEPT）。
-// 通过 UserData 标记精准定位该组规则，不影响全局规则；全局 v6 NAT 表/链不存在时忽略。
+// 按标记删除组 v6 CIDR 的 NAT66 和转发规则
 func (n *NFT) DelGroupNAT6(groupCIDR6, masterDev string, inContainer bool) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()

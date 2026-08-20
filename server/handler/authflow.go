@@ -1,5 +1,4 @@
-// Flow 是三端共用的认证流程分发：OnPass 通过、OnChallenge 二次挑战、OnFail 失败。
-// 它本身不持有协议状态机（由 auth.Pipeline 负责），只把算好的结果分发给回调
+// Flow 负责把认证管道结果分发给三端回调。
 
 package handler
 
@@ -13,18 +12,14 @@ import (
 	"github.com/wsczx/remlink/dbdata"
 )
 
-// 定义三端对管道终态的响应钩子
-// 每个回调接收 *Flow（携带运行结果与请求上下文）
-// 回调负责把结果写回 http.ResponseWriter —— Flow 本身不做任何渲染
+// 三端对认证终态的响应回调
 type FlowCallbacks struct {
 	OnPass      func(flow *Flow, w http.ResponseWriter, r *http.Request) // 认证通过
 	OnChallenge func(flow *Flow, w http.ResponseWriter, r *http.Request) // 需要二次挑战
 	OnFail      func(flow *Flow, w http.ResponseWriter, r *http.Request) // 认证失败
 }
 
-// 承载一次认证流程的运行结果与元信息，供回调使用。
-// Username 用于审计落库与锁定计数，优先取管道结果中的用户名，
-// 否则回退到首认证请求里的 Ctx.Conn.Username
+// 承载一次认证流程的结果和请求元信息
 type Flow struct {
 	Result     *auth.PipelineResult
 	Ctx        *auth.Context

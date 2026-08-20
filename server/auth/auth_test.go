@@ -128,14 +128,12 @@ func TestContext_AddPassedStep_Order(t *testing.T) {
 // ========== Context with nil Extra ==========
 
 func TestContext_LogInfo_NilExtra(t *testing.T) {
-	// 不应 panic
 	ctx := &Context{}
 	ast := assert.New(t)
 	ast.Equal("认证成功", ctx.LogInfo())
 }
 
 func TestContext_AddPassedStep_NilExtra(t *testing.T) {
-	// 不应 panic
 	ctx := &Context{}
 	ctx.AddPassedStep("local")
 	ast := assert.New(t)

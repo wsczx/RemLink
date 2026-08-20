@@ -22,7 +22,6 @@ func parseCertFromPEM(t *testing.T, pemStr string) *x509.Certificate {
 	return cert
 }
 
-// 生成客户端 CA、组与用户，并返回可用于认证的客户端证书。
 func setupCertGroup(t *testing.T, group, username string) *x509.Certificate {
 	t.Helper()
 
@@ -33,17 +32,15 @@ func setupCertGroup(t *testing.T, group, username string) *x509.Certificate {
 	require.NoError(t, dbdata.SetPolicy(policy))
 	require.NoError(t, dbdata.SetGroup(&dbdata.Group{Name: group, Status: 1, PolicyId: policy.Id}))
 
-	// 用户（必须属于该组，GenerateClientCert 会校验）
 	require.NoError(t, dbdata.SetUser(&dbdata.User{Username: username, Groups: []string{group}, Status: 1}))
 
-	// 生成客户端证书（注册到 DB，使 ValidateClientCert 通过）
 	certData, err := dbdata.GenerateClientCert(username, group, false, 3)
 	require.NoError(t, err, "生成客户端证书失败")
 
 	return parseCertFromPEM(t, certData.Certificate)
 }
 
-// TestCertAuth_ManualPath_EmptyUsername_Backfill 验证手动认证路径（init 未带证书、
+// 验证手动认证路径（init 未带证书、
 // auth-reply 才带证书，Conn.Username 为空）下，证书 CN 会回填到 Conn.Username，
 // 避免末尾一致性检查误拒合法证书用户。
 func TestCertAuth_ManualPath_EmptyUsername_Backfill(t *testing.T) {
@@ -68,7 +65,7 @@ func TestCertAuth_ManualPath_EmptyUsername_Backfill(t *testing.T) {
 	assert.Equal(t, username, ctx.Identity, "Identity 应为证书 CN")
 }
 
-// TestCertPipeline_ManualPath_EmptyUsername_PassesConsistency 走完整管道验证：
+// 走完整管道验证：
 // [cert] 管道在手动路径（空用户名）下，末尾一致性检查应通过。
 // 否则 runFrom 末尾会因 Conn.Username(空) != Identity(cert CN) 返回 StepFail。
 func TestCertPipeline_ManualPath_EmptyUsername_PassesConsistency(t *testing.T) {
@@ -95,7 +92,7 @@ func TestCertPipeline_ManualPath_EmptyUsername_PassesConsistency(t *testing.T) {
 	assert.Equal(t, username, ctx.Conn.Username)
 }
 
-// TestCertPipeline_ConflictingUsername_Fails 验证安全语义仍生效：
+// 验证安全语义仍生效：
 // 当用户键入身份与证书 CN 冲突时，一致性检查应拒绝。
 func TestCertPipeline_ConflictingUsername_Fails(t *testing.T) {
 	preTestData(t)

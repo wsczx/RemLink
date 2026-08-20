@@ -52,7 +52,6 @@ func resumePipeline(ctx *Context, profile GroupAuthProfile, state PipelineState)
 	return buildResult(ctx, result, err, pipeline, state.StepIdx)
 }
 
-// 测试用结果封装（与 Service.getPipelineResult 逻辑一致）。
 func buildResult(ctx *Context, result StepResult, err error, pipeline *Pipeline, prevStepIdx int) *PipelineResult {
 	pr := &PipelineResult{
 		Result:      result,
@@ -301,7 +300,6 @@ func TestExecute_StepFailWithoutError(t *testing.T) {
 
 // 证书身份一致性检查
 
-// 模拟证书步骤：写入身份断言（证书 CN）并返回 Pass。
 type certIdentityMock struct {
 	name     string
 	identity string

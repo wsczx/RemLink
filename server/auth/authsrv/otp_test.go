@@ -64,7 +64,6 @@ func TestCheckOtp_ExpiredCleanup(t *testing.T) {
 	key := "cleanup_test:" + code
 	_, exists := userOtp[key]
 	ast.True(exists, "OTP 记录应存在")
-	// 模拟后台清理 goroutine 删除过期记录
 	delete(userOtp, key)
 	userOtpMux.Unlock()
 
@@ -191,7 +190,6 @@ func TestOTPAuth_InvalidCode_Retry(t *testing.T) {
 	// OTP 错误返回 StepPending 允许重试（锁定由上层 LockManager 处理）
 	assert.Equal(t, auth.StepPending, result)
 	assert.Nil(t, err)
-	// 应清除旧码
 	code := ""
 	if ctx.OTP != nil {
 		code = ctx.OTP.Code
@@ -250,7 +248,6 @@ func TestOTPAuth_CheckOtp_Concurrent(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	// 不应 panic
 }
 
 func TestOTPAuth_CheckOtp_Concurrent_SameUser(t *testing.T) {

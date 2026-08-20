@@ -129,8 +129,7 @@ func (c *DingtalkConfig) GetAccessToken(code string) (string, error) {
 	return tr.AccessToken, nil
 }
 
-// 用 OAuth code 解析出登录用户标识。
-// 流程：code 换用户 token -> /contact/users/me -> (若无 userId) 依次尝试【手机号反查】和【unionid反查】。
+// 用 OAuth code 解析用户标识，必要时通过手机号或 unionId 反查
 func (c *DingtalkConfig) GetDingtalkUser(code string) (string, string, string, error) {
 	accessToken, err := c.GetAccessToken(code)
 	if err != nil {
@@ -165,7 +164,7 @@ func (c *DingtalkConfig) GetDingtalkUser(code string) (string, string, string, e
 
 	userID := strings.TrimSpace(sr.UserId)
 
-	// 兜底策略 1：如果 me 接口未返回 userId，优先尝试通过手机号反查
+	// 未返回 userId 时，先通过手机号反查
 	if userID == "" && strings.TrimSpace(sr.Mobile) != "" {
 		contactToken, err := c.GetContactToken()
 		if err == nil {
@@ -180,7 +179,7 @@ func (c *DingtalkConfig) GetDingtalkUser(code string) (string, string, string, e
 		}
 	}
 
-	// 兜底策略 2：如果手机号未获取或反查失败，尝试通过 unionId 反查
+	// 手机号反查失败时，再通过 unionId 反查
 	if userID == "" && strings.TrimSpace(sr.UnionID) != "" {
 		base.Debug("尝试通过 unionId 反查 userId: unionId=", sr.UnionID)
 		contactToken, err := c.GetContactToken()

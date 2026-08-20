@@ -13,7 +13,6 @@ import (
 	"github.com/wsczx/remlink/pkg/utils"
 )
 
-// 初始化测试用的数据库和 IP 配置，并注册清理函数
 func preTestData(t *testing.T) {
 	base.Test()
 
@@ -42,7 +41,6 @@ func preTestData(t *testing.T) {
 
 	dbdata.Start()
 
-	// 确保 "default" 测试组存在（SetUser 要求组必须存在）
 	ensureDefaultGroup()
 
 	// 注册清理：停止 DB 连接，释放 worker pool
@@ -53,7 +51,6 @@ func preTestData(t *testing.T) {
 	})
 }
 
-// 确保默认测试组存在
 func ensureDefaultGroup() {
 	groups := dbdata.GetGroupNames()
 	if slices.Contains(groups, "default") {
@@ -96,7 +93,6 @@ func TestAuthenticate_DisabledGroup(t *testing.T) {
 	assert.Contains(t, result.Err.Error(), "已禁用")
 }
 
-// 验证 CertAutoAuth 对禁用组返回 false，使证书自动认证入口（handleCertAutoAuth / WebAuth）不触发。
 func TestCertAutoAuth_DisabledGroup(t *testing.T) {
 	preTestData(t)
 

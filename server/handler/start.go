@@ -34,10 +34,9 @@ func Start() {
 		base.Fatal("请执行 sysctl -w net.ipv4.ip_forward=1 开启IP转发")
 	}
 
-	// IPv6 双栈：开启 IPv6 转发；同时把 egress 接口 accept_ra 设为 2，避免打开转发后内核默认关闭 RA，导致 SLAAC/默认路由丢失。
+	// 启用 IPv6 转发，并允许主网卡接收 RA
 	if base.GetCfg().Ipv6CIDR != "" {
-		// 部分主机装系统时全局禁用了 IPv6（disable_ipv6=1，连 link-local 都没有），此时 accept_ra/forwarding 全对也拿不到地址。
-		// 双栈开启时主动解除禁用（all/default/egress），否则 v6 完全不工作。
+		// 确保 IPv6 在已有接口和新建接口上启用
 		if err := sysctlSet("net.ipv6.conf.all.disable_ipv6", "0"); err != nil {
 			base.Warn(err)
 		}
@@ -50,9 +49,7 @@ func Start() {
 		if err := sysctlSet("net.ipv6.conf."+base.GetCfg().MasterDev+".accept_ra", "2"); err != nil {
 			base.Warn(err)
 		}
-		// 注意：IPv6 forwarding 是 per-interface 的（不像 IPv4 的 net.ipv4.ip_forward 是全局单一开关）。
-		// 仅设 all.forwarding 只影响“已存在”接口；客户端连接时新建的 TUN/TAP 接口从 default.forwarding 继承。
-		// 故必须同时设置 default.forwarding=1，否则新建接口的 forwarding 仍为 0，v6 转发不生效。
+		// 同时设置 default 和 all，确保新建及已有接口都能转发 IPv6
 		if err := sysctlSet("net.ipv6.conf.default.forwarding", "1"); err != nil {
 			base.Warn(err)
 		}

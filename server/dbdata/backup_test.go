@@ -26,12 +26,10 @@ func TestAllTableNames(t *testing.T) {
 	names := GetBackupManager().AllTableNames()
 	ast.Len(names, len(GetBackupManager().Tables))
 
-	// 验证已排序
 	for i := 1; i < len(names); i++ {
 		ast.True(names[i-1] < names[i], "names should be sorted: %v", names)
 	}
 
-	// 验证关键表都在
 	for _, want := range []string{"user", "group", "setting", "policy", "provider"} {
 		ast.Contains(names, want)
 	}
@@ -168,7 +166,6 @@ func TestCreateBackup_Config(t *testing.T) {
 	ast.Contains(filename, "remlink_backup_config_")
 	ast.True(strings.HasSuffix(filename, ".json"))
 
-	// 验证文件存在且可解析
 	filePath := filepath.Join(backupFileDir, filename)
 	raw, err := os.ReadFile(filePath)
 	require.NoError(t, err)
@@ -200,7 +197,6 @@ func TestCreateBackup_Full(t *testing.T) {
 	require.NoError(t, err)
 	ast.Contains(filename, "remlink_backup_full_")
 
-	// 验证备份文件包含 business 表数据
 	filePath := filepath.Join(backupFileDir, filename)
 	raw, err := os.ReadFile(filePath)
 	require.NoError(t, err)
@@ -352,7 +348,6 @@ func TestBackup_RoundTrip(t *testing.T) {
 	require.NoError(t, GetBackupManager().NewImporter(xdb).ClearTable(sess, "group"))
 	require.NoError(t, sess.Commit())
 
-	// 验证已清空
 	ast.Zero(GetBackupManager().TableCount("user"))
 	ast.Zero(GetBackupManager().TableCount("group"))
 
@@ -381,7 +376,6 @@ func TestBackup_RoundTrip(t *testing.T) {
 	ast.Equal(int64(2), GetBackupManager().TableCount("user"))
 	ast.Equal(int64(1), GetBackupManager().TableCount("group"))
 
-	// 验证具体数据
 	var restoredUsers []User
 	ast.NoError(xdb.Where("id IN (?, ?)", userIds[0], userIds[1]).Find(&restoredUsers))
 	ast.Len(restoredUsers, 2)
@@ -471,7 +465,6 @@ func TestBackupData_VersionMismatch(t *testing.T) {
 	base.Test()
 	defer cleanupBackupFiles(t)
 
-	// 创建带错误版本号的备份数据
 	badVersion := BackupData{
 		Version:   999,
 		Type:      "config",

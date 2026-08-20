@@ -5,8 +5,7 @@ import (
 	"net"
 )
 
-// 解析 IPv6 基础头 + 扩展头链后得到的上层信息。
-// 供 checkLinkAcl / logAudit / restoreFakeIP-v6 / allTap* 共用，避免各处分头手写易错的扩展头跳过逻辑。
+// 保存 IPv6 基础头和扩展头解析结果
 type v6HeaderInfo struct {
 	Proto   uint8  // 最终上层协议号 (TCP=6 / UDP=17 / ICMPv6=58 / ...)
 	Src     net.IP // 16 字节源地址

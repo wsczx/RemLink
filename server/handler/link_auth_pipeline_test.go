@@ -20,7 +20,6 @@ import (
 	"github.com/xlzd/gotp"
 )
 
-// 创建测试策略和组
 func createTestPolicyGroup(t *testing.T, groupName string, authProfile json.RawMessage) {
 	ast := assert.New(t)
 	pt := &dbdata.Policy{
@@ -52,7 +51,6 @@ func TestLocalPlusOtp_FullFlow(t *testing.T) {
 	password := "test12" // 6 字符且不含 OTP，local 步骤不做 OTP 剥离
 	otpSecret := "JBSWY3DPEHPK3PXP"
 
-	// 创建组 [local, otp]
 	profile := auth.GroupAuthProfile{
 		Step: []auth.AuthMethodConfig{
 			{Type: "local"},
@@ -62,7 +60,6 @@ func TestLocalPlusOtp_FullFlow(t *testing.T) {
 	profileBytes, _ := json.Marshal(profile)
 	createTestPolicyGroup(t, group, profileBytes)
 
-	// 创建用户（明文密码 < 60 字符 走明文比较）
 	_ = dbdata.SetUser(&dbdata.User{
 		Username:  username,
 		Groups:    []string{group},
@@ -81,7 +78,6 @@ func TestLocalPlusOtp_FullFlow(t *testing.T) {
 	ast.Equal(http.StatusOK, w1.Code)
 	ast.Contains(w1.Body.String(), "secondary_password", "应返回 OTP 输入表单")
 
-	// 提取 auth-session-id cookie
 	var sessionID string
 	for _, c := range w1.Result().Cookies() {
 		if c.Name == "auth-session-id" {
@@ -101,7 +97,6 @@ func TestLocalPlusOtp_FullFlow(t *testing.T) {
 	ast.Equal(http.StatusOK, w2.Code)
 	ast.Contains(w2.Body.String(), "session-token", "OTP 通过后应返回会话令牌")
 
-	// 验证旧会话已清除
 	_, err := AuthSessionManager.Get(sessionID)
 	ast.NotNil(err, "认证完成后旧会话应删除")
 }
@@ -159,7 +154,6 @@ func TestCertPlusOtp_CertPassesThenOtpChallenge(t *testing.T) {
 		OtpSecret: otpSecret,
 	})
 
-	// 证书不带有效 OU → cert 步骤失败
 	body := buildAuthReplyBody(username, "", group, "")
 	req := newAuthRequest(body)
 	req.TLS = &tls.ConnectionState{
@@ -187,7 +181,6 @@ func TestCertPlusOtp_NoTLS_ImmediateFail(t *testing.T) {
 	profileBytes, _ := json.Marshal(profile)
 	createTestPolicyGroup(t, group, profileBytes)
 
-	// 无 TLS → cert 秒拒
 	body := buildAuthReplyBody("test", "", group, "")
 	req := newAuthRequest(body)
 	// 不设置 TLS
@@ -207,7 +200,6 @@ func TestResume_InvalidSessionCookie(t *testing.T) {
 	preIpData(t)
 	defer closeIpdata()
 
-	// 用不存在的 session cookie 发送 auth-reply → 会话无效清除 cookie
 	// → 回退首次认证 → 组不存在
 	body := buildAuthReplyBody("anyone", "", "notexist-group", "123456")
 	req := newAuthRequest(body)
@@ -237,7 +229,6 @@ func TestResume_ExpiredSession(t *testing.T) {
 		PinCode: "test12", OtpSecret: otpSecret,
 	})
 
-	// 手动创建一个 step=1 的 pending 会话
 	sessionID := "will-expire-session"
 	ctx := &auth.Context{
 		Conn:     auth.ConnInfo{Username: username, GroupName: group},
@@ -248,7 +239,6 @@ func TestResume_ExpiredSession(t *testing.T) {
 		Ctx: ctx,
 	})
 
-	// 删除会话模拟过期
 	AuthSessionManager.Delete(sessionID)
 
 	body := buildAuthReplyBody(username, "", group, "123456")
@@ -258,7 +248,6 @@ func TestResume_ExpiredSession(t *testing.T) {
 	LinkAuth(w, req)
 
 	ast := assert.New(t)
-	// 会话过期后，回退首次认证 → local 步骤通过（密码 OTP 内嵌? 不，密码为空 → 失败）
 	// 预期：回退首次认证，密码为空 → local 步骤 reject
 	ast.Equal(http.StatusOK, w.Code)
 	ast.Contains(w.Body.String(), "error")
@@ -296,7 +285,6 @@ func TestSsoToken_WithOtp_PreservesIdentity(t *testing.T) {
 	username := "sso-otp-flow-user"
 	otpSecret := "JBSWY3DPEHPK3PXP"
 
-	// 创建测试 wxwork Provider（[wxwork, otp] 配置需要）
 	err := dbdata.SetProvider(&dbdata.Provider{
 		Name:   "test-wxwork",
 		Type:   "wxwork",
@@ -307,7 +295,6 @@ func TestSsoToken_WithOtp_PreservesIdentity(t *testing.T) {
 		t.Fatalf("SetProvider failed: %v", err)
 	}
 
-	// 使用真实的多步配置 [wxwork, otp]，SSO 通过 session Extra 标记已完成
 	profile := auth.GroupAuthProfile{Step: []auth.AuthMethodConfig{
 		{Type: "wxwork", Provider: "test-wxwork"},
 		{Type: "otp"},
@@ -319,7 +306,6 @@ func TestSsoToken_WithOtp_PreservesIdentity(t *testing.T) {
 		OtpSecret: otpSecret,
 	})
 
-	// 模拟 SSO 回调完成：保存会话（代表 SSO 已验证成功）
 	ssoToken := "sso-token-for-otp-test"
 	AuthSessionManager.Save(ssoToken, &AuthSession{
 		Ctx: &auth.Context{
@@ -332,7 +318,6 @@ func TestSsoToken_WithOtp_PreservesIdentity(t *testing.T) {
 		},
 	})
 
-	// 构造 SSO Token 请求
 	body := `<?xml version="1.0" encoding="UTF-8"?>
 		<config-auth client="vpn" type="auth-reply">
 			<version who="vpn">4.10.00001</version>
@@ -352,7 +337,6 @@ func TestSsoToken_WithOtp_PreservesIdentity(t *testing.T) {
 	ast.Contains(w.Body.String(), "secondary_password")
 	ast.NotContains(w.Body.String(), "<session-id>")
 
-	// 验证 SSO 临时会话已清理
 	_, err = AuthSessionManager.Get(ssoToken)
 	ast.NotNil(err, "SSO 临时会话应在处理后清理")
 }

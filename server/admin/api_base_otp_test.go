@@ -9,29 +9,24 @@ import (
 )
 
 func TestOTPGenerateAndVerify(t *testing.T) {
-	// 模拟 AdminOtpGenerate 流程
 	secret := gotp.RandomSecret(32)
 	if secret == "" {
 		t.Fatal("RandomSecret(32) 返回空字符串")
 	}
 	t.Logf("生成密钥: %s (长度: %d)", secret, len(secret))
 
-	// 验证 secret 是有效的 base32
 	if !gotp.IsSecretValid(secret) {
 		t.Fatal("生成的密钥不是有效的 base32 字符串")
 	}
 
-	// 模拟 generateAdminOTPQrBase64 的 QR 码 URL
 	qrURL := "otpauth://totp/Test:admin?issuer=Test&secret=" + secret
 	if !strings.Contains(qrURL, "secret="+secret) {
 		t.Fatal("QR URL 格式不正确")
 	}
 	t.Logf("QR URL: %s", qrURL)
 
-	// 创建 TOTP 实例
 	totp := gotp.NewDefaultTOTP(secret)
 
-	// 测试当前窗口
 	now := time.Now().Unix()
 	code := totp.At(now)
 	t.Logf("当前时间窗口 [%d] 验证码: %s", now/30, code)
@@ -39,41 +34,34 @@ func TestOTPGenerateAndVerify(t *testing.T) {
 		t.Fatal("当前窗口验证失败")
 	}
 
-	// 测试上一窗口（now-30）
 	prevCode := totp.At(now - 30)
 	t.Logf("上一时间窗口 [%d] 验证码: %s", (now-30)/30, prevCode)
 	if !totp.Verify(prevCode, now-30) {
 		t.Fatal("上一窗口验证失败")
 	}
 
-	// 测试下一窗口（now+30）
 	nextCode := totp.At(now + 30)
 	t.Logf("下一时间窗口 [%d] 验证码: %s", (now+30)/30, nextCode)
 	if !totp.Verify(nextCode, now+30) {
 		t.Fatal("下一窗口验证失败")
 	}
 
-	// 模拟 AdminOtpConfirm 的三窗口验证逻辑
-	// 场景1：手机时钟落后，用上一窗口的码
 	if !totp.Verify(prevCode, now) && !totp.Verify(prevCode, now-30) && !totp.Verify(prevCode, now+30) {
 		t.Fatal("手机时钟落后场景：验证失败")
 	}
 	t.Log("✓ 手机时钟落后场景：通过")
 
-	// 场景2：手机时钟超前，用下一窗口的码
 	if !totp.Verify(nextCode, now) && !totp.Verify(nextCode, now-30) && !totp.Verify(nextCode, now+30) {
 		t.Fatal("手机时钟超前场景：验证失败")
 	}
 	t.Log("✓ 手机时钟超前场景：通过")
 
-	// 场景3：完全错误的验证码
 	wrongCode := "000000"
 	if totp.Verify(wrongCode, now) || totp.Verify(wrongCode, now-30) || totp.Verify(wrongCode, now+30) {
 		t.Fatal("错误验证码不应通过")
 	}
 	t.Log("✓ 错误验证码：正确拒绝")
 
-	// 场景4：验证码过期（2 分钟前，超出 ±1 窗口）
 	expiredCode := totp.At(now - 120)
 	if totp.Verify(expiredCode, now) || totp.Verify(expiredCode, now-30) || totp.Verify(expiredCode, now+30) {
 		t.Fatal("过期验证码不应通过")
@@ -82,20 +70,16 @@ func TestOTPGenerateAndVerify(t *testing.T) {
 }
 
 func TestOTPSecretRoundTrip(t *testing.T) {
-	// 模拟完整的 OTP 绑定流程
 	secret := gotp.RandomSecret(32)
 	if secret == "" {
 		t.Fatal("RandomSecret(32) 返回空字符串")
 	}
 
-	// 步骤1：生成（存到 otpPreviewSecrets）
 	totp := gotp.NewDefaultTOTP(secret)
 
-	// 步骤2：手机扫码后生成验证码
 	phoneTime := time.Now().Unix()
 	phoneCode := totp.At(phoneTime)
 
-	// 步骤3：服务端确认（模拟 AdminOtpConfirm）
 	now := time.Now().Unix()
 	verifyOK := totp.Verify(phoneCode, now) || totp.Verify(phoneCode, now-30) || totp.Verify(phoneCode, now+30)
 	if !verifyOK {
@@ -128,14 +112,11 @@ func TestOTPWithClockSkew(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// 手机时间 = 服务器时间 + 偏移
 			phoneTime := baseTime + tc.phoneSkew
 			phoneWindow := phoneTime / 30
 
-			// 手机生成验证码（按手机时间）
 			phoneCode := totp.At(phoneTime)
 
-			// 服务端验证（按服务器时间，±1 窗口）
 			serverNow := baseTime
 			verifyOK := totp.Verify(phoneCode, serverNow) ||
 				totp.Verify(phoneCode, serverNow-30) ||
@@ -145,12 +126,10 @@ func TestOTPWithClockSkew(t *testing.T) {
 				window, phoneWindow, tc.phoneSkew, phoneCode, verifyOK)
 
 			if tc.phoneSkew >= -30 && tc.phoneSkew <= 30 {
-				// ±30秒内应该通过
 				if !verifyOK {
 					t.Errorf("时钟偏移 %+d 秒应该在容错范围内", tc.phoneSkew)
 				}
 			} else {
-				// 超出 ±30 秒应该失败
 				if verifyOK {
 					t.Errorf("时钟偏移 %+d 秒超出容错范围，不应通过", tc.phoneSkew)
 				}
@@ -160,18 +139,15 @@ func TestOTPWithClockSkew(t *testing.T) {
 }
 
 func TestOTPQRURLFormat(t *testing.T) {
-	// 测试 generateAdminOTPQrBase64 生成的 URL 格式
 	secret := gotp.RandomSecret(32)
 	cfg := struct {
 		Issuer    string
 		AdminUser string
 	}{"RemLink", "admin"}
 
-	// 模拟 generateAdminOTPQrBase64 逻辑
 	qrURL := "otpauth://totp/" + cfg.Issuer + ":" + cfg.AdminUser +
 		"?issuer=" + cfg.Issuer + "&secret=" + secret
 
-	// 验证 URL 包含必要字段
 	if !strings.Contains(qrURL, "otpauth://totp/") {
 		t.Fatal("URL 缺少 otpauth scheme")
 	}
@@ -185,12 +161,10 @@ func TestOTPQRURLFormat(t *testing.T) {
 	t.Logf("QR URL: %s", qrURL)
 	t.Logf("✓ URL 格式正确")
 
-	// 用 gotp.ProvisioningUri 作对比（标准生成方式）
 	totp := gotp.NewDefaultTOTP(secret)
 	standardURI := totp.ProvisioningUri(cfg.AdminUser, cfg.Issuer)
 	t.Logf("标准 URI: %s", standardURI)
 
-	// 两者使用相同的 secret
 	if !strings.Contains(standardURI, secret) {
 		t.Fatal("标准 URI 中 secret 不匹配")
 	}

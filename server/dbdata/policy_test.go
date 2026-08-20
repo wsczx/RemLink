@@ -13,7 +13,6 @@ func TestPolicySetAndLoad(t *testing.T) {
 	preIpData(t)
 	defer closeIpdata()
 
-	// 添加 Policy
 	p1 := Policy{Name: "test-p1", Status: 1, ClientDns: []ValData{{Val: "114.114.114.114"}}, DsExcludeDomains: "baidu.com,163.com"}
 	err := SetPolicy(&p1)
 	ast.Nil(err)
@@ -26,17 +25,14 @@ func TestPolicySetAndLoad(t *testing.T) {
 	p3 := Policy{Name: "test-p3", Status: 1, ClientDns: []ValData{{Val: "114.114.114.114"}}, RouteInclude: route, DsExcludeDomains: "com.cn,qq.com"}
 	err = SetPolicy(&p3)
 	ast.Nil(err)
-	// 判断 IpMask
 	ast.Equal(p3.RouteInclude[0].IpMask, "192.168.1.0/255.255.255.0")
 
 	route2 := []ValData{{Val: "192.168.2.0/24"}}
 	p4 := Policy{Name: "test-p4", Status: 1, ClientDns: []ValData{{Val: "114.114.114.114"}}, RouteInclude: route2, RouteExclude: route2, DsIncludeDomains: "com.cn,qq.com"}
 	err = SetPolicy(&p4)
 	ast.Nil(err)
-	// 判断 IpMask
 	ast.Equal(p4.RouteExclude[0].IpMask, "192.168.2.0/255.255.255.0")
 
-	// 通过 One 按 Name 加载验证
 	pAll := []string{"test-p1", "test-p2", "test-p3", "test-p4"}
 	for _, name := range pAll {
 		pt := &Policy{}
@@ -47,7 +43,6 @@ func TestPolicySetAndLoad(t *testing.T) {
 	}
 }
 
-// 测试流量配额字段校验
 func TestPolicyTrafficQuotaValidate(t *testing.T) {
 	ast := assert.New(t)
 	preIpData(t)
@@ -81,7 +76,6 @@ func TestPolicyTrafficQuotaValidate(t *testing.T) {
 	ast.Equal("", p0.TrafficReset)
 }
 
-// 测试重置时间计算
 func TestNextTrafficReset(t *testing.T) {
 	ast := assert.New(t)
 
@@ -116,17 +110,14 @@ func TestQuotaExceededAndAdd(t *testing.T) {
 	preIpData(t)
 	defer closeIpdata()
 
-	// 准备 group 和策略
 	pGroup := &Policy{Name: "q-group-policy", Status: 1, ClientDns: []ValData{{Val: "8.8.8.8"}}}
 	_ = SetPolicy(pGroup)
 	_ = SetGroup(&Group{Name: "qg1", PolicyId: pGroup.Id, Status: 1})
 
-	// 准备用户
 	u := &User{Username: "quota-user", Groups: []string{"qg1"}, Status: 1, PinCode: "123456"}
 	err := SetUser(u)
 	ast.Nil(err)
 
-	// 准备带配额的策略
 	p := &Policy{Name: "quota-policy", Status: 1, TrafficQuota: 1000, TrafficReset: "monthly",
 		ClientDns: []ValData{{Val: "8.8.8.8"}}}
 	err = SetPolicy(p)
@@ -137,7 +128,6 @@ func TestQuotaExceededAndAdd(t *testing.T) {
 	ast.False(exceeded)
 	ast.Equal(int64(0), used)
 
-	// 累加 500 字节
 	AddTrafficUsed("quota-user", 500)
 	exceeded, used = QuotaExceeded("quota-user", p)
 	ast.False(exceeded)
@@ -149,7 +139,6 @@ func TestQuotaExceededAndAdd(t *testing.T) {
 	ast.True(exceeded)
 	ast.Equal(int64(1000), used)
 
-	// 验证 TrafficResetAt 已被初始化
 	u2 := &User{}
 	_ = One("Username", "quota-user", u2)
 	ast.NotNil(u2.TrafficResetAt)
@@ -200,13 +189,11 @@ func TestAddTrafficUsedConcurrent(t *testing.T) {
 		<-done
 	}
 
-	// 验证总数 = 10000，不丢失
 	u2 := &User{}
 	_ = One("Username", "concurrent-user", u2)
 	ast.Equal(int64(10000), u2.TrafficUsed)
 }
 
-// 测试重置功能
 func TestResetTrafficUsed(t *testing.T) {
 	ast := assert.New(t)
 	preIpData(t)
@@ -223,14 +210,11 @@ func TestResetTrafficUsed(t *testing.T) {
 		ClientDns: []ValData{{Val: "8.8.8.8"}}}
 	_ = SetPolicy(p)
 
-	// 累加一些流量
 	AddTrafficUsed("reset-user", 500)
 
-	// 手动重置
 	err := ResetTrafficUsed("reset-user", p)
 	ast.Nil(err)
 
-	// 验证已重置
 	u2 := &User{}
 	_ = One("Username", "reset-user", u2)
 	ast.Equal(int64(0), u2.TrafficUsed)
@@ -249,7 +233,6 @@ func TestResetTrafficUsed(t *testing.T) {
 	exceeded, _ := QuotaExceeded("reset-user", p)
 	ast.False(exceeded)
 
-	// 验证 TrafficResetAt 已更新到未来
 	u3 := &User{}
 	_ = One("Username", "reset-user", u3)
 	ast.NotNil(u3.TrafficResetAt)

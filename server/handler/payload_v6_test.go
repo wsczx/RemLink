@@ -74,7 +74,6 @@ func TestParseV6Header_ICMPv6(t *testing.T) {
 }
 
 func TestParseV6Header_WithHopByHop(t *testing.T) {
-	// Hop-by-Hop(0) 扩展头：NextHeader=6(TCP) 在偏移 40，HdrExtLen=0 → 头长 8 字节
 	pkt := make([]byte, 40+8+20)
 	pkt[0] = 0x60
 	pkt[6] = 0 // Hop-by-Hop
@@ -96,7 +95,6 @@ func TestParseV6Header_WithHopByHop(t *testing.T) {
 }
 
 func TestParseV6Header_WithFragment(t *testing.T) {
-	// Fragment(44) 固定 8 字节，NextHeader 在扩展头首字节
 	pkt := make([]byte, 40+8+20)
 	pkt[0] = 0x60
 	pkt[6] = 44 // Fragment
@@ -174,7 +172,6 @@ func TestCheckLinkAcl_v6_Allow(t *testing.T) {
 }
 
 func TestCheckLinkAcl_v6_ICMP(t *testing.T) {
-	// 一条 icmp allow 规则应同时放行 ping(ICMPv4) 与 ping6(ICMPv6)
 	rp := &dbdata.Policy{
 		LinkAcl: []dbdata.GroupLinkAcl{
 			{

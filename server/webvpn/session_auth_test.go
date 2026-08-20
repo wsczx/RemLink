@@ -27,7 +27,7 @@ func setupWebVpnDB(t *testing.T) {
 	dbdata.Start()
 }
 
-// TestSessionClearDomainMatchesIssue 验证 ClearCookie 清除指令的 Domain
+// 验证 ClearCookie 清除指令的 Domain
 // 与写入 webvpn_session 的 Domain 逐字节一致（否则旧 cookie 残留）。
 func TestSessionClearDomainMatchesIssue(t *testing.T) {
 	setupWebVpnDB(t)
@@ -66,7 +66,7 @@ func TestSessionClearDomainMatchesIssue(t *testing.T) {
 		"webvpn_session 清除域必须与写入域一致，否则登出/切换用户后旧 cookie 残留")
 }
 
-// TestExchangeGrantMissing 免登兑换的逆向安全：既无 grant 也无门户会话时，
+// 免登兑换的逆向安全：既无 grant 也无门户会话时，
 // ExchangeGrant 必须返回未兑换（不得凭空造出 WebVPN 会话）。
 func TestExchangeGrantMissing(t *testing.T) {
 	setupWebVpnDB(t)
@@ -79,7 +79,7 @@ func TestExchangeGrantMissing(t *testing.T) {
 	assert.False(t, ok, "无 grant 且无门户会话时不得兑换出会话")
 }
 
-// TestExchangeGrantRevokedUser 整用户踢出后，残留的免登授权不得再兑换出会话：
+// 整用户踢出后，残留的免登授权不得再兑换出会话：
 // 门户登出会抬高吊销阈值，签发早于阈值的 grant 必须失效，防止旧 grant 绕过吊销
 // 兑换出新会话导致身份漂移（偶发"又要登录/两次登录"的根因之一）。
 func TestExchangeGrantRevokedUser(t *testing.T) {
@@ -108,9 +108,9 @@ func TestExchangeGrantRevokedUser(t *testing.T) {
 	assert.False(t, ok, "用户被整用户踢出后，残留 grant 不得兑换出会话")
 }
 
-// TestExchangeGrantConsumes 免登授权兑换成功后应被清除（一次性消费），
+// 免登授权兑换成功后应被清除（一次性消费），
 // 避免 grant 长期残留导致身份漂移与偶发"又要登录"。
-// TestExchangeGrantRevokedFallsBackToPortalSession 验证残留 grant 被吊销时，
+// 验证残留 grant 被吊销时，
 // 只跳过 grant 兑换，仍应使用吊销后签发的有效 portal_session 建立 WebVPN 会话。
 func TestExchangeGrantRevokedFallsBackToPortalSession(t *testing.T) {
 	setupWebVpnDB(t)
@@ -240,7 +240,6 @@ func TestExchangeGrantConsumes(t *testing.T) {
 	_, _, ok := m.Session().ExchangeGrant(w, r)
 	assert.True(t, ok, "正常 grant 应能兑换")
 
-	// 响应中应含清除 grant 的 Set-Cookie（MaxAge=-1）
 	cleared := findCookie(t, w, grantCookieName)
 	require.NotNil(t, cleared, "兑换成功后应清除 grant cookie")
 	assert.Equal(t, -1, cleared.MaxAge, "清除指令应立即使 grant 过期")

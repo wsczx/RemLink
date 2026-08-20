@@ -12,11 +12,9 @@ import (
 // func TestCheckUser(t *testing.T) {
 // 	user["user1"] = User{Password: "7c4a8d09ca3762af61e59520943dc26494f8941b"}
 // 	user["user2"] = User{Password: "7c4a8d09ca3762af61e59520943dc26494f8941c"}
-//
 // 	var res bool
 // 	res = CheckUser("user1", "123456", "")
 // 	AssertTrue(t, res == true)
-//
 // 	res = CheckUser("user2", "123457", "")
 // 	AssertTrue(t, res == false)
 // }

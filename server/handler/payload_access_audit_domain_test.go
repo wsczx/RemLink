@@ -12,7 +12,7 @@ import (
 	"github.com/wsczx/remlink/sessdata"
 )
 
-// buildTLSClientHello 构造一个最小 TLS ClientHello（仅含 SNI 扩展）。
+// 构造一个最小 TLS ClientHello（仅含 SNI 扩展）。
 func buildTLSClientHello(host string) []byte {
 	name := []byte(host)
 	// ServerName（host_name 类型）
@@ -30,14 +30,12 @@ func buildTLSClientHello(host string) []byte {
 	body = append(body, 0x01, 0x00)                        // 压缩方法长度(1) + null
 	body = append(body, byte(len(ext)>>8), byte(len(ext))) // 扩展段总长
 	body = append(body, ext...)
-	// Handshake 消息
 	hs := append([]byte{0x01, byte(len(body) >> 16), byte(len(body) >> 8), byte(len(body))}, body...)
-	// TLS 记录层
 	rec := append([]byte{0x16, 0x03, 0x01, byte(len(hs) >> 8), byte(len(hs))}, hs...)
 	return rec
 }
 
-// buildTCPSegment 构造一段 TCP 段（20 字节 TCP 头 + 负载）。
+// 构造一段 TCP 段（20 字节 TCP 头 + 负载）。
 func buildTCPSegment(payload []byte) []byte {
 	seg := make([]byte, 20+len(payload))
 	seg[12] = 0x50 // Data Offset=5 -> 20 字节头
@@ -46,7 +44,7 @@ func buildTCPSegment(payload []byte) []byte {
 	return seg
 }
 
-// buildDNSQuery 构造 DNS 查询报文（仅第一个 Question）。
+// 构造 DNS 查询报文（仅第一个 Question）。
 func buildDNSQuery(host string) []byte {
 	dns := []byte{0x12, 0x34, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 	for l := range strings.SplitSeq(host, ".") {
@@ -58,7 +56,7 @@ func buildDNSQuery(host string) []byte {
 	return dns
 }
 
-// buildV4Raw 构造 IPv4 包：20 字节头 + 上层负载。
+// 构造 IPv4 包：20 字节头 + 上层负载。
 func buildV4Raw(proto uint8, src, dst net.IP, payload []byte) []byte {
 	pkt := make([]byte, 20+len(payload))
 	pkt[0] = 0x45 // version=4, ihl=5
@@ -87,7 +85,6 @@ func TestParseDNSQuery(t *testing.T) {
 	if name != "api.weixin.qq.com" {
 		t.Fatalf("name = %q, want api.weixin.qq.com", name)
 	}
-	// 响应报文（QR=1）应忽略
 	resp := buildDNSQuery("example.com")
 	resp[2] |= 0x80
 	if parseDNSQuery(resp) != "" {
@@ -95,7 +92,6 @@ func TestParseDNSQuery(t *testing.T) {
 	}
 }
 
-// 端到端：v4 HTTPS 访问应提取域名。
 func TestLogAudit_v4_HTTPS_Domain(t *testing.T) {
 	auditPayload = &AuditPayload{Pool: utils.NewWorkerPool(1, 16), IpAuditMap: utils.NewMap("cmap", 0)}
 	logBatch = &LogBatch{LogChan: make(chan dbdata.AccessAudit, 16)}
@@ -119,7 +115,6 @@ func TestLogAudit_v4_HTTPS_Domain(t *testing.T) {
 	}
 }
 
-// 端到端：v6 HTTPS 访问应提取域名（此前 v6 不解析域名）。
 func TestLogAudit_v6_HTTPS_Domain(t *testing.T) {
 	auditPayload = &AuditPayload{Pool: utils.NewWorkerPool(1, 16), IpAuditMap: utils.NewMap("cmap", 0)}
 	logBatch = &LogBatch{LogChan: make(chan dbdata.AccessAudit, 16)}
@@ -140,7 +135,6 @@ func TestLogAudit_v6_HTTPS_Domain(t *testing.T) {
 	}
 }
 
-// 端到端：v4 DNS 查询应提取被查询域名。
 func TestLogAudit_v4_DNS_Domain(t *testing.T) {
 	auditPayload = &AuditPayload{Pool: utils.NewWorkerPool(1, 16), IpAuditMap: utils.NewMap("cmap", 0)}
 	logBatch = &LogBatch{LogChan: make(chan dbdata.AccessAudit, 16)}

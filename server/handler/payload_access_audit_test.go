@@ -11,7 +11,6 @@ import (
 	"github.com/wsczx/remlink/sessdata"
 )
 
-// 验证 v6 UDP 流量能被审计记录，且 Src/Dst/Port 正确。
 // 需最小化初始化审计全局状态（否则 nil panic / channel 阻塞）。
 func TestLogAudit_v6_UDP(t *testing.T) {
 	auditPayload = &AuditPayload{
@@ -22,7 +21,6 @@ func TestLogAudit_v6_UDP(t *testing.T) {
 
 	dst := net.ParseIP("2001:db8::1")
 	pkt := buildV6Packet(17, net.ParseIP("2001:db8::2"), dst, 20)
-	// 目的端口放在 v6 TCP/UDP 负载前 4 字节（src=0, dst=53）
 	pkt[40] = 0
 	pkt[41] = 0
 	pkt[42] = 0

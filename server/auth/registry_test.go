@@ -42,7 +42,6 @@ func (a *providerAuth) Authenticate(ctx *Context) (StepResult, error) {
 	return StepPass, nil
 }
 
-// 返回预设配置的 resolver
 func mockResolver(cfg map[string]any) ProviderResolverFunc {
 	return func(name, typ string) (map[string]any, error) {
 		if cfg == nil {
@@ -117,7 +116,6 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	// 不应 panic
 }
 
 // ========== GetPipeline 测试 ==========

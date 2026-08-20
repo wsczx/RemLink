@@ -9,7 +9,6 @@ import (
 	"github.com/wsczx/remlink/pkg/utils"
 )
 
-// 创建带 Type / ForcePwd 的测试用户
 func createForcePwdUser(username, userType string, forcePwd bool) *dbdata.User {
 	hashedPwd, _ := utils.PasswordHash("testpass123")
 	u := &dbdata.User{
@@ -36,7 +35,6 @@ func TestForcePwd_Name(t *testing.T) {
 
 // ========== Authenticate ==========
 
-// 用户不存在 → StepFail
 func TestForcePwd_UserNotFound(t *testing.T) {
 	preTestData(t)
 

@@ -12,7 +12,7 @@ import (
 //   - webvpn_grant  ：通配 .base2（一次性免登授权，子域可读取兑换）
 // 改动这些规则会直接导致「门户需清 cookie 才能用 / 子域免登失效」等问题复发。
 
-// TestBase2Domain 验证注册域最后两段的提取（IP / 单段 / 带端口 / 大小写）。
+// 验证注册域最后两段的提取（IP / 单段 / 带端口 / 大小写）。
 func TestBase2Domain(t *testing.T) {
 	ast := assert.New(t)
 	ast.Equal("example.com", base2Domain("example.com"))
@@ -26,7 +26,7 @@ func TestBase2Domain(t *testing.T) {
 	ast.Equal("", base2Domain(""))
 }
 
-// TestCookieDomain 验证 WebVPN 会话 cookie 的域分派：
+// 验证 WebVPN 会话 cookie 的域分派：
 // 属于 WebVpnDomain 注册域 → 通配 .base2；IP / 未配置 / 不属于 → 精确 host（""）。
 func TestCookieDomain(t *testing.T) {
 	ast := assert.New(t)
@@ -52,7 +52,7 @@ func TestCookieDomain(t *testing.T) {
 	ast.Equal("", CookieDomain("app.wv.example.com"))
 }
 
-// TestWildcardDomain 验证一次性免登授权清除域：始终为 .base2（带前导点），未配置则为 ""。
+// 验证一次性免登授权清除域：始终为 .base2（带前导点），未配置则为 ""。
 // grant 写入（setGrantCookie）与清除（ClearGrantCookie）都依赖此函数，必须保持一致。
 func TestWildcardDomain(t *testing.T) {
 	ast := assert.New(t)

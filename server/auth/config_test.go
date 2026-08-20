@@ -7,14 +7,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// 模拟一个 SSO 认证器，用于验证 SSO 与凭据步骤互斥校验
 type mockSSOAuth struct{}
 
 func (mockSSOAuth) Name() string                              { return "mock_sso" }
 func (mockSSOAuth) Authenticate(*Context) (StepResult, error) { return StepPass, nil }
 func (mockSSOAuth) Challenge() *ChallengeInfo                 { return &ChallengeInfo{Type: ChallengeSSO} }
 
-// 验证 SSO 与凭据步骤(local/ldap/radius)互斥
 func TestHasSSOAndCredential(t *testing.T) {
 	ast := assert.New(t)
 	cleanup := testRegister("mock_sso", mockSSOAuth{})
@@ -30,7 +28,6 @@ func TestHasSSOAndCredential(t *testing.T) {
 	ast.False(hasSSOAndCredential([]AuthMethodConfig{{Type: "local"}, {Type: "otp"}}))
 }
 
-// 验证 ParseAuthProfile 端到端拒绝 SSO + 凭据
 func TestParseAuthProfile_SSORejected(t *testing.T) {
 	ast := assert.New(t)
 	cleanup := testRegister("mock_sso", mockSSOAuth{})

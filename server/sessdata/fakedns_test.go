@@ -78,7 +78,6 @@ type mockError struct{ msg string }
 
 func (e *mockError) Error() string { return e.msg }
 
-// 创建测试用 FakeDNSManager（不初始化防火墙单例）
 func newTestManager(t *testing.T) *FakeDNSManager {
 	m := &FakeDNSManager{
 		active:       make(map[string]*fakeIPEntry),
@@ -222,7 +221,6 @@ func TestAddMapping_AddNatRuleFailRollback(t *testing.T) {
 	fw.addFail = true
 	err := m.AddMapping(fakeIP.String(), "5.6.7.8", "example.com")
 	assert.NotNil(t, err)
-	// 应回滚到旧值
 	assert.Equal(t, "1.2.3.4", m.GetRealIP(fakeIP.String()))
 }
 
@@ -236,7 +234,6 @@ func TestAddMapping_DelNatRuleFailRollback(t *testing.T) {
 	fw.delFail = true
 	err := m.AddMapping(fakeIP.String(), "5.6.7.8", "example.com")
 	assert.NotNil(t, err)
-	// 应回滚到旧值
 	assert.Equal(t, "1.2.3.4", m.GetRealIP(fakeIP.String()))
 }
 
@@ -301,7 +298,6 @@ func TestLookupAndTouch_RefreshExpired(t *testing.T) {
 	m := newTestManager(t)
 	fakeIP := m.AcquireFakeIP("example.com")
 	m.AddMapping(fakeIP.String(), "1.2.3.4", "example.com")
-	// 手动设置 RefreshAt 为过去
 	m.active[fakeIP.String()].SetRefreshAt(time.Now().Add(-1 * time.Hour))
 
 	_, _, needRefresh := m.LookupAndTouch(fakeIP.String())
@@ -316,7 +312,6 @@ func TestLookupAndTouch_RefreshNotExpired(t *testing.T) {
 	m := newTestManager(t)
 	fakeIP := m.AcquireFakeIP("example.com")
 	m.AddMapping(fakeIP.String(), "1.2.3.4", "example.com")
-	// 设置 RefreshAt 为未来
 	m.setRefreshAt(fakeIP.String(), 300)
 
 	_, _, needRefresh := m.LookupAndTouch(fakeIP.String())
@@ -337,7 +332,6 @@ func TestUpdateAccess(t *testing.T) {
 
 func TestUpdateAccess_NotExists(t *testing.T) {
 	m := newTestManager(t)
-	// 不应 panic
 	m.UpdateAccess("100.64.0.99")
 }
 
@@ -403,7 +397,6 @@ func TestCleanupExpiredFakeIPs(t *testing.T) {
 	// 过期的（应被清理）
 	ip2 := m.AcquireFakeIP("expired.com")
 	m.AddMapping(ip2.String(), "5.6.7.8", "expired.com")
-	// 手动设置 LastAccess 为 3 小时前
 	m.active[ip2.String()].SetLastAccess(time.Now().Add(-3 * time.Hour))
 
 	m.cleanupExpiredFakeIPs()
@@ -448,7 +441,6 @@ func TestSetRefreshAt_MinInterval(t *testing.T) {
 
 func TestSetRefreshAt_NotInActive(t *testing.T) {
 	m := newTestManager(t)
-	// 不应 panic
 	m.setRefreshAt("100.64.0.99", 60)
 }
 
@@ -457,7 +449,6 @@ func TestSetRefreshAt_NotInActive(t *testing.T) {
 func TestStop_CleansUpFirewall(t *testing.T) {
 	m := newTestManager(t)
 	m.Start()
-	// 添加一些映射
 	ip := m.AcquireFakeIP("example.com")
 	m.AddMapping(ip.String(), "1.2.3.4", "example.com")
 
@@ -466,8 +457,8 @@ func TestStop_CleansUpFirewall(t *testing.T) {
 
 	m.Stop()
 
-	// CleanupFakeIP 应被调用（mock 里是空操作，但 fw 不应为 nil）
-	// Stop 后 stopped 应为 true
+	// 应被调用（mock 里是空操作，但 fw 不应为 nil）
+	// 后 stopped 应为 true
 	assert.True(t, m.stopped.Load())
 }
 
@@ -607,7 +598,6 @@ func startTestAAAAServer(t *testing.T, aaaaIP string, nodata bool) string {
 		m := new(dns.Msg)
 		m.SetReply(r)
 		if nodata {
-			// 返回 NOERROR + 空 Answer（上游过滤 AAAA 的负响应）
 			_ = w.WriteMsg(m)
 			return
 		}
@@ -626,7 +616,7 @@ func startTestAAAAServer(t *testing.T, aaaaIP string, nodata bool) string {
 	return addr
 }
 
-// TestPreferV6Optimistic 验证「DNS 层 IPv6 优先」乐观分配：双栈开启时 AcquireFakeIPv6 立即分配
+// 验证「DNS 层 IPv6 优先」乐观分配：双栈开启时 AcquireFakeIPv6 立即分配
 // v6 fakeIP（不依赖同步探测）；ResolveAndMapping 异步解析 AAAA 并写入映射，随后 IsAAAAPositive 为真。
 func TestPreferV6Optimistic(t *testing.T) {
 	m := newTestManager(t)
@@ -647,7 +637,7 @@ func TestPreferV6Optimistic(t *testing.T) {
 	assert.True(t, m.IsAAAAPositive("example.com", upstream))
 }
 
-// TestPreferV6_AAAAFilteredNegative 验证上游过滤/不支持 AAAA 时，异步解析回填负缓存：
+// 验证上游过滤/不支持 AAAA 时，异步解析回填负缓存：
 // IsAAAANegative 为真、无映射、不黑洞。
 func TestPreferV6_AAAAFilteredNegative(t *testing.T) {
 	m := newTestManager(t)

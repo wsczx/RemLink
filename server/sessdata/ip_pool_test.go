@@ -366,7 +366,6 @@ func TestLoopFarIpReusePersistsAndKeepsV6(t *testing.T) {
 	assert.True(ip1.Equal(net.ParseIP("10.0.7.100")))
 	assert.True(ip2.Equal(net.ParseIP("10.0.7.101")))
 
-	// 模拟两客户端断线（ReleaseIp 清除 ipActive，但 DB 行仍在）→ 触发最早登录复用。
 	// 之后把两行的 LastLogin 设为「租期内(未过期)、但有序」的确定值：mac1 更早、mac2 稍晚，
 	// 这样才能稳定走到 loopFarIp 的「最早登录」复用分支（若落在租期外会走过期复用、先碰谁用谁）。
 	ReleaseIp(ip1, nil, mac1)
@@ -439,7 +438,6 @@ func TestNonUniqueMacCrashReconnect(t *testing.T) {
 
 	ipA := AcquireIpWithRange(u, macX, false, poolA)
 	assert.NotNil(ipA)
-	// 模拟崩溃：未调用 ReleaseIp，ipActive 仍标记活跃
 	assert.True(ipActive[ipA.String()])
 	// 同设备重连（同用户名+同 mac），应直接复用，不能返回 nil/撞唯一
 	ipA2 := AcquireIpWithRange(u, macX, false, poolA)

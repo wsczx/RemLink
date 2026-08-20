@@ -13,7 +13,6 @@ import (
 	"github.com/wsczx/remlink/dbdata"
 )
 
-// WebVPN 会话以 JWT（webvpn_session cookie）承载，与门户会话独立命名与域。
 type AuthSessionManager struct {
 	userMu  sync.Mutex
 	grantMu sync.Mutex
@@ -62,7 +61,7 @@ func (m *AuthSessionManager) sessionMaxLifetime() time.Duration {
 	return time.Duration(min) * time.Minute
 }
 
-// 签发 WebVPN 会话 JWT 并写入 cookie。issuedAt 为首次登录时间，用于绝对寿命连续；w 为 nil 时不写 cookie。
+// 签发 WebVPN 会话并写入 cookie
 func (m *AuthSessionManager) Issue(w http.ResponseWriter, r *http.Request, user *dbdata.User, issuedAt int64) (string, error) {
 	now := time.Now()
 	if issuedAt <= 0 {
@@ -82,7 +81,7 @@ func (m *AuthSessionManager) Issue(w http.ResponseWriter, r *http.Request, user 
 	return token, nil
 }
 
-// 门户登录成功后签发免登授权（webvpn_grant），绑定门户会话 jti。
+// 签发绑定门户会话的 WebVPN 免登授权
 func (m *AuthSessionManager) IssueGrant(w http.ResponseWriter, r *http.Request, user *dbdata.User, portalJTI string) (string, error) {
 	expiresAt := time.Now().Add(grantTTLSec * time.Second).Unix()
 	token, err := admin.SetJwtData(map[string]any{
@@ -98,7 +97,7 @@ func (m *AuthSessionManager) IssueGrant(w http.ResponseWriter, r *http.Request, 
 	return token, nil
 }
 
-// 用免登授权换取正式 WebVPN 会话；授权失效时回退到门户会话。
+// 用免登授权换取 WebVPN 会话，失败时回退到门户会话
 func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Request) (string, *dbdata.User, bool) {
 	// 优先兑换一次性 grant；若携带门户会话则校验其 JTI。
 	if c, err := r.Cookie(grantCookieName); err == nil && c.Value != "" {

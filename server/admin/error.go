@@ -1,6 +1,5 @@
 package admin
 
-// 返回码
 const (
 	RespSuccess       = 0
 	RespInternalErr   = 1

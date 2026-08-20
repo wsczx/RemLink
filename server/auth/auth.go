@@ -28,7 +28,7 @@ func (s StepResult) String() string {
 	}
 }
 
-// 客户端连接信息（ClientRequest）。
+// 保存客户端连接信息
 type ConnInfo struct {
 	Username    string
 	Nickname    string
@@ -43,7 +43,7 @@ type ConnInfo struct {
 	TLS         *tls.ConnectionState
 }
 
-// 用户信息（dbdata.Users）
+// 保存认证所需的用户信息
 type UserInfo struct {
 	Username   string
 	Nickname   string
@@ -57,7 +57,7 @@ type UserInfo struct {
 	ForcePwd   bool // 强制改密
 }
 
-// 返回「账号(昵称)」格式，昵称为空时仅返回账号
+// 返回账号及昵称
 func (u UserInfo) DisplayName() string {
 	if u.Nickname == "" {
 		return u.Username
@@ -65,27 +65,27 @@ func (u UserInfo) DisplayName() string {
 	return u.Username + "(" + u.Nickname + ")"
 }
 
-// otp 步骤私有状态。
+// 保存 OTP 步骤状态
 type OTPState struct {
 	Code string // OTP动态码
 	Sent bool   // 是否已发送过 OTP（防重复发送）
 }
 
-// sms 步骤私有状态。
+// 保存短信验证状态
 type SMSState struct {
 	Phone string
 	Code  string
 	Sent  bool
 }
 
-// radius 步骤私有状态。
+// 保存 RADIUS 挑战状态
 type RADIUSState struct {
 	State         []byte // Access-Challenge 服务端下发的 State，Resume 时须带回
 	ChallengeCode string // 二次验证码
 	ChallengeMsg  string // 服务端下发的挑战提示
 }
 
-// SSO 认证器（wxwork/feishu）共享状态。
+// 保存 SSO 认证状态
 type SSOState struct {
 	Type             string // "wxwork"|"feishu"
 	From             string // 来源标记："portal"|"web_auth" 等
@@ -100,7 +100,7 @@ type SSOState struct {
 	Redirect         string // 登录成功后回跳地址（如 WebVPN 子域名 URL），空则回门户首页
 }
 
-// 挑战类型
+// 标识认证挑战类型
 type ChallengeType string
 
 const (
@@ -111,31 +111,31 @@ const (
 	ChallengeForcePwd ChallengeType = "force_pwd" // 强制改密：原生客户端弹极简改密页 / WebAuth 内联表单
 )
 
-// 挑战信息（认证器向 handler 层返回的挑战内容）。
+// 保存认证器返回的挑战内容
 type ChallengeInfo struct {
 	Type     ChallengeType  // 挑战类型
 	Template string         // XML/HTML 模板名称（handler 层使用）
 	Data     map[string]any // 模板数据
 }
 
-// 认证器接口，每个认证步骤实现。
+// 是认证步骤的接口
 type Authenticator interface {
 	Name() string
 	Authenticate(ctx *Context) (StepResult, error)
 }
 
-// 支持挑战的认证器（如 OTP/SSO/RADIUS/SMS）。
+// 是支持交互式挑战的认证器接口
 type Challenger interface {
 	Authenticator
 	Challenge() *ChallengeInfo
 }
 
-// 不发起挑战的认证器默认实现。
+// 是不发起挑战的默认实现
 type NopChallenger struct{}
 
 func (NopChallenger) Challenge() *ChallengeInfo { return nil }
 
-// 认证上下文
+// 保存一次认证流程的上下文
 type Context struct {
 	Conn     ConnInfo
 	UserInfo *UserInfo
@@ -163,7 +163,7 @@ func (c *Context) AddPassedStep(name string) {
 }
 
 func (c *Context) LogInfo() string {
-	// 组合认证（多步）：优先展示完整认证流程
+	// 多步认证优先展示完整流程。
 	if len(c.passedSteps) > 1 {
 		return buildInfoFromSteps(c.passedSteps)
 	}
@@ -173,7 +173,7 @@ func (c *Context) LogInfo() string {
 	return buildInfoFromSteps(c.passedSteps)
 }
 
-// 认证步骤名 → 中文展示名
+// 认证步骤的展示名称。
 var stepNameMap = map[string]string{
 	"local":    "本地密码",
 	"ldap":     "LDAP",

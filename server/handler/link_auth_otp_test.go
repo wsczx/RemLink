@@ -23,10 +23,8 @@ import (
 func TestSessionStore(t *testing.T) {
 	ast := assert.New(t)
 
-	// 测试会话存储基本功能
 	sessionID := "test-session-123"
 
-	// 创建测试会话数据
 	authSession := &AuthSession{
 		Ctx: &auth.Context{
 			Conn: auth.ConnInfo{Username: "test-user", GroupName: "test-group"},
@@ -37,21 +35,17 @@ func TestSessionStore(t *testing.T) {
 		},
 	}
 
-	// 测试保存会话
 	AuthSessionManager.Save(sessionID, authSession)
 
-	// 测试获取会话
 	retrievedSession, err := AuthSessionManager.Get(sessionID)
 	ast.Nil(err)
 	ast.NotNil(retrievedSession)
 	ast.Equal("test-user", retrievedSession.Ctx.Conn.Username)
 
-	// 测试获取不存在的会话
 	_, err = AuthSessionManager.Get("nonexistent-session")
 	ast.NotNil(err)
 	ast.Contains(err.Error(), "会话未找到")
 
-	// 测试删除会话
 	AuthSessionManager.Delete(sessionID)
 	_, err = AuthSessionManager.Get(sessionID)
 	ast.NotNil(err)
@@ -60,12 +54,10 @@ func TestSessionStore(t *testing.T) {
 func TestGenerateSessionID(t *testing.T) {
 	ast := assert.New(t)
 
-	// 测试会话ID生成
 	sessionID := GenerateSessionID()
 	ast.NotEmpty(sessionID)
 	ast.Equal(32, len(sessionID))
 
-	// 测试生成的ID唯一性
 	sessionID2 := GenerateSessionID()
 	ast.NotEqual(sessionID, sessionID2)
 }
@@ -73,7 +65,6 @@ func TestGenerateSessionID(t *testing.T) {
 func TestCookieOperations(t *testing.T) {
 	ast := assert.New(t)
 
-	// 测试设置和获取Cookie
 	w := httptest.NewRecorder()
 	SetCookie(w, "test-cookie", "test-value", 3600)
 
@@ -84,7 +75,6 @@ func TestCookieOperations(t *testing.T) {
 	ast.True(cookies[0].HttpOnly)
 	ast.True(cookies[0].Secure)
 
-	// 测试从请求中获取Cookie
 	req := httptest.NewRequest("GET", "/", nil)
 	req.AddCookie(cookies[0])
 
@@ -92,11 +82,9 @@ func TestCookieOperations(t *testing.T) {
 	ast.Nil(err)
 	ast.Equal("test-value", value)
 
-	// 测试获取不存在的Cookie
 	_, err = GetCookie(req, "nonexistent-cookie")
 	ast.NotNil(err)
 
-	// 测试删除Cookie
 	w2 := httptest.NewRecorder()
 	DeleteCookie(w2, "test-cookie")
 	deleteCookies := w2.Result().Cookies()
@@ -112,16 +100,13 @@ func TestLinkAuthOtp(t *testing.T) {
 
 	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
 
-	// 设置测试数据库
 	preIpData(t)
 	defer closeIpdata()
 
-	// 创建测试策略
 	dns := []dbdata.ValData{{Val: "8.8.8.8"}}
 	pt := dbdata.Policy{Name: "otp-test-policy", Status: 1, ClientDns: dns}
 	err := dbdata.SetPolicy(&pt)
 	ast.Nil(err)
-	// 创建测试组（配置 [local, otp] 认证管线）
 	group := "otp-test-group"
 	profile := auth.GroupAuthProfile{
 		Step: []auth.AuthMethodConfig{
@@ -134,7 +119,6 @@ func TestLinkAuthOtp(t *testing.T) {
 	err = dbdata.SetGroup(&g)
 	ast.Nil(err)
 
-	// 创建测试用户
 	username := "otp-test-user"
 	otpSecret := "JBSWY3DPEHPK3PXP"
 	u := dbdata.User{
@@ -146,11 +130,9 @@ func TestLinkAuthOtp(t *testing.T) {
 	err = dbdata.SetUser(&u)
 	ast.Nil(err)
 
-	// 生成有效的OTP代码
 	totp := gotp.NewDefaultTOTP(otpSecret)
 	validOtp := totp.Now()
 
-	// 创建测试会话（模拟 local 步骤已通过，停在 OTP 步骤）
 	sessionID := "test-otp-session"
 	authSession := &AuthSession{
 		Ctx: &auth.Context{
@@ -165,11 +147,9 @@ func TestLinkAuthOtp(t *testing.T) {
 	authSession.Ctx.SetStepIdx(2) // 含 forcepwd 插入后索引：local=0, forcepwd=1, otp=2
 	AuthSessionManager.Save(sessionID, authSession)
 
-	// 测试成功的OTP验证
 	t.Run("ValidOTP", func(t *testing.T) {
 		ast := assert.New(t)
 
-		// 创建OTP验证请求
 		clientReq := ClientRequest{
 			Auth: authData{
 				SecondaryPassword: validOtp,
@@ -184,16 +164,13 @@ func TestLinkAuthOtp(t *testing.T) {
 		LinkAuth_otp(w, req)
 
 		ast.Equal(http.StatusOK, w.Code)
-		// 验证会话已被删除
 		_, err := AuthSessionManager.Get(sessionID)
 		ast.NotNil(err)
 	})
 
-	// 测试无效的OTP代码
 	t.Run("InvalidOTP", func(t *testing.T) {
 		ast := assert.New(t)
 
-		// 重新创建会话（因为上一个测试中被删除了）
 		AuthSessionManager.Save(sessionID+"2", authSession)
 
 		clientReq := ClientRequest{
@@ -212,12 +189,10 @@ func TestLinkAuthOtp(t *testing.T) {
 		ast.Equal(http.StatusOK, w.Code)
 		// OTP 错误返回 StepPending 重试（tpl_otp 渲染），包含 "动态码错误" 提示
 		ast.Contains(w.Body.String(), "动态码错误")
-		// 验证会话仍然存在（未被删除，允许重试）
 		_, err := AuthSessionManager.Get(sessionID + "2")
 		ast.Nil(err, "OTP 错误应保留会话以允许重试")
 	})
 
-	// 测试无效会话
 	t.Run("InvalidSession", func(t *testing.T) {
 		ast := assert.New(t)
 
@@ -237,7 +212,6 @@ func TestLinkAuthOtp(t *testing.T) {
 		ast.Equal(http.StatusUnauthorized, w.Code)
 	})
 
-	// 测试缺少会话Cookie
 	t.Run("MissingSessionCookie", func(t *testing.T) {
 		ast := assert.New(t)
 
@@ -265,7 +239,6 @@ func TestHandleSsoTokenPreservesIdentityForOtpPending(t *testing.T) {
 	preIpData(t)
 	defer closeIpdata()
 
-	// 创建测试策略
 	pt := &dbdata.Policy{
 		Name:      "sso-otp-test-policy",
 		ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}},
@@ -276,7 +249,6 @@ func TestHandleSsoTokenPreservesIdentityForOtpPending(t *testing.T) {
 
 	group := "sso-otp-test-group"
 
-	// 创建测试 wxwork Provider
 	_ = dbdata.SetProvider(&dbdata.Provider{
 		Name:   "test-wxwork-sso-otp",
 		Type:   "wxwork",
@@ -369,7 +341,6 @@ func TestCreateSession(t *testing.T) {
 	err := dbdata.SettingSave(other)
 	ast.Nil(err)
 
-	// 创建测试数据
 	group := "session-test-group"
 	username := "session-test-user"
 
@@ -385,7 +356,6 @@ func TestCreateSession(t *testing.T) {
 	err = dbdata.SetUser(&u)
 	ast.Nil(err)
 
-	// 创建认证会话数据
 	authSession := &AuthSession{
 		Ctx: &auth.Context{
 			Conn: auth.ConnInfo{
@@ -405,13 +375,11 @@ func TestCreateSession(t *testing.T) {
 		},
 	}
 
-	// 测试会话创建
 	w := httptest.NewRecorder()
 
 	CreateSession(w, authSession)
 
 	ast.Equal(http.StatusOK, w.Code)
-	// 验证响应包含会话信息
 	ast.Contains(w.Body.String(), "session-token")
 	ast.Contains(w.Body.String(), "测试横幅内容")
 
@@ -428,13 +396,11 @@ func TestCreateSession(t *testing.T) {
 }
 
 func preIpData(t *testing.T) {
-	// 设置测试模式
 	base.Test()
 
 	// 每个测试独立的临时数据库，消除跨测试污染
 	tmpDb := path.Join(t.TempDir(), "remlink_otp_test.db")
 
-	// 设置数据库配置
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.DbType = "sqlite3"
 		c.DbSource = tmpDb

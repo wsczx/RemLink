@@ -126,8 +126,7 @@ func TestSetConfigField(t *testing.T) {
 	}
 }
 
-// TestSetConfigFieldFloat64 锁定回归：前端经 JSON→any 传入的数字是 float64，
-// 大数值（>=1e6，如 no_compress_limit 设 1MB）不能被 fmt 转成科学计数法导致解析失败。
+// 覆盖 JSON 数字转为 float64 后的大数值配置。
 func TestSetConfigFieldFloat64(t *testing.T) {
 	SetCfgForTest(&ServerConfig{NoCompressLimit: 0})
 
@@ -247,12 +246,10 @@ func TestConfigMetasCoverServerConfig(t *testing.T) {
 	}
 }
 
-// TestLoadPersistedPriority 锁定 LoadPersisted 的配置来源优先级：
-// db.json(db_type/db_source) > 命令行/环境变量(explicitSet) > DB 持久化(incoming) > 启动期 flag 值(敏感字段, DB 为空时回退)
+// 覆盖配置来源的优先级：db.json、显式启动参数、持久化配置和默认值。
 func TestLoadPersistedPriority(t *testing.T) {
 	initLog() // 真实启动流程中 LoadPersisted 前 logger 已就绪
 	m := NewConfigManager()
-	// 模拟启动期：flag 设置了 max_client；db.json 提供了 db_type/db_source
 	m.cfgPtr.Store(&ServerConfig{
 		MaxClient: 5,            // 来自命令行 flag
 		DbType:    "sqlite3",    // 来自 db.json
@@ -262,7 +259,6 @@ func TestLoadPersistedPriority(t *testing.T) {
 	})
 	m.explicitSet = map[string]bool{"max_client": true}
 
-	// 数据库持久化配置（与启动期不同，用于验证优先级）
 	incoming := ServerConfig{
 		MaxClient: 100,
 		DbType:    "mysql",

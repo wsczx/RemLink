@@ -14,7 +14,6 @@ import (
 	"github.com/wsczx/remlink/dbdata"
 )
 
-// 测试 Pipeline 模式下的证书认证集成
 func TestLinkAuth_AuthCert(t *testing.T) {
 	base.Test()
 	preIpData(t)
@@ -22,11 +21,9 @@ func TestLinkAuth_AuthCert(t *testing.T) {
 
 	body := `<?xml version="1.0" encoding="UTF-8"?><config-auth client="vpn" type="auth-reply"><auth><username>test</username><password>test</password></auth><group-select>default</group-select></config-auth>`
 
-	// 创建共享测试策略
 	pt := &dbdata.Policy{Name: "cert-auth-policy", Status: 1, ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}}}
 	_ = dbdata.SetPolicy(pt)
 
-	// 场景1：组仅配置证书认证，客户端未提供 TLS 证书 → 认证失败
 	t.Run("CertOnly_NoTLS", func(t *testing.T) {
 		g := dbdata.Group{
 			Name:        "default",
@@ -48,7 +45,6 @@ func TestLinkAuth_AuthCert(t *testing.T) {
 		}
 	})
 
-	// 场景2：组仅配置证书认证，证书缺少 OU 信息 → 认证失败
 	t.Run("CertOnly_NoOU", func(t *testing.T) {
 		g := dbdata.Group{
 			Name:        "default",
@@ -78,7 +74,6 @@ func TestLinkAuth_AuthCert(t *testing.T) {
 		}
 	})
 
-	// 场景3：组配置 [cert, local]，证书无效 → 认证失败（不再回退到 local）
 	t.Run("CertFail", func(t *testing.T) {
 		g := dbdata.Group{
 			Name:        "default",

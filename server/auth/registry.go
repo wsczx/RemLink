@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-// 认证器工厂的注册中心，各认证器在 init() 中调用
+// 管理认证器工厂
 type ProviderRegistry struct {
 	mu      sync.RWMutex
 	factory map[string]func() Authenticator
@@ -19,7 +19,7 @@ func NewProviderRegistry() *ProviderRegistry {
 	}
 }
 
-// 注册认证器工厂，各认证器在 init() 中调用。重复注册会 panic
+// 注册认证器工厂，重复注册会 panic
 func (r *ProviderRegistry) Register(name string, factory func() Authenticator) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -29,7 +29,7 @@ func (r *ProviderRegistry) Register(name string, factory func() Authenticator) {
 	r.factory[name] = factory
 }
 
-// 获取指定名称的认证器工厂
+// 返回指定名称的认证器工厂
 func (r *ProviderRegistry) GetFactory(name string) (func() Authenticator, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -37,7 +37,7 @@ func (r *ProviderRegistry) GetFactory(name string) (func() Authenticator, bool) 
 	return f, ok
 }
 
-// 检查认证器名称是否已注册
+// 判断认证器是否已注册
 func (r *ProviderRegistry) IsRegistered(name string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -45,7 +45,7 @@ func (r *ProviderRegistry) IsRegistered(name string) bool {
 	return ok
 }
 
-// 返回所有已注册的认证器名称列表
+// 返回已注册的认证器名称
 func (r *ProviderRegistry) RegisteredNames() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -56,7 +56,7 @@ func (r *ProviderRegistry) RegisteredNames() []string {
 	return names
 }
 
-// 检查认证器类型是否为 SSO（即实现 Challenger 且 Challenge 类型为 ChallengeSSO）
+// 判断认证器是否为 SSO 类型
 func (r *ProviderRegistry) IsSSOType(name string) bool {
 	factory, ok := r.GetFactory(name)
 	if !ok {

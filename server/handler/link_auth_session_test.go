@@ -5,8 +5,7 @@ import (
 	"time"
 )
 
-// Start 重复调用只应启动一个协程，且不覆盖 stopCh
-// 修复前：重复 Start 会覆盖 stopCh，旧协程收不到停止信号永久泄漏，Stop 的 wg.Wait 永久阻塞
+// 重复启动只保留一个清理协程，且不会覆盖停止通道。
 func TestAuthSessionManagerStartIdempotent(t *testing.T) {
 	m := NewAuthSessionManager()
 	m.cleanupInterval = 10 * time.Millisecond
@@ -28,14 +27,12 @@ func TestAuthSessionManagerStartIdempotent(t *testing.T) {
 	}
 }
 
-// 未 Start 直接 Stop 不应 panic
-// 修复前：stopCh 为 nil，close(nil) 直接 panic
+// 未启动时停止不会 panic。
 func TestAuthSessionManagerStopBeforeStart(t *testing.T) {
 	m := NewAuthSessionManager()
 	m.Stop()
 }
 
-// Stop 重复调用应安全
 func TestAuthSessionManagerStopIdempotent(t *testing.T) {
 	m := NewAuthSessionManager()
 	m.cleanupInterval = 10 * time.Millisecond
@@ -45,8 +42,7 @@ func TestAuthSessionManagerStopIdempotent(t *testing.T) {
 	m.Stop()
 }
 
-// Stop 后应可重新 Start
-// 修复前：stopOnce + stopped 使 Stop 不可逆，重启后的清理协程永远不会启动
+// 停止后可以重新启动清理协程。
 func TestAuthSessionManagerRestart(t *testing.T) {
 	m := NewAuthSessionManager()
 	m.ttl = 20 * time.Millisecond

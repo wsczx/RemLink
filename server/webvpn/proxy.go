@@ -15,7 +15,7 @@ import (
 	"github.com/wsczx/remlink/dbdata"
 )
 
-// RemLink 自有会话 cookie，反代转发给后端时必须剥离，避免网关令牌泄漏内网。
+// 反代请求不得向后端转发 RemLink 会话 cookie
 var remLinkSessionCookies = []string{
 	sessionCookieName, // webvpn_session
 	"portal_session",  // 门户会话（跨子域通配，同样须剥离）
@@ -23,7 +23,7 @@ var remLinkSessionCookies = []string{
 	"acSamlv2Token",   // SAML SSO 会话令牌
 }
 
-// 构造指向指定 WebVPN 应用的反向代理。originalHost 为原始子域，用于改写 Location/Set-Cookie。
+// 构造 WebVPN 应用的反向代理
 func NewReverseProxy(app *dbdata.WebVpnApp, originalHost string) (*httputil.ReverseProxy, error) {
 	target, err := url.Parse(app.Backend)
 	if err != nil {
@@ -114,8 +114,7 @@ func Authorized(app *dbdata.WebVpnApp, user *dbdata.User, r *http.Request) bool 
 	return true
 }
 
-// 以 TCP 连接的 RemoteAddr 为准，不信任客户端伪造的 X-Forwarded-For：
-// WebVPN 反代作为直接入口，审计与来源 IP 白名单必须基于真实连接
+// 使用 TCP 连接地址，避免信任客户端提供的 X-Forwarded-For
 func RealClientIP(r *http.Request) string { return realClientIP(r) }
 
 func realClientIP(r *http.Request) string {
@@ -185,8 +184,7 @@ func scrubSetCookieDomain(resp *http.Response, backendHost string) {
 	}
 }
 
-// 判断 Location 主机是否应改写为 WebVPN 子域：仅当它等于后端主机或其后缀子域时
-// 供测试直接验证改写规则
+// 判断 Location 主机是否属于后端主机或其子域
 func HostMatchesBackend(locHost, backendHost string) bool {
 	lh := strings.ToLower(stripPort(locHost))
 	bh := strings.ToLower(stripPort(backendHost))

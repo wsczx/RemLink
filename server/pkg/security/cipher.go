@@ -18,13 +18,12 @@ const prefix = "$AES256$"
 
 var ErrNotEnabled = errors.New("加密未启用")
 
-// AES-256-GCM 加解密，持有密钥实例
-// 通过 NewCipher 注入密钥，便于单测使用固定密钥而不依赖磁盘密钥文件
+// 使用 AES-256-GCM 执行加解密
 type Cipher struct {
 	key []byte
 }
 
-// 密钥构造 Cipher。key 须为 32 字节（AES-256）
+// 使用 32 字节密钥创建 Cipher
 func NewCipher(key []byte) (*Cipher, error) {
 	if len(key) != 32 {
 		return nil, errors.New("密钥长度必须为 32 字节（AES-256）")
@@ -32,7 +31,7 @@ func NewCipher(key []byte) (*Cipher, error) {
 	return &Cipher{key: key}, nil
 }
 
-// AES-256-GCM 加密，返回 "$AES256$<base64>"。
+// 返回 "$AES256$<base64>" 格式的密文
 func (c *Cipher) Encrypt(plaintext string) (string, error) {
 	block, err := aes.NewCipher(c.key)
 	if err != nil {
@@ -50,7 +49,7 @@ func (c *Cipher) Encrypt(plaintext string) (string, error) {
 	return prefix + base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
-// 解密 "$AES256$<base64>" 格式密文，非前缀的值直接透传。
+// 解密带有 "$AES256$" 前缀的密文，其他值原样返回
 func (c *Cipher) Decrypt(ciphertext string) (string, error) {
 	if !strings.HasPrefix(ciphertext, prefix) {
 		return ciphertext, nil

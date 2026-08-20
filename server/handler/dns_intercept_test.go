@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-// 构造 v6 DNS 响应包并校验：基础头正确、地址/端口对调、UDP 校验和（含伪头）有效。
 func TestBuildDNSResponsePacket6_Checksum(t *testing.T) {
 	client := net.ParseIP("2001:db8::2") // DNS 查询源（客户端）
 	server := net.ParseIP("2001:db8::1") // DNS 查询目的（服务器）
@@ -30,15 +29,12 @@ func TestBuildDNSResponsePacket6_Checksum(t *testing.T) {
 	if pkt[6] != 17 {
 		t.Errorf("next header = %d, want 17", pkt[6])
 	}
-	// 源 = 查询包目的（DNS 服务器）
 	if !net.IP(pkt[8:24]).Equal(server) {
 		t.Errorf("src = %v, want %v", net.IP(pkt[8:24]), server)
 	}
-	// 目的 = 查询包源（客户端）
 	if !net.IP(pkt[24:40]).Equal(client) {
 		t.Errorf("dst = %v, want %v", net.IP(pkt[24:40]), client)
 	}
-	// UDP 端口对调
 	if sp, dp := binary.BigEndian.Uint16(pkt[40:42]), binary.BigEndian.Uint16(pkt[42:44]); sp != 53 || dp != 53000 {
 		t.Errorf("udp ports = %d/%d, want 53/53000", sp, dp)
 	}

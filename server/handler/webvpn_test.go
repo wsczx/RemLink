@@ -74,10 +74,7 @@ func TestWebVpnWithCORSRejectsUnsafeOrigins(t *testing.T) {
 	}
 }
 
-// webVpnProxy 的集成测试：用 httptest 起后端，直接调用真实代理代码，
-// 覆盖 design-webvpn.md checklist M5 的代理层断言（入站头清洗 / Host 改写 /
-// cookie 剥离 / 302 Location 改写 / 安全头剥离 / 502 错误页 / 授权拒绝 /
-// 未登录重定向 / 整用户踢出失效）。
+// 覆盖代理请求清洗、重定向、错误响应和会话失效。
 
 var backendSeen struct {
 	sync.Mutex
@@ -85,7 +82,6 @@ var backendSeen struct {
 }
 
 func setupWebVpnTest(t *testing.T) (backend *httptest.Server, teardown func()) {
-	// 配置
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.DbType = "sqlite3"
 		c.DbSource = path.Join(t.TempDir(), "webvpn_test.db")
@@ -98,7 +94,6 @@ func setupWebVpnTest(t *testing.T) (backend *httptest.Server, teardown func()) {
 	// 导致本测试会话被误判为已吊销（吊销状态存于包级全局 map，需显式重置）。
 	dbdata.WebVpnRevokeReset()
 
-	// 初始化全局数据库
 	dbdata.Start()
 
 	// 后端：记录收到的请求头，并按路径返回特定响应
@@ -117,7 +112,6 @@ func setupWebVpnTest(t *testing.T) (backend *httptest.Server, teardown func()) {
 		case strings.HasPrefix(r.URL.Path, "/slow"):
 			w.WriteHeader(200)
 			w.Write([]byte("chunk"))
-			// 模拟慢响应：proxy 侧不应被 100s deadline 掐断（此处用短等待验证通道可用）
 			time.Sleep(50 * time.Millisecond)
 		default:
 			w.Header().Set("X-Backend", "hit")
@@ -161,7 +155,6 @@ func setupWebVpnTest(t *testing.T) (backend *httptest.Server, teardown func()) {
 	got.Status = 0
 	assert.NoError(t, dbdata.SetWebVpnApp(got))
 
-	// 用户
 	alice := &dbdata.User{Username: "alice", Type: "local", Status: 1}
 	assert.NoError(t, dbdata.Add(alice))
 	bob := &dbdata.User{Username: "bob", Type: "local", Status: 1}
@@ -306,7 +299,6 @@ func TestWebVpnProxyRewrite(t *testing.T) {
 	backendSeen.Unlock()
 	assert.NotNil(t, got, "后端应收到请求")
 	assert.Equal(t, beHost, got.Host, "Host 应改写为后端地址")
-	// 入站 XFF 被清洗后用真实客户端 IP 重写
 	assert.Equal(t, "203.0.113.9", got.Header.Get("X-Forwarded-For"), "XFF 应重写为真实客户端 IP")
 	assert.Equal(t, "app1.wv.example.com", got.Header.Get("X-Forwarded-Host"))
 	// RemLink 自有会话 cookie（portal_session）不应泄漏给后端，
@@ -331,7 +323,6 @@ func TestWebVpnProxyLocationRewrite(t *testing.T) {
 		"Location 不应残留后端地址，实际: %s", loc)
 }
 
-// 验证 Location 改写的主机匹配逻辑：
 // 仅当 Location 主机与后端主机相等或为其后缀子域时改写，避免 strings.Contains 误配无关域名。
 func TestWebVpnHostMatchesBackend(t *testing.T) {
 	ast := assert.New(t)
@@ -410,7 +401,7 @@ func TestWebVpnProxyBackendDown(t *testing.T) {
 	teardown()
 }
 
-// TestWebVpnProxySkipVerify 验证后端为自签证书时，skip_verify 开启可跳过校验、关闭则 502。
+// 验证后端为自签证书时，skip_verify 开启可跳过校验、关闭则 502。
 func TestWebVpnProxySkipVerify(t *testing.T) {
 	backend, teardown := setupWebVpnTest(t)
 	defer teardown()
@@ -460,7 +451,7 @@ func TestWebVpnRevokeAllForUser(t *testing.T) {
 	assert.False(t, ok, "踢出后旧会话应立即失效")
 }
 
-// TestWebVpnProxyStripClientIPSpoofing 验证设计 §3 入站头清洗：
+// 验证设计 §3 入站头清洗：
 // 客户端伪造的 X-Forwarded-For / X-Real-IP 必须被丢弃，后端只收到真实 RemoteAddr。
 func TestWebVpnProxyStripClientIPSpoofing(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
@@ -481,7 +472,7 @@ func TestWebVpnProxyStripClientIPSpoofing(t *testing.T) {
 	assert.NotContains(t, got.Header.Get("X-Forwarded-For"), "1.2.3.4", "伪造 XFF 不应泄漏")
 }
 
-// TestWebVpnProxyStripAllSecurityHeaders 验证设计 §3：后端下发的 4 类跨域约束头全部剥离。
+// 验证设计 §3：后端下发的 4 类跨域约束头全部剥离。
 func TestWebVpnProxyStripAllSecurityHeaders(t *testing.T) {
 	backend, teardown := setupWebVpnTest(t)
 	defer teardown()
@@ -508,7 +499,7 @@ func TestWebVpnProxyStripAllSecurityHeaders(t *testing.T) {
 	assert.Empty(t, h.Get("X-Frame-Options"), "X-Frame-Options 应被剥离")
 }
 
-// TestWebVpnProxyGroupAuthorization 验证设计 §2/§3：组白名单拦截无组用户。
+// 验证设计 §2/§3：组白名单拦截无组用户。
 func TestWebVpnProxyGroupAuthorization(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
@@ -524,7 +515,7 @@ func TestWebVpnProxyGroupAuthorization(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec2.Code, "命中授权组的用户应放行")
 }
 
-// TestWebVpnProxyIpAllowList 验证设计 §3：来源 IP 不在白名单应拒绝。
+// 验证设计 §3：来源 IP 不在白名单应拒绝。
 func TestWebVpnProxyIpAllowList(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
@@ -540,7 +531,7 @@ func TestWebVpnProxyIpAllowList(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec2.Code, "命中 IP 白名单应放行")
 }
 
-// TestWebVpnProxyPathAllowList 验证设计 §3：路径前缀白名单拦截越权路径。
+// 验证设计 §3：路径前缀白名单拦截越权路径。
 func TestWebVpnProxyPathAllowList(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
@@ -556,7 +547,7 @@ func TestWebVpnProxyPathAllowList(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec2.Code, "命中路径白名单应放行")
 }
 
-// TestWebVpnProxySlidingRenewal 验证设计 §2 滑动续期：签名时间过早的会话不被直接拒绝，
+// 验证设计 §2 滑动续期：签名时间过早的会话不被直接拒绝，
 // 代理层应放行并续期（此处仅验证放行，续期由 WebVpnHandler 外层完成）。
 func TestWebVpnProxySlidingRenewal(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
@@ -568,7 +559,7 @@ func TestWebVpnProxySlidingRenewal(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code, "滑动续期：旧但有效的会话应放行")
 }
 
-// TestWebVpnProxyHostRewrite 验证设计数据模型 HostRewrite 字段：反代时改写后端 Host。
+// 验证设计数据模型 HostRewrite 字段：反代时改写后端 Host。
 func TestWebVpnProxyHostRewrite(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
@@ -585,7 +576,7 @@ func TestWebVpnProxyHostRewrite(t *testing.T) {
 	assert.Equal(t, "backend.internal", got.Host, "Host 应改写为 HostRewrite 配置值")
 }
 
-// TestWebVpnProxyAppNotFound 验证设计 early-return：访问未配置的子域返回 404。
+// 验证设计 early-return：访问未配置的子域返回 404。
 func TestWebVpnProxyAppNotFound(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
@@ -596,14 +587,13 @@ func TestWebVpnProxyAppNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code, "未配置的应用应 404")
 }
 
-// TestWebVpnExchangeFromPortal 验证设计 M3 免重复登录：门户登录后下发的
+// 验证设计 M3 免重复登录：门户登录后下发的
 // 一次性 webvpn_grant 授权码可在 WebVPN 子域兑换正式会话（B 方案，避免读
 // 门户通配 cookie 造成会话互相踩踏）。
 func TestWebVpnExchangeFromPortal(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
 
-	// 模拟门户登录成功时签发的免登授权码（绑定门户会话 jti）。
 	portalTok, err := admin.SetJwtData(map[string]any{
 		"portal_user": "alice",
 	}, time.Now().Add(time.Hour).Unix())
@@ -636,7 +626,6 @@ func TestWebVpnGrantIsReusable(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
 
-	// 构造门户会话 token，并使用其 jti 绑定 grant。
 	portalTok, err := admin.SetJwtData(map[string]any{"portal_user": "alice"}, time.Now().Add(time.Hour).Unix())
 	assert.NoError(t, err)
 	portalJTI, err := admin.JtiOf(portalTok)
@@ -662,8 +651,6 @@ func TestWebVpnGrantIsReusable(t *testing.T) {
 	assert.NoError(t, err, "兑换 grant 不应吊销门户会话 jti，门户登录态仍有效")
 }
 
-// 验证时效边界：grant 过期后（跟随门户会话寿命之外）兑换必须失败，
-// 确保可重复兑换不会退化为永久有效的长效令牌。
 func TestWebVpnGrantExpires(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
@@ -683,7 +670,7 @@ func TestWebVpnGrantExpires(t *testing.T) {
 	assert.NotEqual(t, http.StatusOK, rec.Code, "过期 grant 兑换必须失败")
 }
 
-// TestWebVpnExchangeKeepsPortalSession 验证 P0 修复：兑换 grant 不会把用户踢出门户。
+// 验证 P0 修复：兑换 grant 不会把用户踢出门户。
 func TestWebVpnExchangeKeepsPortalSession(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
@@ -709,7 +696,7 @@ func TestWebVpnExchangeKeepsPortalSession(t *testing.T) {
 	assert.NoError(t, err, "门户会话 jti 不应被 WebVPN 兑换流程吊销")
 }
 
-// TestWebVpnLogoutRevokesSession 验证设计 M3 单点登出：登出后原会话立即失效。
+// 验证设计 M3 单点登出：登出后原会话立即失效。
 func TestWebVpnLogoutRevokesSession(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
@@ -732,7 +719,7 @@ func TestWebVpnLogoutRevokesSession(t *testing.T) {
 	assert.NotEqual(t, http.StatusOK, rec2.Code, "登出后原会话应立即失效")
 }
 
-// TestPortalLogoutRevokesWebVpnSession 验证方案 A：门户主动登出时，
+// 验证方案 A：门户主动登出时，
 // 联动吊销该用户的 WebVPN 会话（webvpn_session），使子域残留的旧会话立即自愈。
 // 否则门户登出后，浏览器里旧的 webvpn_session 仍可用（卡无权限用户 / 滞留旧权限），
 // 只能等到期或管理员手动踢。
@@ -749,7 +736,6 @@ func TestPortalLogoutRevokesWebVpnSession(t *testing.T) {
 	_, _, token := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", user: "alice"})
 	assert.NotEmpty(t, token)
 
-	// 构造门户登出请求：带 alice 的 portal_session
 	portalTok, err := admin.SetJwtData(map[string]any{
 		"portal_user": "alice",
 		"portal_type": "local",
@@ -780,18 +766,16 @@ func TestPortalLogoutRevokesWebVpnSession(t *testing.T) {
 	assert.True(t, bobOk, "其他用户的 WebVPN 会话不应被误伤")
 }
 
-// TestWebVpnNoLoopWhenPortalLoggedInButDenied 验证修复：门户已登录、但 WebVPN 免登
+// 验证修复：门户已登录、但 WebVPN 免登
 // 兑换失败（权限中途被取消 / grant 过期 / 会话已被吊销）时，WebVpnHandler 必须直接
 // 渲染无权限提示页（403），而不得 302 回登录页。否则门户已登录的前端会自动回跳、
 // 后端又判定未登录再次跳转，形成高频率刷新死循环。
-// TestWebVpnPortalLoggedInAutoExchange 验证设计核心：门户已登录用户访问 WebVPN 子域时，
-// 通过免登兑换自动获得 WebVPN 会话并进入代理，而不会跳转到登录页（避免前端自动回跳→后端又判未登录→
+// 验证设计核心：门户已登录用户访问 WebVPN 子域时，
 // 再次跳转的刷新死循环）。门户会话 cookie 不会直接被当作 WebVPN 会话，必须经由 ExchangeGrant 兑换。
 func TestWebVpnPortalLoggedInAutoExchange(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
 
-	// 构造一个合法的门户会话（已登录门户），但不带 webvpn_session、不带 webvpn_grant
 	portalTok, err := admin.SetJwtData(map[string]any{
 		"portal_user": "alice",
 		"portal_type": "local",
@@ -821,7 +805,7 @@ func TestWebVpnPortalLoggedInAutoExchange(t *testing.T) {
 	assert.True(t, foundSession, "免登兑换成功后应下发 WebVPN 会话 cookie")
 }
 
-// TestWebVpnProxyAuditLogged 验证设计 §6：每次代理请求落一条审计记录（含真实客户端 IP）。
+// 验证设计 §6：每次代理请求落一条审计记录（含真实客户端 IP）。
 func TestWebVpnProxyAuditLogged(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
@@ -845,7 +829,7 @@ func TestWebVpnProxyAuditLogged(t *testing.T) {
 	}, 3*time.Second, 100*time.Millisecond, "审计记录应落库且含真实客户端 IP")
 }
 
-// TestWebVpnRevokedPersistAcrossRestart 验证 P1-8 修复：
+// 验证 P1-8 修复：
 // 整用户踢出（webVpnRevokeAllForUser）的阈值持久化到 DB；
 // 即使进程内存被清空（模拟重启，WebVpnRevokeReset 清内存缓存），旧 token 仍应被判定为失效，
 // 解决原纯内存方案「重启后已踢用户旧会话又能用」的问题。
@@ -870,7 +854,6 @@ func TestWebVpnRevokedPersistAcrossRestart(t *testing.T) {
 	_, ok = webvpn.GetManager().Session().UserFromToken(tok)
 	ast.False(ok, "踢出后同进程内旧会话应立即失效")
 
-	// 模拟重启：清空内存中的吊销阈值缓存（DB 仍有记录）
 	dbdata.WebVpnRevokeReset()
 
 	// 重启后：从 DB 读回阈值，旧 token 仍应失效（P1-8 核心断言）
@@ -878,7 +861,7 @@ func TestWebVpnRevokedPersistAcrossRestart(t *testing.T) {
 	ast.False(ok, "重启（内存清空）后旧会话应仍按 DB 阈值失效")
 }
 
-// TestWebVpnRevokedBeforeThreshold 验证整用户踢出仅使「踢出前签发」的会话失效，
+// 验证整用户踢出仅使「踢出前签发」的会话失效，
 // 「踢出后新签发」的会话不受影响（保证管理员踢人后本人重新登录仍可正常使用）。
 func TestWebVpnRevokedBeforeThreshold(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
@@ -905,7 +888,7 @@ func TestWebVpnRevokedBeforeThreshold(t *testing.T) {
 	ast.True(webVpnUserFromTokenOK(newTok), "踢出后新会话应可用")
 }
 
-// TestWebVpnSessionAbsoluteMaxLifetime 验证 WebVPN 会话绝对寿命上限：
+// 验证 WebVPN 会话绝对寿命上限：
 // 会话自首次登录（webvpn_issued 锚点）起算，超过 WebVpnSessionMaxLifetime（默认 480 分钟）
 // 后无论是否持续活跃、不断滑动续期都强制失效，必须重新登录。
 func TestWebVpnSessionAbsoluteMaxLifetime(t *testing.T) {
@@ -938,7 +921,7 @@ func webVpnUserFromTokenOK(token string) bool {
 	return ok
 }
 
-// TestWebVpnHandlerSubdomainPortalApiForbidden 验证 P1-6 修复：
+// 验证 P1-6 修复：
 // WebVPN 子域（*.WebVpnDomain）请求门户写接口 /portal/api/* 必须被拒绝（403），
 // 不得 delegate 回主路由（否则会带上 .WebVpnDomain 通配的 portal_session cookie，
 // 形成跨子域门户越权调用，如登出/改密码）。
@@ -970,7 +953,7 @@ func TestWebVpnHandlerSubdomainPortalApiForbidden(t *testing.T) {
 	}
 }
 
-// TestWebVpnHandlerSubdomainPortalLoginAllowed 验证：
+// 验证：
 // WebVPN 子域名登录页需在子域直接完成账号密码/短信/OTP 登录，并加载登录配置、检测登录态。
 // 因此以下「未登录状态下登录流程必需、且不依赖已登录 portal_session」的门户接口应在子域放行
 // （WebVpnHandler 返回 false，delegate 回主路由），否则登录会被 403 拦死，
@@ -1003,7 +986,7 @@ func TestWebVpnHandlerSubdomainPortalLoginAllowed(t *testing.T) {
 	}
 }
 
-// TestWebVpnHandlerSubdomainWhitelistAllowed 验证 P1-6 白名单放行：
+// 验证 P1-6 白名单放行：
 // WebVPN 子域下仅以下路径可 delegate 回主路由（WebVpnHandler 返回 false）：
 //   - /webvpn/*  —— WebVPN 自有 API（登录/登出/me）
 //   - /ui/*      —— 门户前端静态资源（登录卡片需要）
@@ -1031,7 +1014,7 @@ func TestWebVpnHandlerSubdomainWhitelistAllowed(t *testing.T) {
 	}
 }
 
-// TestWebVpnHandlerSubdomainNonWhitelistProxy 验证 P1-6：
+// 验证 P1-6：
 // WebVPN 子域下非白名单的普通路径（如 /admin）不应落入门户接口，
 // 而是由 WebVpnHandler 转交代理（返回 true，最终因无对应应用而 404），
 // 避免被路由到门户的 /portal/* 处理器。
@@ -1047,7 +1030,7 @@ func TestWebVpnHandlerSubdomainNonWhitelistProxy(t *testing.T) {
 	ast.True(handled, "子域非白名单路径应由 WebVpnHandler 转交代理")
 }
 
-// TestWebVpnHandlerNonSubdomainIgnored 验证 WebVpnHandler 仅处理 WebVPN 子域请求：
+// 验证 WebVpnHandler 仅处理 WebVPN 子域请求：
 // 主域名（非 *.WebVpnDomain）的 /portal/api/* 请求应不被拦截，delegate 回主路由。
 func TestWebVpnHandlerNonSubdomainIgnored(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
@@ -1061,7 +1044,7 @@ func TestWebVpnHandlerNonSubdomainIgnored(t *testing.T) {
 	ast.False(handled, "非 WebVPN 子域请求不应由 WebVpnHandler 处理")
 }
 
-// TestWebVpnSameOrigin 覆盖注销端点的 CSRF 同源校验：
+// 覆盖注销端点的 CSRF 同源校验：
 // 同域 Origin / 同域 Referer / 无来源头应放行；跨站 Origin 必须拒绝。
 func TestWebVpnSameOrigin(t *testing.T) {
 	ast := assert.New(t)
@@ -1090,7 +1073,7 @@ func TestWebVpnSameOrigin(t *testing.T) {
 	ast.True(webVpnSameOrigin(r4), "无来源头应放行（同域原生导航）")
 }
 
-// TestWebVpnSafeRedirect 验证第三方登录成功后的回跳地址校验：
+// 验证第三方登录成功后的回跳地址校验：
 // 仅放行 https 且 host 属于 .WebVpnDomain 后缀（主域或其子域），拒绝外部/非 https/相对地址。
 func TestWebVpnSafeRedirect(t *testing.T) {
 	_, teardown := setupWebVpnTest(t) // WebVpnDomain = "wv.example.com"
@@ -1113,7 +1096,7 @@ func TestWebVpnSafeRedirect(t *testing.T) {
 	ast.False(webVpnSafeRedirect("/foo"), "相对地址应拒绝")
 }
 
-// TestWebVpnPortalMainDomain 验证第三方登录子域跳主域时主域地址计算：
+// 验证第三方登录子域跳主域时主域地址计算：
 // portalMainDomain 仅取配置项 webvpn_sso_domain（WebVPN 第三方登录专用门户域名），
 // 无端口时沿用请求来源端口；未配置返回 ""（子域名三方登录不可用）。
 func TestWebVpnPortalMainDomain(t *testing.T) {
@@ -1144,7 +1127,7 @@ func TestWebVpnPortalMainDomain(t *testing.T) {
 	ast.Equal("", portalMainDomain(r3), "未配置 webvpn_sso_domain 应返回空")
 }
 
-// TestWebVpnPortalSSOSubdomainRedirect 验证子域名发起第三方登录时 PortalSSO 的行为：
+// 验证子域名发起第三方登录时 PortalSSO 的行为：
 // 应 302 跳转到「WebVPN 第三方登录专用门户域名」（webvpn_sso_domain）完成认证，
 // 且透传 redirect（回跳子域名的完整 URL），保证认证成功后能回跳回原 WebVPN 子域名。
 func TestWebVpnPortalSSOSubdomainRedirect(t *testing.T) {
@@ -1183,9 +1166,8 @@ func TestWebVpnPortalSSOSubdomainRedirect(t *testing.T) {
 	ast.Equal(http.StatusBadRequest, rec2.Code, "未配置 webvpn_sso_domain 时子域三方登录应返回 400")
 }
 
-// TestWebVpnHostPrefixCaseInsensitive 验证大小写 Host 不会被绕过 WebVPN 分支：
+// 验证大小写 Host 不会被绕过 WebVPN 分支：
 // DNS 主机名大小写不敏感，大写 Host（如 APP.WV.EXAMPLE.COM）应仍被识别为 WebVPN 子域，
-// 返回小写前缀，避免落入主路由绕过授权/审计/代理边界。
 func TestWebVpnHostPrefixCaseInsensitive(t *testing.T) {
 	_, teardown := setupWebVpnTest(t) // WebVpnDomain = "wv.example.com"
 	defer teardown()
@@ -1199,7 +1181,7 @@ func TestWebVpnHostPrefixCaseInsensitive(t *testing.T) {
 	ast.Equal("", hostPrefixOf(t, "app.wv.example.com.evil.org"), "子域混淆应拒绝")
 }
 
-// TestWebVpnStripRemLinkCookies 验证反向代理会剥离所有 RemLink 自有会话 cookie，
+// 验证反向代理会剥离所有 RemLink 自有会话 cookie，
 // 避免把网关会话令牌透传给被代理的内网后端。
 func TestWebVpnStripRemLinkCookies(t *testing.T) {
 	ast := assert.New(t)
@@ -1229,7 +1211,7 @@ func hostPrefixOf(_ *testing.T, host string) string {
 	return p
 }
 
-// TestPortalLoginOnWebVpnSubdomainSkipsPortalCookie 验证：
+// 验证：
 // 在 WebVPN 子域下登录门户时，只签发 webvpn_grant（供子域兑换），
 // 不写 portal_session。否则门户登录态会被父域共享 cookie 污染，
 // 导致用户在父域门户无法切换到别的账号登录（只能沿用子域登录的用户）。
@@ -1278,7 +1260,7 @@ func TestPortalLoginOnWebVpnSubdomainSkipsPortalCookie(t *testing.T) {
 	ast.True(hasPortal2, "父域登录应正常写 portal_session")
 }
 
-// TestWebVpnSessionScopedToAppPermission 验证兑换出的会话按目标应用鉴权：
+// 验证兑换出的会话按目标应用鉴权：
 // 访问未授权应用应 403，已授权应用仍 200，不会因已建立会话而通吃所有应用。
 func TestWebVpnSessionScopedToAppPermission(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
@@ -1312,15 +1294,13 @@ func TestWebVpnSessionScopedToAppPermission(t *testing.T) {
 	webVpnProxy(rec2, req2, "app2")
 	ast.Equal(http.StatusForbidden, rec2.Code, "未授权应用必须 403")
 
-	// 已授权的 app1 仍放行，证明会话有效、仅权限被精准拦截
 	req3, rec3, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
 	req3.AddCookie(&http.Cookie{Name: webVpnSessionCookie, Value: sessTok})
 	webVpnProxy(rec3, req3, "app1")
 	ast.Equal(http.StatusOK, rec3.Code, "已授权应用应仍放行")
 }
 
-// TestWebVpnRevokedSessionDeniedOnEveryApp 验证整用户踢出后，
-// 已建立的会话访问任意应用都失效（吊销跨应用生效）。
+// 验证整用户踢出后，
 func TestWebVpnRevokedSessionDeniedOnEveryApp(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
@@ -1331,7 +1311,6 @@ func TestWebVpnRevokedSessionDeniedOnEveryApp(t *testing.T) {
 
 	webvpn.GetManager().Revoker().RevokeUser("alice")
 
-	// 已授权的 app1 → 失效
 	req1, rec1, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
 	req1.AddCookie(&http.Cookie{Name: webVpnSessionCookie, Value: token})
 	webVpnProxy(rec1, req1, "app1")

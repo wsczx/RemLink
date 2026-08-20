@@ -10,7 +10,7 @@ import (
 
 var scheduler gocron.Scheduler
 
-// 初始化并启动所有定时任务。返回错误表示调度器创建失败（任务注册错误只记录日志）。
+// 初始化并启动定时任务
 func Start() error {
 	s, err := gocron.NewScheduler(gocron.WithLocation(time.Local))
 	if err != nil {
@@ -18,7 +18,6 @@ func Start() error {
 	}
 	scheduler = s
 
-	// 每小时执行: ClearAudit, ClearStatsInfo, ClearUserActLog
 	if _, err := s.NewJob(
 		gocron.CronJob("0 * * * *", false),
 		gocron.NewTask(ClearAudit),
@@ -79,7 +78,7 @@ func Start() error {
 	return nil
 }
 
-// 优雅关闭定时任务调度器
+// 关闭定时任务调度器
 func Stop() {
 	if scheduler != nil {
 		if err := scheduler.Shutdown(); err != nil {

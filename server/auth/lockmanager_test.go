@@ -17,7 +17,6 @@ func resetLockManager() {
 	lm = nil
 }
 
-// 配置测试用的 config
 func setupTestConfig() {
 	base.SetCfgForTest(&base.ServerConfig{
 		AntiBruteForce:                true,
@@ -347,7 +346,6 @@ func TestCleanupExpiredLocks(t *testing.T) {
 
 		lm.Fail(username, ipaddr)
 
-		// 模拟过期
 		lm.mu.Lock()
 		ip, _, _ := net.SplitHostPort(ipaddr)
 		userIPMap := lm.ipUserLocks[ip]
@@ -364,7 +362,6 @@ func TestCleanupExpiredLocks(t *testing.T) {
 	})
 }
 
-// 场景1+2 联动：单用户IP锁不跨IP，但全局用户锁跨IP生效
 func TestUserIPLockNotCrossIP_ButGlobalUserLockDoes(t *testing.T) {
 	resetLockManager()
 	base.Test()
@@ -395,7 +392,6 @@ func TestUserIPLockNotCrossIP_ButGlobalUserLockDoes(t *testing.T) {
 	assert.True(t, lm.Check("otheruser", ip2), "全局用户锁只锁该用户，其他用户应可尝试")
 }
 
-// 场景3 联动：全局IP锁跨用户生效，但单用户IP锁只限该用户
 func TestGlobalIPLockBlocksAllUsersOnIP(t *testing.T) {
 	resetLockManager()
 	base.Test()
@@ -433,7 +429,6 @@ func TestIncrLockSlidingResetWindow(t *testing.T) {
 	host, _, _ := net.SplitHostPort(ip)
 	st := lm.ipUserLocks[host][username]
 	assert.Equal(t, 4, st.FailureCount, "失败4次后计数应为4")
-	// 模拟上次尝试发生在超过 BanResetTime(600s) 之前
 	st.LastAttempt = time.Now().Add(-700 * time.Second)
 	lm.mu.Unlock()
 
@@ -466,7 +461,6 @@ func TestGlobalUserLockExpiresAfterLockTime(t *testing.T) {
 	}
 	assert.False(t, lm.Check(username, "192.168.2.250:12345"), "全局用户锁生效前应被拒")
 
-	// 手动把 LockTime 设为已过期
 	lm.mu.Lock()
 	ls := lm.userLocks[username]
 	ls.LockTime = time.Now().Add(-1 * time.Second)

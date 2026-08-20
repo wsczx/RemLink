@@ -31,16 +31,6 @@ func startTls() {
 		ln   net.Listener
 	)
 
-	// 判断证书文件
-	// _, err = os.Stat(certFile)
-	// if errors.Is(err, os.ErrNotExist) {
-	//	// 自动生成证书
-	//	certs[0], err = selfsign.GenerateSelfSignedWithDNS("vpn.remlink")
-	// } else {
-	//	// 使用自定义证书
-	//	certs[0], err = tls.LoadX509KeyPair(certFile, keyFile)
-	// }
-
 	tlscert, _, err := dbdata.ParseCert()
 	if err != nil {
 		base.Fatal("证书加载失败", err)
@@ -116,9 +106,7 @@ func startTls() {
 	}
 }
 
-// 外层路由：先判断是否为 WebVPN 子域请求（*.WebVpnDomain）。
-// 是则进入 WebVPN 分支（独立处理，不套全局安全头，避免 CSP 污染被代理内容）；
-// 否则 delegate 回 initRoute()（现有 CSTP/portal/WebAuth 等路由零侵入）。
+// WebVPN 子域请求使用独立处理链，其他请求交给常规路由
 func webVpnRootHandler() http.Handler {
 	root := initRoute()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

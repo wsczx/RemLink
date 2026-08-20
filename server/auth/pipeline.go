@@ -4,7 +4,7 @@ import (
 	"fmt"
 )
 
-// ProviderResolverFunc 将 Provider 名称解析为配置 map。
+// 将 Provider 名称解析为配置 map
 type ProviderResolverFunc func(name, typ string) (map[string]any, error)
 
 type Pipeline struct {
@@ -12,7 +12,7 @@ type Pipeline struct {
 	pendingStep int // 返回 StepPending 的步骤索引
 }
 
-// 根据 GroupAuthProfile 获取认证管道。
+// 根据配置创建认证管道
 func GetPipeline(profile GroupAuthProfile, resolver ProviderResolverFunc) (*Pipeline, error) {
 	if len(profile.Step) == 0 {
 		return nil, fmt.Errorf("认证配置未包含任何步骤")
