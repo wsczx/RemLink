@@ -2,7 +2,7 @@
     <div>
         <el-form :model="searchForm" ref="searchForm" :inline="true" class="search-form">
             <el-form-item>
-                <el-input size="mini" v-model="searchForm.username" clearable placeholder="请输入用户名" style="width: 130px"
+                <el-input size="mini" v-model="searchForm.username" clearable placeholder="姓名或用户名" style="width: 130px"
                     @keydown.enter.native="searchEnterFun"></el-input>
             </el-form-item>
             <el-form-item>

@@ -1,46 +1,48 @@
 <template>
   <div>
     <el-form :model="searchForm" ref="searchForm" :inline="true" class="search-form">
-      <el-form-item label="用户名:" prop="username">
-        <el-input size="mini" v-model="searchForm.username" clearable style="width: 130px"
+      <el-form-item prop="username">
+        <el-input size="mini" v-model="searchForm.username" clearable placeholder="姓名或用户名" style="width: 130px"
           @keydown.enter.native="searchEnterFun"></el-input>
       </el-form-item>
-      <el-form-item label="用户组:" prop="group_name">
-        <el-input size="mini" v-model="searchForm.group_name" clearable style="width: 100px"
+      <el-form-item prop="group_name">
+        <el-input size="mini" v-model="searchForm.group_name" clearable placeholder="用户组" style="width: 100px"
           @keydown.enter.native="searchEnterFun"></el-input>
       </el-form-item>
-      <el-form-item label="源IP:" prop="src">
-        <el-input size="mini" v-model="searchForm.src" clearable style="width: 130px"
+      <el-form-item prop="src">
+        <el-input size="mini" v-model="searchForm.src" clearable placeholder="源IP" style="width: 130px"
           @keydown.enter.native="searchEnterFun"></el-input>
       </el-form-item>
-      <el-form-item label="目的IP:" prop="dst">
-        <el-input size="mini" v-model="searchForm.dst" clearable style="width: 130px"
+      <el-form-item prop="dst">
+        <el-input size="mini" v-model="searchForm.dst" clearable placeholder="目的IP" style="width: 130px"
           @keydown.enter.native="searchEnterFun"></el-input>
       </el-form-item>
-      <el-form-item label="目的端口:" prop="dst_port">
-        <el-input size="mini" v-model="searchForm.dst_port" clearable style="width: 80px"
+      <el-form-item prop="dst_port">
+        <el-input size="mini" v-model="searchForm.dst_port" clearable placeholder="目的端口" style="width: 80px"
           @keydown.enter.native="searchEnterFun"></el-input>
       </el-form-item>
-      <el-form-item label="访问协议:" prop="access_proto">
-        <el-select size="mini" v-model="searchForm.access_proto" clearable placeholder="全部" style="width: 100px">
+      <el-form-item prop="access_proto">
+        <el-select size="mini" v-model="searchForm.access_proto" clearable placeholder="访问协议" style="width: 100px">
           <el-option v-for="(item, index) in access_proto" :key="index" :label="item.text" :value="item.value">
           </el-option>
         </el-select>
       </el-form-item>
-      <el-form-item label="日期范围:" prop="date">
+      <el-form-item prop="date">
         <el-date-picker v-model="searchForm.date" type="datetimerange" value-format="yyyy-MM-dd HH:mm:ss" size="mini"
-          align="left" start-placeholder="开始日期" end-placeholder="结束日期" :default-time="['00:00:00', '23:59:59']">
+          align="left" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期"
+          :default-time="['00:00:00', '23:59:59']">
         </el-date-picker>
       </el-form-item>
-      <el-form-item label="详情:" prop="info">
-        <el-input size="mini" v-model="searchForm.info" placeholder="请输入关键字" clearable style="width: 200px"
+      <el-form-item prop="info">
+        <el-input size="mini" v-model="searchForm.info" placeholder="详情关键字" clearable style="width: 200px"
           @keydown.enter.native="searchEnterFun"></el-input>
       </el-form-item>
-      <el-form-item label="自动刷新:">
-        <el-switch size="mini" v-model="autoRefresh" @change="toggleAutoRefresh"></el-switch>
+      <el-form-item>
+        <el-switch size="mini" v-model="autoRefresh" active-text="自动刷新" @change="toggleAutoRefresh"></el-switch>
       </el-form-item>
-      <el-form-item v-if="autoRefresh" label="间隔:">
-        <el-select size="mini" v-model="refreshInterval" @change="toggleAutoRefresh" style="width: 90px">
+      <el-form-item v-if="autoRefresh">
+        <el-select size="mini" v-model="refreshInterval" @change="toggleAutoRefresh" placeholder="刷新间隔"
+          style="width: 90px">
           <el-option label="5 秒" :value="5"></el-option>
           <el-option label="10 秒" :value="10"></el-option>
           <el-option label="30 秒" :value="30"></el-option>

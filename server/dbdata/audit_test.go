@@ -18,8 +18,11 @@ func TestSearchAudit(t *testing.T) {
 	currDateVal := "2022-07-24 00:00:00"
 	CreatedAt, _ := time.ParseInLocation("2006-01-02 15:04:05", currDateVal, time.Local)
 
+	user := User{Username: "Test", Nickname: "测试用户"}
+	ast.Nil(Add(&user))
+
 	dataTest := AccessAudit{
-		Username:    "Test",
+		Username:    user.Username,
 		Protocol:    6,
 		Src:         "10.10.1.5",
 		Dst:         "172.217.160.68",
@@ -33,7 +36,7 @@ func TestSearchAudit(t *testing.T) {
 
 	var datas []AccessAudit
 	values := url.Values{}
-	values.Set("search[username]", dataTest.Username)
+	values.Set("search[username]", user.Nickname)
 	values.Set("search[src]", dataTest.Src)
 	values.Set("search[dst]", dataTest.Dst)
 	values.Set("search[dst_port]", fmt.Sprintf("%d", dataTest.DstPort))

@@ -10,7 +10,8 @@ import (
 func GetAuditSession(values url.Values) *xorm.Session {
 	session := xdb.Where("1=1")
 	if v := values.Get("search[username]"); v != "" {
-		session.And("username = ?", v)
+		fuzzy := "%" + v + "%"
+		session.And("username IN (SELECT username FROM user WHERE username LIKE ? OR nickname LIKE ?)", fuzzy, fuzzy)
 	}
 	if v := values.Get("search[group_name]"); v != "" {
 		session.And("group_name = ?", v)

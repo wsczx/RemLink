@@ -1,6 +1,34 @@
 package dbdata
 
-import "testing"
+import (
+	"net/url"
+	"testing"
+)
+
+func TestUserActLogSessionSearchesByNickname(t *testing.T) {
+	preIpData(t)
+	defer closeIpdata()
+
+	user := User{Username: "act_log_search_user", Nickname: "活动日志用户"}
+	if err := Add(&user); err != nil {
+		t.Fatal(err)
+	}
+	log := UserActLog{Username: user.Username}
+	if err := Add(&log); err != nil {
+		t.Fatal(err)
+	}
+
+	values := url.Values{}
+	values.Set("username", user.Nickname)
+	count, err := UserActLogIns.GetSession(values).Count(&UserActLog{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("nickname search matched %d activity logs, want 1", count)
+	}
+}
+
 
 func TestParseBrowserUA(t *testing.T) {
 	tests := []struct {

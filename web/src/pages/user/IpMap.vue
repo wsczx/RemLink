@@ -54,20 +54,20 @@
       </div>
 
       <div class="filter-bar">
-        <el-input v-model="filters.ip" placeholder="IP地址" size="small" clearable class="filter-item"
+        <el-input v-model="filters.ip" placeholder="IP地址" size="mini" clearable class="filter-item"
           @keyup.enter.native="onSearch" @clear="onSearch"></el-input>
-        <el-input v-model="filters.mac" placeholder="MAC地址" size="small" clearable class="filter-item"
+        <el-input v-model="filters.mac" placeholder="MAC地址" size="mini" clearable class="filter-item"
           @keyup.enter.native="onSearch" @clear="onSearch"></el-input>
-        <el-input v-model="filters.username" placeholder="用户名" size="small" clearable class="filter-item"
+        <el-input v-model="filters.username" placeholder="姓名或用户名" size="mini" clearable class="filter-item"
           @keyup.enter.native="onSearch" @clear="onSearch"></el-input>
-        <el-input v-model="filters.group" placeholder="组/出口" size="small" clearable class="filter-item"
+        <el-input v-model="filters.group" placeholder="组/出口" size="mini" clearable class="filter-item"
           @keyup.enter.native="onSearch" @clear="onSearch"></el-input>
-        <el-select v-model="filters.keep" placeholder="保留" size="small" clearable class="filter-item">
+        <el-select v-model="filters.keep" placeholder="保留" size="mini" clearable class="filter-item">
           <el-option label="已保留" value="1"></el-option>
           <el-option label="未保留" value="0"></el-option>
         </el-select>
-        <el-button size="small" type="primary" icon="el-icon-search" @click="onSearch">查询</el-button>
-        <el-button size="small" icon="el-icon-refresh" @click="resetFilters">重置</el-button>
+        <el-button size="mini" type="primary" icon="el-icon-search" @click="onSearch">查询</el-button>
+        <el-button size="mini" icon="el-icon-refresh" @click="resetFilters">重置</el-button>
       </div>
 
       <div class="ipmap-table-wrap">
@@ -96,7 +96,8 @@
           </el-table-column>
           <el-table-column prop="username" label="用户名" min-width="120" sortable>
             <template slot-scope="scope">
-              <span v-if="scope.row.username" class="bound-user">{{ userLabel(scope.row.username, scope.row.nickname) }}</span>
+              <span v-if="scope.row.username" class="bound-user">{{ userLabel(scope.row.username, scope.row.nickname)
+                }}</span>
               <span v-else class="text-muted">未绑定</span>
             </template>
           </el-table-column>

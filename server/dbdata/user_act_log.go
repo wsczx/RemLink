@@ -289,8 +289,9 @@ func (ua *UserActLogProcess) ClearUserActLog(ts string) (int64, error) {
 // 后台筛选用户操作日志
 func (ua *UserActLogProcess) GetSession(values url.Values) *xorm.Session {
 	session := xdb.Where("1=1")
-	if values.Get("username") != "" {
-		session.And("username = ?", values.Get("username"))
+	if v := values.Get("username"); v != "" {
+		fuzzy := "%" + v + "%"
+		session.And("username IN (SELECT username FROM user WHERE username LIKE ? OR nickname LIKE ?)", fuzzy, fuzzy)
 	}
 	if values.Get("sdate") != "" {
 		session.And("created_at >= ?", values.Get("sdate")+" 00:00:00")
