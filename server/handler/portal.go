@@ -404,8 +404,13 @@ func PortalLogout(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 	})
 	// 门户登出同时吊销该用户的 WebVPN 会话，避免旧会话继续使用
+	// 门户 Cookie 过期时，使用仍有效的 WebVPN 会话识别用户
 	if base.GetCfg().WebVpnDomain != "" {
-		if user, ok := portalCurrentUser(r); ok && user != nil {
+		user, ok := portalCurrentUser(r)
+		if !ok {
+			user, ok = webvpn.GetManager().Session().CurrentUser(r)
+		}
+		if ok && user != nil {
 			webvpn.GetManager().Session().RevokeUser(user.Username)
 		}
 	}

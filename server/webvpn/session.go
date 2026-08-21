@@ -246,7 +246,7 @@ func (m *AuthSessionManager) UserFromToken(token string) (*dbdata.User, bool) {
 	return user, true
 }
 
-// 距签发超过 TTL-1h 时以数据库当前状态重签并刷新 cookie，返回是否实际重签。
+// 会话已使用过半生命周期时，以数据库当前状态重签并刷新 cookie。
 func (m *AuthSessionManager) Renew(w http.ResponseWriter, r *http.Request) (bool, error) {
 	c, err := r.Cookie(sessionCookieName)
 	if err != nil || c.Value == "" {
@@ -260,7 +260,8 @@ func (m *AuthSessionManager) Renew(w http.ResponseWriter, r *http.Request) (bool
 	if iat <= 0 {
 		return false, nil
 	}
-	if time.Since(time.Unix(iat, 0)) <= m.sessionTTL()-time.Hour {
+	ttl := m.sessionTTL()
+	if ttl <= 0 || time.Since(time.Unix(iat, 0)) <= ttl/2 {
 		return false, nil
 	}
 	username, _ := data["webvpn_user"].(string)
