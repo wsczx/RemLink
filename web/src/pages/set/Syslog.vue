@@ -3,6 +3,7 @@
     <div v-if="mode === 'live'" style="flex:1; display:flex; flex-direction:column; min-height:0; overflow:hidden">
       <div class="syslog-toolbar">
         <div class="toolbar-left">
+          <span class="mode-badge mode-live"><span class="mode-icon"></span>实时日志</span>
           <el-switch v-model="syslogWsLive" active-text="实时" inactive-text="暂停" @change="onLiveToggle" size="small">
           </el-switch>
           <span class="conn-status" v-if="syslogWsLive" :class="{ connected: syslogWsConnected }">
@@ -55,6 +56,7 @@
     <div v-if="mode === 'history'" style="flex:1; display:flex; flex-direction:column; min-height:0; overflow:hidden">
       <div class="syslog-toolbar">
         <div class="toolbar-left">
+          <span class="mode-badge mode-history"><span class="mode-icon"></span>历史日志</span>
           <el-date-picker v-model="historyDate" type="date" value-format="yyyy-MM-dd" size="mini" placeholder="选择日期"
             :clearable="false" @change="onHistoryFilterChange" style="margin-left: 4px">
           </el-date-picker>
@@ -194,7 +196,6 @@ export default {
     onScroll() {
       const el = this.$refs.logContainer
       if (!el) return
-      // 滚到底部附近时恢复跟随
       const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60
       if (nearBottom && !this.autoScroll) {
         this.autoScroll = true
@@ -202,33 +203,68 @@ export default {
     },
 
     highlightLine(entry) {
-      let text = this.escapeHtml(entry.msg)
-      if (this.searchText) {
-        const kw = this.escapeHtml(this.searchText)
-        if (kw) {
-          const re = new RegExp('(' + kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi')
-          text = text.replace(re, '<mark class="log-highlight">$1</mark>')
-        }
-      }
-      return text
-    },
-
-    escapeHtml(str) {
-      const div = document.createElement('div')
-      div.textContent = str
-      return div.innerHTML
+      return this.highlightLogMessage(entry, this.searchText)
     },
 
     highlightHistoryLine(entry) {
-      let text = this.escapeHtml(entry.msg)
-      if (this.historyKeyword) {
-        const kw = this.escapeHtml(this.historyKeyword)
-        if (kw) {
-          const re = new RegExp('(' + kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi')
-          text = text.replace(re, '<mark class="log-highlight">$1</mark>')
+      return this.highlightLogMessage(entry, this.historyKeyword)
+    },
+
+    escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    },
+
+    highlightLogMessage(entry, keyword) {
+      const text = this.escapeHtml(entry.msg || '');
+      const searchStr = keyword ? this.escapeHtml(keyword).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
+      const patterns = {
+        search: searchStr ? `(${searchStr})` : null,
+        statusError: `((?:DTLS.*?handshake error|DTLS.*?握手失败|\\bhandshake error\\b|握手失败|握手错误|MasterSecret is nil|tun Read err.*?file already closed))`,
+        statusWarn: `((?:read hdata:.*?|read tun:.*?|i/o timeout|context deadline exceeded))`,
+        statusSuccess: `((?:WebAuth认证已完成|用户通过证书认证|证书自动认证|\\blogin\\b|\\bAcquireIp\\b|\\bconnect\\b))`,
+        group: `((?:组|group)\\s*[:=]?\\s*[\\w.-]+)`,
+        identity: `((?:username|user_name|nickname|realname|name|user|用户|姓名|login)\\s*(?:[:=]\\s*)?[\\w.-]+(?:\\([\\w.-]+\\))?|\\b[\\w.-]+\\([\\w.-]+\\))`,
+        url: `(https?:\\/\\/[\\w\\-]+(?:\\.[\\w\\-]+)+(?:[\\w\\-\\.,@?^=%&amp;:/~\\+#]*[\\w\\-@?^=%&amp;/~\\+#])?)`,
+        address: `((?:(?:\\b(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d{1,5})?\\b)|(?:\\b[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){2,7}\\b))(?:\\/\\d{1,3})?)`,
+        domain: `(\\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]+)\\b)`,
+        network: `((?:NAT6?|IPv6|DTLS|TUN|TAP|macvtap|nftables|WebVPN)\\b)`,
+        keyword: `((?:\\b(?:Error|Exception|Failed|Denied|Timeout|Panic|Fatal)\\b|失败|错误|异常|拒绝|超时|中断|不可用|中止|致命|\\b(?:Warning|Warn)\\b|警告|注意))`
+      };
+      const regexParts = [];
+      const types = [];
+      Object.entries(patterns).forEach(([type, pattern]) => {
+        if (pattern) {
+          regexParts.push(pattern);
+          types.push(type);
         }
-      }
-      return text
+      });
+      const combinedRegex = new RegExp(regexParts.join('|'), 'gi');
+      return text.replace(combinedRegex, (match, ...groups) => {
+        const index = groups.findIndex(group => group !== undefined);
+        const type = types[index];
+        if (type === 'search') return `<mark class="log-highlight">${match}</mark>`;
+        if (type === 'url') return `<a href="${match}" target="_blank" rel="noopener noreferrer" class="log-token log-url">${match}</a>`;
+        if (type === 'identity') return `<span class="log-token log-identity">${match}</span>`;
+        if (type === 'statusError') return `<span class="log-token log-status-error">${match}</span>`;
+        if (type === 'statusWarn') return `<span class="log-token log-status-warn">${match}</span>`;
+        if (type === 'statusSuccess') return `<span class="log-token log-status-success">${match}</span>`;
+        if (type === 'group') return `<span class="log-token log-group">${match}</span>`;
+        if (type === 'address') return `<span class="log-token log-address">${match}</span>`;
+        if (type === 'domain') return `<span class="log-token log-domain">${match}</span>`;
+        if (type === 'network') return `<span class="log-token log-network">${match}</span>`;
+        if (type === 'keyword') {
+          const lowerMatch = match.toLowerCase();
+          const errorWords = ['error', 'exception', 'failed', 'denied', 'timeout', 'panic', 'fatal', '失败', '错误', '异常', '拒绝', '超时', '中断', '不可用', '中止', '致命'];
+          return `<span class="log-token ${errorWords.includes(lowerMatch) ? 'log-kw-error' : 'log-kw-warn'}">${match}</span>`;
+        }
+        return match;
+      });
     },
 
     async checkHistoryEnabled() {
@@ -300,7 +336,6 @@ export default {
           } else {
             this.historyLogs = this.historyLogs.concat(datas)
           }
-          // 返回不足一页即视为已加载完所有匹配记录
           if (datas.length < this.historyPageSize) {
             this.historyNoMore = true
           }
@@ -322,7 +357,6 @@ export default {
       }
     },
 
-    // 将历史日志容器滚动到最底部（最新日志）。
     scrollHistoryToBottom() {
       const el = this.$refs.historyContainer
       if (!el) return
@@ -334,14 +368,12 @@ export default {
       requestAnimationFrame(() => tick(maxRetry))
     },
 
-    // 加载当天所有匹配的历史日志并定位到最底部（最新日志）
     async loadHistoryLastPage() {
       this.historyLoading = true
       try {
         this.historyLogs = []
         this.historyNoMore = false
         this.historyPage = 1
-        // 顺序累加每一页，直到不足一页（已到文件末尾）或超出安全上限
         for (; ;) {
           await this.loadHistory(this.historyPage, false, false)
           if (this.historyNoMore) break
@@ -361,6 +393,7 @@ export default {
 </script>
 
 <style scoped>
+/* 原有的组件框架样式保持不变... */
 .syslog-page {
   height: calc(100vh - 140px);
   display: flex;
@@ -371,14 +404,15 @@ export default {
   border: 1px solid #30363d;
 }
 
-/* 控制栏 */
 .syslog-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-height: 48px;
   padding: 8px 16px;
-  background: #161b22;
+  background: linear-gradient(180deg, #1b222c 0%, #161b22 100%);
   border-bottom: 1px solid #30363d;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, .18);
   flex-shrink: 0;
 }
 
@@ -386,6 +420,31 @@ export default {
 .toolbar-right {
   display: flex;
   align-items: center;
+}
+
+.mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 86px;
+  margin-right: 14px;
+  color: #c9d1d9;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .2px;
+}
+
+.mode-icon {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #58a6ff;
+  box-shadow: 0 0 0 3px #58a6ff1c;
+}
+
+.mode-history .mode-icon {
+  background: #a371f7;
+  box-shadow: 0 0 0 3px #a371f71c;
 }
 
 .conn-status {
@@ -434,7 +493,6 @@ export default {
   color: #8b949e;
 }
 
-/* 日志容器 */
 .syslog-container {
   flex: 1;
   overflow-y: auto;
@@ -461,7 +519,6 @@ export default {
   background: #484f58;
 }
 
-/* 空状态 */
 .syslog-empty {
   display: flex;
   flex-direction: column;
@@ -484,43 +541,50 @@ export default {
   margin-top: 4px;
 }
 
-/* 日志行 */
 .syslog-line {
   display: flex;
-  padding: 2px 16px;
+  min-height: 27px;
+  padding: 3px 16px 3px 13px;
   white-space: pre-wrap;
-  word-break: break-all;
+  word-break: break-word;
   border-left: 3px solid transparent;
-  transition: background 0.12s ease;
+  transition: background 0.12s ease, border-color 0.12s ease;
 }
 
 .syslog-line:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(88, 166, 255, 0.07);
+  border-left-color: #58a6ff66;
 }
 
 .log-time {
-  color: #484f58;
-  margin-right: 10px;
+  width: 156px;
+  color: #6e7681;
+  margin-right: 12px;
   flex-shrink: 0;
+  font-size: 12px;
 }
 
 .log-level {
-  width: 44px;
+  width: 48px;
   flex-shrink: 0;
-  margin-right: 10px;
+  margin-right: 12px;
   text-align: center;
   font-weight: 700;
-  font-size: 11px;
-  border-radius: 3px;
-  padding: 0 4px;
-  line-height: 1.5;
+  font-size: 10px;
+  letter-spacing: .35px;
+  border: 1px solid currentColor;
+  border-radius: 10px;
+  padding: 1px 4px;
+  line-height: 1.35;
+  align-self: flex-start;
+  margin-top: 1px;
 }
 
 .log-msg {
   color: #c9d1d9;
 }
 
-/* 各级别颜色 — GitHub 风格 */
+/* GitHub 风格的日志级别 */
 .level-trace {
   border-left-color: transparent;
 }
@@ -547,6 +611,7 @@ export default {
 
 .level-warn {
   border-left-color: #d2992226;
+  background: rgba(210, 153, 34, 0.05);
 }
 
 .level-warn .log-level {
@@ -557,12 +622,9 @@ export default {
   color: #e3b341;
 }
 
-.level-warn {
-  background: rgba(210, 153, 34, 0.05);
-}
-
 .level-error {
   border-left-color: #f8514926;
+  background: rgba(248, 81, 73, 0.05);
 }
 
 .level-error .log-level {
@@ -573,19 +635,15 @@ export default {
   color: #f85149;
 }
 
-.level-error {
-  background: rgba(248, 81, 73, 0.05);
-}
-
 .level-fatal {
   border-left-color: #f85149;
 }
 
 .level-fatal .log-level {
-  color: var(--text-inverse);
+  color: #fff;
   background: #da3633;
-  border-radius: 3px;
-  padding: 0 5px;
+  border-color: #f85149;
+  padding: 1px 5px;
 }
 
 .level-fatal .log-msg {
@@ -593,7 +651,6 @@ export default {
   font-weight: bold;
 }
 
-/* 历史日志加载更多提示 */
 .syslog-loadmore {
   text-align: center;
   padding: 10px 0;
@@ -603,11 +660,76 @@ export default {
 </style>
 
 <style>
-/* 日志搜索高亮 */
-.log-highlight {
-  background: #d2992226;
+.log-token {
+  font-weight: 600;
+}
+
+.log-address {
+  color: #f2cc60;
+}
+
+.log-url,
+.log-domain {
+  color: #79c0ff;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+
+.log-url {
+  text-decoration-style: solid;
+}
+
+.log-url:hover {
+  text-decoration-color: #58a6ff;
+}
+
+.log-identity {
+  color: #ffa657;
+}
+
+.log-status-error {
+  color: #ff7b72;
+  font-weight: 700;
+  background: rgba(248, 81, 73, 0.1);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+
+.log-status-warn {
   color: #e3b341;
-  border-radius: 2px;
-  padding: 0 2px;
+  font-weight: 650;
+}
+
+.log-status-success {
+  color: #7ee787;
+  font-weight: 650;
+}
+
+.log-group {
+  color: #7ee787;
+}
+
+.log-network {
+  color: #d2a8ff;
+}
+
+.log-kw-error {
+  color: #ff7b72;
+  font-weight: 700;
+}
+
+.log-kw-warn {
+  color: #e3b341;
+  font-weight: 700;
+}
+
+.log-highlight {
+  padding: 1px 3px;
+  color: #0d1117;
+  background: #e3b341;
+  border-radius: 3px;
+  font-weight: 700;
+  box-shadow: 0 0 0 1px rgba(210, 153, 34, 0.65);
 }
 </style>
