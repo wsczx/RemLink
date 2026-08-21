@@ -91,8 +91,8 @@
           </el-table-column>
           <el-table-column label="客户端" width="80" align="center">
             <template slot-scope="scope">
-              <i v-if="scope.row.client === 'mobile'" class="el-icon-mobile-phone client-mobile" title="移动端"></i>
-              <i v-else class="el-icon-s-platform client-desktop" title="桌面端"></i>
+              <i v-if="scope.row.client === 'mobile'" class="el-icon-mobile-phone client-mobile" :title="clientLabel(scope.row)"></i>
+              <i v-else class="el-icon-s-platform client-desktop" :title="clientLabel(scope.row)"></i>
             </template>
           </el-table-column>
           <el-table-column label="状态" width="90" align="center">
@@ -208,6 +208,10 @@ export default {
       }
     },
     handleSearch() { this.getData(); },
+    clientLabel(row) {
+      const parts = [row.device_type, row.platform_version].filter(Boolean);
+      return parts.length ? parts.join(' ') : (row.client === 'mobile' ? '移动端' : '桌面端');
+    },
     tableDateFormat(row, col, val) {
       if (!val) return '';
       const d = new Date(val);
