@@ -55,13 +55,13 @@
         <el-table ref="multipleTable" :data="tableData" stripe highlight-current-row border style="width:100%"
           :header-cell-style="{ background: 'var(--bg-header)', color: 'var(--text-primary)', fontWeight: '600', fontSize: '13px' }">
           <el-table-column sortable prop="id" label="ID" width="70" align="center"></el-table-column>
-          <el-table-column prop="name" label="组名" min-width="140">
+          <el-table-column prop="name" label="组名" min-width="140" show-overflow-tooltip>
             <template slot-scope="scope">
               <span class="group-name">{{ scope.row.name }}</span>
               <span v-if="scope.row.note" class="group-note">{{ scope.row.note }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="policy_name" label="策略" width="160" align="center">
+          <el-table-column prop="policy_name" label="策略" min-width="150" show-overflow-tooltip align="center">
             <template slot-scope="scope">
               <el-tag v-if="scope.row.policy_id === 0" size="small" type="danger" effect="plain">
                 {{ scope.row.policy_name }}
@@ -72,7 +72,7 @@
               <span v-else class="text-muted">-</span>
             </template>
           </el-table-column>
-          <el-table-column label="认证方式" width="160" align="center">
+          <el-table-column label="认证方式" min-width="220" align="center">
             <template slot-scope="scope">
               <div v-if="scope.row.authSteps && scope.row.authSteps.length" class="auth-flow-mini">
                 <span v-for="(s, i) in scope.row.authSteps" :key="'ta-' + i" style="display:contents">

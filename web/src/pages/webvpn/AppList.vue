@@ -16,7 +16,7 @@
       <el-table :data="tableData" stripe border style="width: 100%"
         :header-cell-style="{ background: 'var(--bg-header)', color: 'var(--text-primary)', fontWeight: '600', fontSize: '13px' }">
         <el-table-column prop="id" label="ID" width="70" align="center" sortable />
-        <el-table-column prop="name" label="子域名" min-width="140" sortable>
+        <el-table-column prop="name" label="子域名" min-width="140" show-overflow-tooltip sortable>
           <template slot-scope="scope">
             <span class="text-primary">{{ scope.row.name }}</span>
             <span class="text-muted">.{{ webvpnDomain }}</span>
@@ -24,20 +24,20 @@
         </el-table-column>
         <el-table-column prop="note" label="名称" min-width="140" show-overflow-tooltip sortable />
         <el-table-column prop="backend" label="后端地址" min-width="200" show-overflow-tooltip sortable />
-        <el-table-column label="授权用户" min-width="150">
+        <el-table-column label="授权用户" min-width="150" show-overflow-tooltip>
           <template slot-scope="scope">
             <template v-if="scope.row.users && scope.row.users.length">
               <el-tag v-for="u in scope.row.users" :key="u" size="mini" effect="plain" class="group-tag">{{ u
-              }}</el-tag>
+                }}</el-tag>
             </template>
             <span v-else class="text-muted">全部用户</span>
           </template>
         </el-table-column>
-        <el-table-column label="授权用户组" min-width="150">
+        <el-table-column label="授权用户组" min-width="150" show-overflow-tooltip>
           <template slot-scope="scope">
             <template v-if="scope.row.groups && scope.row.groups.length">
               <el-tag v-for="g in scope.row.groups" :key="g" size="mini" effect="plain" class="group-tag">{{ g
-              }}</el-tag>
+                }}</el-tag>
             </template>
             <span v-else class="text-muted">全部用户</span>
           </template>

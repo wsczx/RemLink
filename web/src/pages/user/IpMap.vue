@@ -76,7 +76,7 @@
           :header-cell-style="{ background: '#fafafa', color: '#303133', fontWeight: '600', fontSize: '13px' }">
           <el-table-column type="selection" width="45" align="center"></el-table-column>
           <el-table-column sortable prop="id" label="ID" width="65" align="center"></el-table-column>
-          <el-table-column prop="ip_addr" label="IP地址" width="150" sortable>
+          <el-table-column prop="ip_addr" label="IP地址" width="180" show-overflow-tooltip sortable>
             <template slot-scope="scope">
               <span class="ip-addr">{{ scope.row.ip_addr }}</span>
             </template>
@@ -94,10 +94,10 @@
               <span v-else class="text-muted">全局</span>
             </template>
           </el-table-column>
-          <el-table-column prop="username" label="用户名" min-width="120" sortable>
+          <el-table-column prop="username" label="用户名" min-width="120" show-overflow-tooltip sortable>
             <template slot-scope="scope">
               <span v-if="scope.row.username" class="bound-user">{{ userLabel(scope.row.username, scope.row.nickname)
-                }}</span>
+              }}</span>
               <span v-else class="text-muted">未绑定</span>
             </template>
           </el-table-column>

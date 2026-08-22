@@ -62,11 +62,11 @@
                     </span>
                 </template>
             </el-table-column>
-            <el-table-column prop="info" label="操作详情" min-width="200">
+            <el-table-column prop="info" label="操作详情" min-width="200" show-overflow-tooltip>
             </el-table-column>
             <el-table-column prop="created_at" label="操作时间" width="150" :formatter="tableDateFormat">
             </el-table-column>
-            <el-table-column prop="os" label="操作系统" min-width="210">
+            <el-table-column prop="os" label="操作系统" min-width="210" show-overflow-tooltip>
                 <template slot-scope="{ row }">
                     <span v-for="(value, item, index) in osOps" :key="index">
                         {{ row.os == item ? value : "" }}
@@ -77,7 +77,7 @@
                     </div>
                 </template>
             </el-table-column>
-            <el-table-column prop="client" label="客户端" width="150">
+            <el-table-column prop="client" label="客户端" width="150" show-overflow-tooltip>
                 <template slot-scope="{ row }">
                     <span v-for="(value, item, index) in clientOps" :key="index">
                         {{ row.client == item ? value : "" }}
@@ -85,9 +85,9 @@
                     <span v-if="row.version"> {{ row.version }} </span>
                 </template>
             </el-table-column>
-            <el-table-column prop="ip_addr" label="内网IP" width="120">
+            <el-table-column prop="ip_addr" label="内网IP" width="170" show-overflow-tooltip>
             </el-table-column>
-            <el-table-column prop="remote_addr" label="外网IP" width="120">
+            <el-table-column prop="remote_addr" label="外网IP" width="170" show-overflow-tooltip>
             </el-table-column>
         </el-table>
         <div class="sh-20"></div>

@@ -37,7 +37,7 @@
         <el-table :data="tableData" stripe highlight-current-row style="width:100%" border
           :header-cell-style="{ background: 'var(--bg-header)', color: 'var(--text-primary)', fontWeight: '600', fontSize: '13px' }">
           <el-table-column prop="id" label="ID" width="65" align="center" sortable></el-table-column>
-          <el-table-column prop="name" label="名称" min-width="150" sortable>
+          <el-table-column prop="name" label="名称" min-width="150" show-overflow-tooltip sortable>
             <template slot-scope="scope">
               <span class="provider-name">{{ scope.row.name }}</span>
             </template>

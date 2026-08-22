@@ -61,7 +61,7 @@
       <el-table ref="multipleTable" :data="tableData" border stripe highlight-current-row style="width:100%"
         :header-cell-style="{ background: 'var(--bg-header)', color: 'var(--text-primary)', fontWeight: '600', fontSize: '13px' }">
         <el-table-column sortable prop="id" label="ID" width="70" align="center"></el-table-column>
-        <el-table-column prop="name" label="策略名称" min-width="140" sortable>
+        <el-table-column prop="name" label="策略名称" min-width="140" show-overflow-tooltip sortable>
           <template slot-scope="scope">
             <div class="policy-name-cell">
               <span class="policy-name">{{ scope.row.name }}</span>

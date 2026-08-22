@@ -63,19 +63,19 @@
         <el-table-column prop="id" label="ID" sortable="custom" width="100">
         </el-table-column>
 
-        <el-table-column prop="username" label="用户名" width="140">
+        <el-table-column prop="username" label="用户名" min-width="130" show-overflow-tooltip>
           <template slot-scope="scope">
             {{ userLabel(scope.row.username, scope.row.nickname) }}
           </template>
         </el-table-column>
 
-        <el-table-column prop="group_name" label="用户组" width="100">
+        <el-table-column prop="group_name" label="用户组" min-width="110" show-overflow-tooltip>
         </el-table-column>
 
-        <el-table-column prop="src" label="源IP地址" width="140">
+        <el-table-column prop="src" label="源IP地址" width="180" show-overflow-tooltip>
         </el-table-column>
 
-        <el-table-column prop="dst" label="目的IP地址" width="140">
+        <el-table-column prop="dst" label="目的IP地址" width="180" show-overflow-tooltip>
         </el-table-column>
 
         <el-table-column prop="dst_port" label="目的端口" width="85">
@@ -84,7 +84,7 @@
         <el-table-column prop="access_proto" label="访问协议" width="80" :formatter="protoFormat">
         </el-table-column>
 
-        <el-table-column label="访问目标" min-width="240" :formatter="targetFormat">
+        <el-table-column label="访问目标" min-width="240" show-overflow-tooltip :formatter="targetFormat">
         </el-table-column>
 
         <el-table-column prop="created_at" label="创建时间" width="160" :formatter="tableDateFormat">

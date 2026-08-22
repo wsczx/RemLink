@@ -185,7 +185,7 @@
           <i class="el-icon-info"></i> 暂无备份文件，点击「创建备份」按钮进行备份
         </div>
         <el-table v-else :data="backups" size="small" class="backup-table">
-          <el-table-column prop="name" label="文件名" min-width="280" sortable />
+          <el-table-column prop="name" label="文件名" min-width="280" show-overflow-tooltip sortable />
           <el-table-column prop="type" label="类型" width="80" sortable>
             <template slot-scope="scope">
               <el-tag v-if="scope.row.type === 'full'" size="mini" type="primary">全量</el-tag>

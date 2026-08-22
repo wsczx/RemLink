@@ -37,8 +37,7 @@
         </el-table-column>
         <el-table-column prop="risk_level" label="风险" width="90" align="center" sortable>
           <template slot-scope="scope">
-            <el-tag
-              :type="scope.row.risk_level === 2 ? 'danger' : scope.row.risk_level === 1 ? 'warning' : 'info'"
+            <el-tag :type="scope.row.risk_level === 2 ? 'danger' : scope.row.risk_level === 1 ? 'warning' : 'info'"
               size="mini" effect="plain">
               {{ scope.row.risk_level === 2 ? '高危' : scope.row.risk_level === 1 ? '可疑' : '正常' }}
             </el-tag>
@@ -47,7 +46,7 @@
         <el-table-column prop="bytes_sent" label="字节数" width="110" align="right" sortable>
           <template slot-scope="scope">{{ formatBytes(scope.row.bytes_sent) }}</template>
         </el-table-column>
-        <el-table-column prop="client_ip" label="客户端 IP" width="140" sortable />
+        <el-table-column prop="client_ip" label="客户端 IP" width="180" show-overflow-tooltip sortable />
         <el-table-column prop="created_at" label="时间" width="170" sortable />
         <el-table-column label="操作" width="100" align="center" fixed="right">
           <template slot-scope="scope">
@@ -174,6 +173,7 @@ export default {
 /* 平板及更窄（含横屏 pad）：筛选行横向换行，字段自适应拉伸，
    避免日期选择器等固定宽度控件溢出挤掉其它控件 */
 @media (max-width: 1024px) {
+
   /* 标题与筛选栏上下排列，避免横屏下标题和一堆按钮挤在同一行 */
   .card-header {
     flex-direction: column;

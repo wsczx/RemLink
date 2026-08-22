@@ -32,14 +32,14 @@
           <el-tag size="small" type="primary" disable-transitions>{{ row.op_type }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="op_target" label="操作目标" min-width="150" sortable>
+      <el-table-column prop="op_target" label="操作目标" min-width="150" show-overflow-tooltip sortable>
         <template slot-scope="{ row }">
           <span v-if="row.op_target">{{ row.op_target }}</span>
           <span v-else style="color:var(--text-placeholder)">-</span>
         </template>
       </el-table-column>
-      <el-table-column prop="detail" label="详情" min-width="180" sortable></el-table-column>
-      <el-table-column prop="client_ip" label="操作IP" width="130" sortable></el-table-column>
+      <el-table-column prop="detail" label="详情" min-width="180" show-overflow-tooltip sortable></el-table-column>
+      <el-table-column prop="client_ip" label="操作IP" width="170" show-overflow-tooltip sortable></el-table-column>
       <el-table-column prop="created_at" label="操作时间" width="155" :formatter="tableDateFormat"
         sortable></el-table-column>
     </el-table>

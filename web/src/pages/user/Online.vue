@@ -64,7 +64,7 @@
         <el-table ref="multipleTable" :data="tableData" stripe highlight-current-row border style="width:100%"
           :header-cell-style="{ background: '#fafafa', color: '#303133', fontWeight: '600', fontSize: '13px' }">
           <el-table-column sortable type="index" label="#" width="50" align="center"></el-table-column>
-          <el-table-column prop="username" label="用户名" width="120" sortable>
+          <el-table-column prop="username" label="用户名" min-width="120" show-overflow-tooltip sortable>
             <template slot-scope="scope">
               <span class="online-username">{{ userLabel(scope.row.username, scope.row.nickname) }}</span>
             </template>
@@ -82,8 +82,8 @@
               <el-tag v-else type="info" size="mini" effect="plain">否</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="ip" label="IP地址" width="140" sortable></el-table-column>
-          <el-table-column prop="remote_addr" label="远端地址" width="140" show-overflow-tooltip sortable></el-table-column>
+          <el-table-column prop="ip" label="IP地址" width="180" show-overflow-tooltip sortable></el-table-column>
+          <el-table-column prop="remote_addr" label="远端地址" width="180" show-overflow-tooltip sortable></el-table-column>
           <el-table-column prop="transport_protocol" label="传输协议" width="90" align="center" sortable>
             <template slot-scope="scope">
               <el-tag size="mini" effect="plain" type="info">{{ scope.row.transport_protocol || '-' }}</el-tag>
@@ -91,7 +91,8 @@
           </el-table-column>
           <el-table-column label="客户端" width="80" align="center">
             <template slot-scope="scope">
-              <i v-if="scope.row.client === 'mobile'" class="el-icon-mobile-phone client-mobile" :title="clientLabel(scope.row)"></i>
+              <i v-if="scope.row.client === 'mobile'" class="el-icon-mobile-phone client-mobile"
+                :title="clientLabel(scope.row)"></i>
               <i v-else class="el-icon-s-platform client-desktop" :title="clientLabel(scope.row)"></i>
             </template>
           </el-table-column>
@@ -122,12 +123,12 @@
                 <span class="quota-divider">/</span>
                 <span class="quota-total">{{ scope.row.traffic_quota }}</span>
                 <span class="quota-reset" v-if="scope.row.traffic_reset">{{ resetLabel(scope.row.traffic_reset)
-                }}</span>
+                  }}</span>
               </span>
               <span v-else class="text-muted">不限</span>
             </template>
           </el-table-column>
-          <el-table-column prop="last_login" label="登录时间" :formatter="tableDateFormat" min-width="165"
+          <el-table-column prop="last_login" label="登录时间" :formatter="tableDateFormat" width="165"
             sortable></el-table-column>
           <el-table-column label="操作" width="120" class-name="col-ops" min-width="120" align="center">
             <template slot-scope="scope">

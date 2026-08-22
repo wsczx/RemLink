@@ -102,14 +102,14 @@
               <el-tag v-else size="small" effect="plain">{{ scope.row.type }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="username" label="用户名" min-width="120">
+          <el-table-column prop="username" label="用户名" min-width="120" show-overflow-tooltip>
             <template slot-scope="scope">
               <span class="user-name">{{ userLabel(scope.row.username, scope.row.nickname) }}</span>
             </template>
           </el-table-column>
           <el-table-column prop="email" label="邮箱" min-width="160" show-overflow-tooltip></el-table-column>
           <el-table-column prop="phone" label="手机号" width="140" show-overflow-tooltip></el-table-column>
-          <el-table-column prop="otp_secret" label="OTP" width="90" align="center">
+          <el-table-column prop="otp_secret" label="OTP" width="110" align="center">
             <template slot-scope="scope">
               <el-button v-if="!scope.row.disable_otp && scope.row.otp_secret" type="text" size="mini"
                 @click="getOtpImg(scope.row)">
@@ -120,11 +120,11 @@
               <span v-else class="text-muted">-</span>
             </template>
           </el-table-column>
-          <el-table-column prop="groups" label="用户组" width="140">
+          <el-table-column prop="groups" label="用户组" min-width="150" show-overflow-tooltip>
             <template slot-scope="scope">
               <div v-if="scope.row.groups && scope.row.groups.length" class="group-tags">
                 <el-tag v-for="g in scope.row.groups" :key="g" size="mini" effect="plain" class="group-tag">{{ g
-                  }}</el-tag>
+                }}</el-tag>
               </div>
               <span v-else class="text-muted">-</span>
             </template>
@@ -142,7 +142,7 @@
           <el-table-column label="已用流量" width="120" align="center">
             <template slot-scope="scope">
               <span v-if="scope.row.traffic_used > 0" class="traffic-used">{{ formatTraffic(scope.row.traffic_used)
-                }}</span>
+              }}</span>
               <span v-else class="text-muted">-</span>
             </template>
           </el-table-column>
