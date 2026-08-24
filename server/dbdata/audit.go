@@ -22,6 +22,9 @@ func GetAuditSession(values url.Values) *xorm.Session {
 	if v := values.Get("search[dst]"); v != "" {
 		session.And("dst = ?", v)
 	}
+	if v := values.Get("search[src_port]"); v != "" {
+		session.And("src_port = ?", v)
+	}
 	if v := values.Get("search[dst_port]"); v != "" {
 		session.And("dst_port = ?", v)
 	}

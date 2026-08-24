@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"net"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/songgao/water/waterutil"
@@ -20,6 +21,11 @@ const (
 	acc_proto_https
 	acc_proto_http
 	acc_proto_dns
+	acc_proto_ssh
+	acc_proto_ftp
+	acc_proto_smtp
+	acc_proto_imap
+	acc_proto_pop3
 )
 
 var (
@@ -31,12 +37,76 @@ var (
 type AuditPayload struct {
 	Pool       *utils.WorkerPool
 	IpAuditMap utils.IMaps
+	TCPStreams *tcpStreamCache
 }
 
 // 保存审计日志
 type LogBatch struct {
 	Logs    []dbdata.AccessAudit
 	LogChan chan dbdata.AccessAudit
+}
+
+type accessAuditMergeKey struct {
+	Username  string
+	GroupName string
+	Protocol  uint8
+	Src       string
+	Dst       string
+	SrcPort   uint16
+	DstPort   uint16
+}
+
+func accessAuditKey(audit dbdata.AccessAudit) accessAuditMergeKey {
+	return accessAuditMergeKey{
+		Username:  audit.Username,
+		GroupName: audit.GroupName,
+		Protocol:  audit.Protocol,
+		Src:       audit.Src,
+		Dst:       audit.Dst,
+		SrcPort:   audit.SrcPort,
+		DstPort:   audit.DstPort,
+	}
+}
+
+func isRawAccessProto(proto uint8) bool {
+	return proto == acc_proto_tcp || proto == acc_proto_udp
+}
+
+func accessAuditDedupKey(username, groupName string, key []byte) string {
+	result := make([]byte, 4+len(username)+4+len(groupName)+len(key))
+	offset := 0
+	binary.BigEndian.PutUint32(result[offset:offset+4], uint32(len(username)))
+	offset += 4
+	offset += copy(result[offset:], username)
+	binary.BigEndian.PutUint32(result[offset:offset+4], uint32(len(groupName)))
+	offset += 4
+	offset += copy(result[offset:], groupName)
+	copy(result[offset:], key)
+	return utils.BytesToString(result)
+}
+
+// 合并同一批次内先产生的 TCP/UDP 占位记录。
+// 应用协议识别出来后，用 HTTP/HTTPS/DNS 记录替换占位记录；不同域名的应用记录不合并。
+func (l *LogBatch) appendAudit(incoming dbdata.AccessAudit) {
+	key := accessAuditKey(incoming)
+	for i := range l.Logs {
+		current := &l.Logs[i]
+		if accessAuditKey(*current) != key {
+			continue
+		}
+		if isRawAccessProto(current.AccessProto) && !isRawAccessProto(incoming.AccessProto) {
+			*current = incoming
+			return
+		}
+		if !isRawAccessProto(current.AccessProto) && isRawAccessProto(incoming.AccessProto) {
+			return
+		}
+		if current.AccessProto == incoming.AccessProto &&
+			strings.EqualFold(current.Info, incoming.Info) {
+			return
+		}
+	}
+	l.Logs = append(l.Logs, incoming)
 }
 
 // 异步写入pool
@@ -59,6 +129,8 @@ func (l *LogBatch) Write() {
 	err := dbdata.AddBatch(l.Logs)
 	if err != nil {
 		base.Error("AccessAudit: 批量写入失败:", err)
+		l.Reset()
+		return
 	}
 	l.Reset()
 }
@@ -76,13 +148,15 @@ func logAuditBatch() {
 	auditPayload = &AuditPayload{
 		Pool:       utils.NewWorkerPool(10, 10240),
 		IpAuditMap: utils.NewMap("cmap", 0),
+		TCPStreams: newTCPStreamCache(),
 	}
 	logBatch = &LogBatch{
 		LogChan: make(chan dbdata.AccessAudit, 10240),
 	}
 
-	// 启动定期清理过期审计去重条目（每 5 分钟）
+	// 启动定期清理过期审计去重条目和闲置 TCP 流
 	go auditMapCleanupLoop()
+	go tcpStreamCleanupLoop()
 
 	var (
 		limit       = 100 // 超过上限批量写入数据表
@@ -95,7 +169,7 @@ func logAuditBatch() {
 		outTime.Reset(time.Second * 1)
 		select {
 		case accessAudit = <-logBatch.LogChan:
-			logBatch.Logs = append(logBatch.Logs, accessAudit)
+			logBatch.appendAudit(accessAudit)
 			if len(logBatch.Logs) >= limit {
 				if !outTime.Stop() {
 					<-outTime.C
@@ -127,7 +201,7 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 	// 按 IP 版本提取五元组（v4/v6 统一审计口径；v6 复用 parseV6Header）
 	var ipProto waterutil.IPProtocol
 	var ipSrc, ipDst net.IP
-	var ipPort uint16
+	var ipSrcPort, ipPort uint16
 
 	var tcpSeg []byte // TCP 段（含 TCP 头，不含 IP 头），供域名提取使用
 	var udpSeg []byte // UDP 负载，供 DNS 域名提取使用
@@ -142,8 +216,13 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 			base.Error("ipPl len < 4", ipPl, pl.Data)
 			return
 		}
-		_ = (uint16(ipPl[0]) << 8) | uint16(ipPl[1]) // srcPort: 审计不记录
-		ipPort = (uint16(ipPl[2]) << 8) | uint16(ipPl[3])
+		// IPv4 非首片不包含 TCP/UDP 头，不能把载荷前四字节误当作端口。
+		fragmentOffset := binary.BigEndian.Uint16(pl.Data[6:8]) & 0x1fff
+		if fragmentOffset != 0 {
+			return
+		}
+		ipSrcPort = binary.BigEndian.Uint16(ipPl[:2])
+		ipPort = binary.BigEndian.Uint16(ipPl[2:4])
 		// 用 IP 总长度字段更稳妥地定位上层负载
 		ipTotalLen := min(int(binary.BigEndian.Uint16(pl.Data[2:4])), len(pl.Data))
 		switch ipProto {
@@ -170,13 +249,21 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 		if info.Proto != 6 && info.Proto != 17 {
 			return // 非 TCP/UDP 不审计（与 v4 一致）
 		}
+		ipSrcPort = info.SrcPort
 		ipPort = info.DstPort
 		if info.L4Off < len(pl.Data) {
+			l4Data := pl.Data[info.L4Off:info.PacketEnd]
+			if info.IsFragment {
+				if info.FragmentOffset != 0 {
+					return // 非首片没有端口信息，保守跳过应用层审计
+				}
+				// 首片可能只包含分片后的部分上层数据，仍仅做有限识别。
+			}
 			switch info.Proto {
 			case 6:
-				tcpSeg = pl.Data[info.L4Off:]
+				tcpSeg = l4Data
 			case 17:
-				udpSeg = pl.Data[info.L4Off:]
+				udpSeg = l4Data
 			}
 		}
 	default:
@@ -195,21 +282,32 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 		return
 	}
 	b := getByte51()
-	// key格式 16字节源IP地址 + 16字节目的IP地址 + 2字节目的端口 + 1字节协议类型 + 16字节域名MD5
+	// key格式 16字节源IP地址 + 16字节目的IP地址 + 源/目的端口 + 1字节协议类型 + 16字节域名MD5
 	key := *b
 	copy(key[:16], ipSrc)
 	copy(key[16:32], ipDst)
-	binary.BigEndian.PutUint16(key[32:34], ipPort)
-	key[34] = byte(accessProto)
-	copy(key[35:51], []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+	binary.BigEndian.PutUint16(key[32:34], ipSrcPort)
+	binary.BigEndian.PutUint16(key[34:36], ipPort)
+	key[36] = byte(accessProto)
+	clear(key[37:53])
 
 	info := ""
-	nu := utils.NowSec().Unix()
+	now := utils.NowSec()
+	nu := now.Unix()
+	interval := int64(base.GetCfg().AuditInterval)
 
 	// 域名提取：TCP 走 SNI/HTTP；目的端口 53 的 UDP 走 DNS Question。
-	if accessProto == acc_proto_tcp && len(tcpSeg) >= 14 {
-		// 仅首包（PSH+ACK）尝试解析，避免每包都解析
-		if tcpSeg[13]&0x18 == 0x18 {
+	if accessProto == acc_proto_tcp && len(tcpSeg) >= 20 {
+		if auditPayload.TCPStreams != nil {
+			streamKey := tcpStreamKey{
+				Username: userName, GroupName: groupName, Protocol: uint8(ipProto),
+				Src: ipSrc.String(), Dst: ipDst.String(), SrcPort: ipSrcPort, DstPort: ipPort,
+			}
+			accessProto, info, _ = auditPayload.TCPStreams.add(streamKey, tcpSeg, time.Now())
+			if tcpSeg[13]&0x05 != 0 { // FIN 或 RST：连接结束后立即释放正反向缓存
+				auditPayload.TCPStreams.close(streamKey)
+			}
+		} else {
 			accessProto, info = onTCP(tcpSeg)
 		}
 	} else if accessProto == acc_proto_udp && ipPort == 53 && len(udpSeg) >= 12 {
@@ -228,8 +326,8 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 	}
 
 	// 任何命中域名的记录：把"仅 IP"的去重键提前占位，避免既记域名又记一笔裸 IP。
-	if info != "" {
-		ipKey := make([]byte, 51)
+	if info != "" && interval > 0 {
+		ipKey := make([]byte, 53)
 		copy(ipKey, key)
 		// 占位键使用域名所依赖的底层传输协议：HTTPS/HTTP→TCP，DNS→UDP，FakeDNS 兜底保持当前协议
 		placeholderProto := accessProto
@@ -239,26 +337,26 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 		case acc_proto_dns:
 			placeholderProto = acc_proto_udp
 		}
-		ipKey[34] = byte(placeholderProto)
-		ipS := utils.BytesToString(ipKey)
+		ipKey[36] = byte(placeholderProto)
+		ipS := accessAuditDedupKey(userName, groupName, ipKey)
 		auditPayload.IpAuditMap.Set(ipS, nu)
 
-		key[34] = byte(accessProto)
+		key[36] = byte(accessProto)
 		// 存储含域名的key
 		md5Sum := md5.Sum([]byte(info))
-		copy(key[35:51], md5Sum[:])
+		copy(key[37:53], md5Sum[:])
 	}
-	s := utils.BytesToString(key)
+	s := accessAuditDedupKey(userName, groupName, key)
 
-	// 判断已经存在，并且没有过期
-	v, ok := auditPayload.IpAuditMap.Get(s)
-	if ok && nu-v.(int64) < int64(base.GetCfg().AuditInterval) {
-		// 回收byte对象
-		putByte51(b)
-		return
+	// audit_interval=0 表示不去重，也不维护去重 Map。
+	if interval > 0 {
+		v, ok := auditPayload.IpAuditMap.Get(s)
+		if ok && nu-v.(int64) < interval {
+			putByte51(b)
+			return
+		}
+		auditPayload.IpAuditMap.Set(s, nu)
 	}
-
-	auditPayload.IpAuditMap.Set(s, nu)
 
 	audit := dbdata.AccessAudit{
 		Username:    userName,
@@ -266,6 +364,7 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 		Protocol:    uint8(ipProto),
 		Src:         ipSrc.String(),
 		Dst:         ipDst.String(),
+		SrcPort:     ipSrcPort,
 		DstPort:     ipPort,
 		CreatedAt:   utils.NowSec(),
 		AccessProto: accessProto,
@@ -276,6 +375,18 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 	default:
 		base.Error("AccessAudit: LogChan channel is full")
 		return
+	}
+}
+
+// 定期清理闲置 TCP 流，避免依赖后续数据包触发回收。
+func tcpStreamCleanupLoop() {
+	ticker := time.NewTicker(tcpStreamIdleExpiry / 2)
+	defer ticker.Stop()
+	for range ticker.C {
+		if auditPayload == nil || auditPayload.TCPStreams == nil {
+			return
+		}
+		auditPayload.TCPStreams.cleanup(time.Now())
 	}
 }
 

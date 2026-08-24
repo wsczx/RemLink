@@ -90,10 +90,10 @@ type BufferPool struct {
 	sync.Pool
 }
 
-// 长度 51 小对象
+// 审计去重键小对象
 var byte51Pool = sync.Pool{
 	New: func() any {
-		b := make([]byte, 51)
+		b := make([]byte, 53)
 		return &b
 	},
 }
@@ -104,6 +104,6 @@ func getByte51() *[]byte {
 }
 
 func putByte51(b *[]byte) {
-	*b = (*b)[:51]
+	*b = (*b)[:53]
 	byte51Pool.Put(b)
 }

@@ -148,7 +148,7 @@
         <el-tab-pane name="dataAuditLog">
           <span slot="label"><i class="el-icon-document-copy"></i> 审计日志</span>
           <el-form :model="dataAuditLog" ref="dataAuditLog" :rules="rules" label-width="100px" class="tab-one">
-            <el-alert title="审计去重间隔(audit_interval)请在「软件配置」页面修改，修改后即时生效无需重启" type="info" :closable="false" show-icon
+            <el-alert title="审计去重间隔(audit_interval)请在「软件配置」页面修改：0 表示不去重，-1 表示关闭异步审计；修改后即时生效无需重启" type="info" :closable="false" show-icon
               style="margin-bottom: 14px">
             </el-alert>
             <el-form-item label="存储时长" prop="life_day">

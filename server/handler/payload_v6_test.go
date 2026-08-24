@@ -15,6 +15,7 @@ import (
 func buildV6Packet(nextHeader uint8, src, dst net.IP, payloadLen int) []byte {
 	data := make([]byte, 40+payloadLen)
 	data[0] = 0x60 // 版本=6
+	binary.BigEndian.PutUint16(data[4:6], uint16(payloadLen))
 	data[6] = nextHeader
 	copy(data[8:24], src.To16())
 	copy(data[24:40], dst.To16())
@@ -76,6 +77,7 @@ func TestParseV6Header_ICMPv6(t *testing.T) {
 func TestParseV6Header_WithHopByHop(t *testing.T) {
 	pkt := make([]byte, 40+8+20)
 	pkt[0] = 0x60
+	binary.BigEndian.PutUint16(pkt[4:6], 28)
 	pkt[6] = 0 // Hop-by-Hop
 	pkt[40] = 6
 	pkt[41] = 0 // Hdr Ext Len = 0
@@ -97,6 +99,7 @@ func TestParseV6Header_WithHopByHop(t *testing.T) {
 func TestParseV6Header_WithFragment(t *testing.T) {
 	pkt := make([]byte, 40+8+20)
 	pkt[0] = 0x60
+	binary.BigEndian.PutUint16(pkt[4:6], 28)
 	pkt[6] = 44 // Fragment
 	pkt[40] = 6 // next header inside fragment header
 	binary.BigEndian.PutUint16(pkt[48:50], 3333)
@@ -111,6 +114,29 @@ func TestParseV6Header_WithFragment(t *testing.T) {
 	}
 	if info.SrcPort != 3333 || info.DstPort != 4444 {
 		t.Errorf("ports = %d/%d, want 3333/4444", info.SrcPort, info.DstPort)
+	}
+}
+
+func TestParseV6Header_RejectsTruncatedPayload(t *testing.T) {
+	pkt := make([]byte, 40+8)
+	pkt[0] = 0x60
+	binary.BigEndian.PutUint16(pkt[4:6], 20)
+	pkt[6] = 17
+	if _, ok := parseV6Header(pkt); ok {
+		t.Fatal("expected false for payload shorter than declared length")
+	}
+}
+
+func TestParseV6Header_RejectsNonInitialFragment(t *testing.T) {
+	pkt := make([]byte, 40+8+20)
+	pkt[0] = 0x60
+	binary.BigEndian.PutUint16(pkt[4:6], 28)
+	pkt[6] = 44
+	pkt[40] = 6
+	binary.BigEndian.PutUint16(pkt[42:44], 8) // fragment offset=1
+	info, ok := parseV6Header(pkt)
+	if !ok || !info.IsFragment || info.FragmentOffset == 0 || info.SrcPort != 0 || info.DstPort != 0 {
+		t.Fatalf("expected non-initial fragment metadata without ports: %+v, ok=%v", info, ok)
 	}
 }
 

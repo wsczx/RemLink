@@ -25,6 +25,7 @@ func TestSearchAudit(t *testing.T) {
 		Username:    user.Username,
 		Protocol:    6,
 		Src:         "10.10.1.5",
+		SrcPort:     54321,
 		Dst:         "172.217.160.68",
 		DstPort:     80,
 		AccessProto: 4,
@@ -39,6 +40,7 @@ func TestSearchAudit(t *testing.T) {
 	values.Set("search[username]", user.Nickname)
 	values.Set("search[src]", dataTest.Src)
 	values.Set("search[dst]", dataTest.Dst)
+	values.Set("search[src_port]", fmt.Sprintf("%d", dataTest.SrcPort))
 	values.Set("search[dst_port]", fmt.Sprintf("%d", dataTest.DstPort))
 	values.Set("search[access_proto]", fmt.Sprintf("%d", dataTest.AccessProto))
 	values.Set("search[info]", dataTest.Info)

@@ -17,8 +17,12 @@
         <el-input size="mini" v-model="searchForm.dst" clearable placeholder="目的IP" style="width: 130px"
           @keydown.enter.native="searchEnterFun"></el-input>
       </el-form-item>
+      <el-form-item prop="src_port">
+        <el-input size="mini" v-model="searchForm.src_port" clearable placeholder="源端口" style="width: 90px"
+          @keydown.enter.native="searchEnterFun"></el-input>
+      </el-form-item>
       <el-form-item prop="dst_port">
-        <el-input size="mini" v-model="searchForm.dst_port" clearable placeholder="目的端口" style="width: 80px"
+        <el-input size="mini" v-model="searchForm.dst_port" clearable placeholder="目的端口" style="width: 95px"
           @keydown.enter.native="searchEnterFun"></el-input>
       </el-form-item>
       <el-form-item prop="access_proto">
@@ -75,6 +79,9 @@
         <el-table-column prop="src" label="源IP地址" width="180" show-overflow-tooltip>
         </el-table-column>
 
+        <el-table-column prop="src_port" label="源端口" width="85">
+        </el-table-column>
+
         <el-table-column prop="dst" label="目的IP地址" width="180" show-overflow-tooltip>
         </el-table-column>
 
@@ -114,8 +121,8 @@ export default {
       currentPage: 1,
       idSort: 1,
       activeName: "first",
-      accessProtoArr: ["", "UDP", "TCP", "HTTPS", "HTTP", "DNS"],
-      defSearchForm: { username: '', group_name: '', src: '', dst: '', dst_port: '', access_proto: '', info: '', date: ["", ""] },
+      accessProtoArr: ["", "UDP", "TCP", "HTTPS", "HTTP", "DNS", "SSH", "FTP", "SMTP", "IMAP", "POP3"],
+      defSearchForm: { username: '', group_name: '', src: '', dst: '', src_port: '', dst_port: '', access_proto: '', info: '', date: ["", ""] },
       searchForm: {},
       access_proto: [
         { text: 'UDP', value: '1' },
@@ -123,6 +130,11 @@ export default {
         { text: 'HTTPS', value: '3' },
         { text: 'HTTP', value: '4' },
         { text: 'DNS', value: '5' },
+        { text: 'SSH', value: '6' },
+        { text: 'FTP', value: '7' },
+        { text: 'SMTP', value: '8' },
+        { text: 'IMAP', value: '9' },
+        { text: 'POP3', value: '10' },
       ],
       maxExportNum: 1000000,
       loading: false,
@@ -261,12 +273,19 @@ export default {
       }
       return this.accessProtoArr[access_proto]
     },
+    endpointFormat(address, port) {
+      if (!address) {
+        return port ? ":" + port : ""
+      }
+      const host = address.includes(":") ? "[" + address + "]" : address
+      return port ? host + ":" + port : host
+    },
     targetFormat(row) {
       // 域名优先；无域名时回退为 IP:端口
       if (row.info && row.info !== "") {
         return row.info
       }
-      return row.dst + (row.dst_port ? (":" + row.dst_port) : "")
+      return this.endpointFormat(row.dst, row.dst_port)
     },
     rest() {
       this.setSearchData();
@@ -275,14 +294,33 @@ export default {
     validateIP(rule, value, callback) {
       if (value === '' || typeof value === 'undefined' || value == null) {
         callback()
-      } else {
-        const reg = /^(\d{1,2}|1\d\d|2[0-4]\d|25[0-5])\.(\d{1,2}|1\d\d|2[0-4]\d|25[0-5])\.(\d{1,2}|1\d\d|2[0-4]\d|25[0-5])\.(\d{1,2}|1\d\d|2[0-4]\d|25[0-5])$/
-        if ((!reg.test(value)) && value !== '') {
-          callback(new Error('请输入正确的IP地址'))
-        } else {
-          callback()
-        }
+        return
       }
+      const ipv4 = /^(\d{1,2}|1\d\d|2[0-4]\d|25[0-5])\.(\d{1,2}|1\d\d|2[0-4]\d|25[0-5])\.(\d{1,2}|1\d\d|2[0-4]\d|25[0-5])\.(\d{1,2}|1\d\d|2[0-4]\d|25[0-5])$/
+      const ipv6 = this.isValidIPv6(value)
+      if (!ipv4.test(value) && !ipv6) {
+        callback(new Error('请输入正确的IP地址'))
+        return
+      }
+      callback()
+    },
+    isValidIPv6(value) {
+      if (!value.includes(':') || !/^[0-9a-fA-F:]+$/.test(value)) {
+        return false
+      }
+      if ((value.match(/::/g) || []).length > 1) {
+        return false
+      }
+      const compressed = value.includes('::')
+      const parts = value.split(':')
+      const nonEmpty = parts.filter(Boolean)
+      if (nonEmpty.some(part => part.length > 4)) {
+        return false
+      }
+      if (compressed) {
+        return nonEmpty.length < 8
+      }
+      return parts.length === 8 && nonEmpty.length === 8
     },
     sortChange(column) {
       let { order } = column;

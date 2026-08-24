@@ -3,6 +3,7 @@ package admin
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gocarina/gocsv"
 	"github.com/wsczx/remlink/dbdata"
@@ -45,7 +46,22 @@ func SetAuditList(w http.ResponseWriter, r *http.Request) {
 	RespSucess(w, data)
 }
 
+type accessAuditExportRow struct {
+	ID             int       `csv:"ID"`
+	Username       string    `csv:"用户名"`
+	GroupName      string    `csv:"用户组"`
+	SourceIP       string    `csv:"源IP地址"`
+	SourcePort     uint16    `csv:"源端口"`
+	TargetIP       string    `csv:"目的IP地址"`
+	TargetPort     uint16    `csv:"目的端口"`
+	IPProtocol     string    `csv:"IP协议"`
+	AccessProtocol string    `csv:"访问协议"`
+	Info           string    `csv:"访问详情"`
+	CreatedAt      time.Time `csv:"创建时间"`
+}
+
 func SetAuditExport(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
 	var datas []dbdata.AccessAudit
 	maxNum := 1000000
 	session := dbdata.GetAuditSession(r.Form)
@@ -63,8 +79,53 @@ func SetAuditExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dbdata.AdminLog("系统设置", "审计日志导出", "导出了访问审计日志("+r.FormValue("search")+")", r.RemoteAddr)
-	gocsv.Marshal(datas, w)
+	rows := make([]accessAuditExportRow, 0, len(datas))
+	for _, audit := range datas {
+		rows = append(rows, accessAuditExportRow{
+			ID:             audit.Id,
+			Username:       audit.Username,
+			GroupName:      audit.GroupName,
+			SourceIP:       audit.Src,
+			SourcePort:     audit.SrcPort,
+			TargetIP:       audit.Dst,
+			TargetPort:     audit.DstPort,
+			IPProtocol:     auditIPProtocolName(audit.Protocol),
+			AccessProtocol: auditAccessProtocolName(audit.Protocol, audit.AccessProto),
+			Info:           audit.Info,
+			CreatedAt:      audit.CreatedAt,
+		})
+	}
+	if err := gocsv.Marshal(rows, w); err != nil {
+		return
+	}
 
+}
+
+func auditIPProtocolName(protocol uint8) string {
+	switch protocol {
+	case 6:
+		return "TCP"
+	case 17:
+		return "UDP"
+	default:
+		return strconv.Itoa(int(protocol))
+	}
+}
+
+func auditAccessProtocolName(protocol, accessProto uint8) string {
+	if accessProto == 0 {
+		switch protocol {
+		case 6:
+			return "TCP"
+		case 17:
+			return "UDP"
+		}
+	}
+	protocolNames := [...]string{"", "UDP", "TCP", "HTTPS", "HTTP", "DNS", "SSH", "FTP", "SMTP", "IMAP", "POP3"}
+	if int(accessProto) < len(protocolNames) {
+		return protocolNames[accessProto]
+	}
+	return strconv.Itoa(int(accessProto))
 }
 
 func UserActLogList(w http.ResponseWriter, r *http.Request) {

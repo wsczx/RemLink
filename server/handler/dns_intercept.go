@@ -63,13 +63,13 @@ func interceptDNS(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 		if !ok || info.Proto != 17 { // 只处理 UDP
 			return false
 		}
-		if len(pl.Data) < info.L4Off+8 {
+		if info.PacketEnd < info.L4Off+8 {
 			return false
 		}
 		v6Info, isV6 = info, true
 		ipDst = info.Dst
 		ipPort = info.DstPort
-		dnsData = pl.Data[info.L4Off+8:]
+		dnsData = pl.Data[info.L4Off+8 : info.PacketEnd]
 	default:
 		return false
 	}
