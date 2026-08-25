@@ -8,7 +8,7 @@ cd "$SCRIPT_DIR/.."
 
 rm -rf web/ui server/ui
 
-docker run --rm -v $PWD/web:/app -v /data/remlink_node_modules:/app/node_modules -w /app node:16-alpine \
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/web:/app" -v "$PWD/web/node_modules:/app/node_modules" -w /app node:16-alpine \
   sh -c "yarn install --registry=https://registry.npmmirror.com && yarn run build"
 
 cp -r web/ui/. server/ui/
