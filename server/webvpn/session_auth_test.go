@@ -187,17 +187,15 @@ func TestExchangeGrantConcurrentConsume(t *testing.T) {
 	start := make(chan struct{})
 	results := make(chan bool, workers)
 	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range workers {
+		wg.Go(func() {
 			<-start
 			r := httptest.NewRequest(http.MethodGet, "https://app.wv.example.com/", nil)
 			r.AddCookie(&http.Cookie{Name: "portal_session", Value: portalToken})
 			r.AddCookie(grant)
 			_, _, ok := m.Session().ExchangeGrant(httptest.NewRecorder(), r)
 			results <- ok
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

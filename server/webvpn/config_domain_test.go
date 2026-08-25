@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/wsczx/remlink/base"
+	"github.com/wsczx/remlink/dbdata"
 )
 
 //   - portal_session：精确 host（Domain=""，不跨子域）
@@ -20,6 +21,7 @@ func TestBase2Domain(t *testing.T) {
 	ast.Equal("example.com", base2Domain("a.b.wv.example.com"))
 	ast.Equal("example.com", base2Domain("Wv.Example.COM"))
 	ast.Equal("example.com", base2Domain("wv.example.com:8443"))
+	ast.Equal("example.co.uk", base2Domain("wv.example.co.uk"))
 	// 单段主机（如 localhost）原样返回
 	ast.Equal("localhost", base2Domain("localhost"))
 	// 空输入
@@ -37,6 +39,7 @@ func TestCookieDomain(t *testing.T) {
 	// 子域、根域本身、带端口 → 通配 .example.com
 	ast.Equal(".example.com", CookieDomain("app.wv.example.com"))
 	ast.Equal(".example.com", CookieDomain("wv.example.com"))
+	ast.Equal(".example.com", CookieDomain("APP.WV.EXAMPLE.COM:8443."))
 	ast.Equal(".example.com", CookieDomain("app.wv.example.com:8443"))
 
 	// 其他注册域 → 精确 host（""），避免跨域污染
@@ -61,4 +64,33 @@ func TestWildcardDomain(t *testing.T) {
 
 	base.UpdateCfg(func(c *base.ServerConfig) { c.WebVpnDomain = "" })
 	ast.Equal("", wildcardDomain())
+}
+
+func TestPathAllowedBoundaries(t *testing.T) {
+	ast := assert.New(t)
+	ast.True(pathAllowed("/admin", "/admin"))
+	ast.True(pathAllowed("/admin/users", "/admin/"))
+	ast.False(pathAllowed("/administrator", "/admin"))
+	ast.True(pathAllowed("/anything", "/"))
+}
+
+func TestParseWebVpnBackendURL(t *testing.T) {
+	ast := assert.New(t)
+	for _, raw := range []string{
+		"http://10.0.0.8:8080/app",
+		"https://[fd00::8]/",
+	} {
+		_, err := dbdata.ParseWebVpnBackendURL(raw)
+		ast.NoError(err, raw)
+	}
+	for _, raw := range []string{
+		"10.0.0.8:8080",
+		"ftp://10.0.0.8/",
+		"http://user:pass@10.0.0.8/",
+		"http://10.0.0.8/?token=secret",
+		"http://",
+	} {
+		_, err := dbdata.ParseWebVpnBackendURL(raw)
+		ast.Error(err, raw)
+	}
 }

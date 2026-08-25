@@ -73,6 +73,9 @@ func WebVpnAppDetail(w http.ResponseWriter, r *http.Request) {
 	if data.IpAllowList == nil {
 		data.IpAllowList = []string{}
 	}
+	if data.CorsAllowedOrigins == nil {
+		data.CorsAllowedOrigins = []string{}
+	}
 
 	RespSucess(w, data)
 }
@@ -176,7 +179,10 @@ func WebVpnSessionKick(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespParamErr, "用户名不能为空")
 		return
 	}
-	dbdata.WebVpnRevokeUser(req.Username)
+	if err := dbdata.WebVpnRevokeUser(req.Username); err != nil {
+		RespError(w, RespInternalErr, err)
+		return
+	}
 	dbdata.AdminLog("WebVPN应用管理", req.Username, "踢出了该用户的所有WebVPN会话", r.RemoteAddr)
 	RespSucess(w, nil)
 }

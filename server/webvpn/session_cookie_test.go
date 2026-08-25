@@ -36,6 +36,7 @@ func TestIssueSessionCookieDomain(t *testing.T) {
 	require.NotNil(t, m)
 
 	r := httptest.NewRequest(http.MethodGet, "https://app.wv.example.com/", nil)
+	r = WithCrossSiteCookie(r, true)
 	w := httptest.NewRecorder()
 
 	g, err := m.Session().Issue(w, r, &dbdata.User{Username: "alice"}, time.Now().Unix())
@@ -48,6 +49,20 @@ func TestIssueSessionCookieDomain(t *testing.T) {
 	assert.Equal(t, "/", ck.Path)
 	assert.True(t, ck.HttpOnly)
 	assert.True(t, ck.Secure)
+	assert.Equal(t, http.SameSiteNoneMode, ck.SameSite)
+}
+
+func TestIssueSessionCookieDefaultsToLax(t *testing.T) {
+	setupCookieTest(t)
+	m := GetManager()
+	r := httptest.NewRequest(http.MethodGet, "https://app.wv.example.com/", nil)
+	w := httptest.NewRecorder()
+
+	_, err := m.Session().Issue(w, r, &dbdata.User{Username: "alice"}, time.Now().Unix())
+	require.NoError(t, err)
+	ck := findCookie(t, w, sessionCookieName)
+	require.NotNil(t, ck)
+	assert.Equal(t, http.SameSiteLaxMode, ck.SameSite)
 }
 
 func TestIssueGrantCookieDomain(t *testing.T) {
@@ -67,6 +82,7 @@ func TestIssueGrantCookieDomain(t *testing.T) {
 	assert.Equal(t, "example.com", ck.Domain, "grant 必须通配，否则门户子域拿不到授权")
 	assert.True(t, ck.HttpOnly)
 	assert.True(t, ck.Secure)
+	assert.Equal(t, http.SameSiteLaxMode, ck.SameSite)
 }
 
 func TestClearGrantCookieDomain(t *testing.T) {
@@ -90,6 +106,7 @@ func TestClearSessionCookieDomain(t *testing.T) {
 	require.NotNil(t, m)
 
 	r := httptest.NewRequest(http.MethodGet, "https://app.wv.example.com/", nil)
+	r = WithCrossSiteCookie(r, true)
 	w := httptest.NewRecorder()
 
 	m.Session().ClearCookie(w, r)
@@ -97,6 +114,7 @@ func TestClearSessionCookieDomain(t *testing.T) {
 	require.NotNil(t, ck)
 	assert.Equal(t, "example.com", ck.Domain)
 	assert.Equal(t, -1, ck.MaxAge)
+	assert.Equal(t, http.SameSiteNoneMode, ck.SameSite)
 }
 
 func TestClearSessionCookieOnIP(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/wsczx/remlink/base"
+	"golang.org/x/net/publicsuffix"
 )
 
 const sessionCookieName = "webvpn_session"
@@ -22,18 +23,16 @@ func stripPort(host string) string {
 	return host
 }
 
-// 返回注册域的最后两段（如 example.com）。
+// 返回域名的注册域，使用公共后缀规则处理 example.co.uk 等多级后缀。
 func base2Domain(domain string) string {
-	domain = strings.ToLower(strings.TrimSpace(domain))
-	domain = stripPort(domain)
-	if domain == "" {
-		return ""
-	}
-	parts := strings.Split(strings.TrimSuffix(domain, "."), ".")
-	if len(parts) < 2 {
+	domain = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(stripPort(domain)), "."))
+	if domain == "" || net.ParseIP(domain) != nil || !strings.Contains(domain, ".") {
 		return domain
 	}
-	return strings.Join(parts[len(parts)-2:], ".")
+	if registered, err := publicsuffix.EffectiveTLDPlusOne(domain); err == nil {
+		return registered
+	}
+	return ""
 }
 
 // WebVPN 会话/授权 cookie 的 Domain：属于 WebVpnDomain 注册域时按 .base2 通配，否则返回空。
@@ -42,7 +41,7 @@ func CookieDomain(host string) string {
 	if domain == "" {
 		return ""
 	}
-	host = stripPort(host)
+	host = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(stripPort(host)), "."))
 	if net.ParseIP(host) != nil {
 		return ""
 	}

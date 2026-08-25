@@ -232,7 +232,9 @@ func UserDel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 删除用户后，令其已签发的 WebVPN 会话立即失效，避免旧会话在有效期内仍可访问
-	dbdata.WebVpnRevokeUser(user.Username)
+	if err := dbdata.WebVpnRevokeUser(user.Username); err != nil {
+		base.Error("用户删除成功但 WebVPN 会话吊销持久化失败:", user.Username, err)
+	}
 	dbdata.AdminLog("用户管理", user.Username, "删除了用户", r.RemoteAddr)
 	RespSucess(w, nil)
 }

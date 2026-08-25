@@ -245,8 +245,8 @@ func commonProtocolParser(data []byte) (uint8, string) {
 
 func firstProtocolLine(data []byte) string {
 	line := data
-	if index := bytes.IndexByte(data, '\n'); index >= 0 {
-		line = data[:index]
+	if before, _, ok := bytes.Cut(data, []byte{'\n'}); ok {
+		line = before
 	}
 	return strings.TrimSpace(string(line))
 }

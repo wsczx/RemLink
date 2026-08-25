@@ -54,9 +54,23 @@ func TestWebVpnPreflightRejectsUnsafeOrigins(t *testing.T) {
 		r.Header.Set("Origin", origin)
 		r.Header.Set("X-Forwarded-Proto", "https")
 		w := httptest.NewRecorder()
-		webVpnHandlePreflight(w, r)
+		webVpnHandlePreflight(w, r, &dbdata.WebVpnApp{})
 		assert.Equal(t, http.StatusForbidden, w.Code, "Origin=%s", origin)
 	}
+}
+
+func TestWebVpnPreflightAllowsConfiguredOrigin(t *testing.T) {
+	r := httptest.NewRequest(http.MethodOptions, "https://dev-erp-backend.wg.maizuo.com/activity/api", nil)
+	r.Host = "dev-erp-backend.wg.maizuo.com"
+	r.Header.Set("Origin", "https://erp-dev.wg.maizuo.com")
+	r.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	r.Header.Set("Access-Control-Request-Headers", "sess-auth-token, content-type")
+	w := httptest.NewRecorder()
+	webVpnHandlePreflight(w, r, &dbdata.WebVpnApp{AllowCrossSite: true, CorsAllowedOrigins: []string{"https://erp-dev.wg.maizuo.com"}})
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	assert.Equal(t, "https://erp-dev.wg.maizuo.com", w.Header().Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, "true", w.Header().Get("Access-Control-Allow-Credentials"))
+	assert.Equal(t, "sess-auth-token, content-type", w.Header().Get("Access-Control-Allow-Headers"))
 }
 
 func TestWebVpnWithCORSRejectsUnsafeOrigins(t *testing.T) {
@@ -66,7 +80,7 @@ func TestWebVpnWithCORSRejectsUnsafeOrigins(t *testing.T) {
 		r.Header.Set("Origin", origin)
 		r.Header.Set("X-Forwarded-Proto", "https")
 		resp := &http.Response{Header: make(http.Header)}
-		callback := withCORS(nil, r)
+		callback := withCORS(nil, r, &dbdata.WebVpnApp{})
 		if callback != nil {
 			require.NoError(t, callback(resp))
 		}
@@ -621,7 +635,48 @@ func TestWebVpnExchangeFromPortal(t *testing.T) {
 	assert.True(t, gotWebVpn, "应种回 webvpn_session cookie")
 }
 
+func TestWebVpnExchangeFromQueryRedirectsToCleanURL(t *testing.T) {
+	_, teardown := setupWebVpnTest(t)
+	defer teardown()
+
+	grantTok, err := webvpn.GetManager().Session().IssueGrant(
+		nil, nil, &dbdata.User{Username: "alice", Type: "local", Status: 1}, "portal-jti")
+	assert.NoError(t, err)
+
+	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
+	req.URL.RawQuery = url.Values{webvpnGrantQuery: []string{grantTok}}.Encode()
+	assert.True(t, WebVpnHandler(rec, req))
+	assert.Equal(t, http.StatusFound, rec.Code, "URL grant 兑换后应清理地址栏参数")
+	location := rec.Header().Get("Location")
+	assert.NotContains(t, location, webvpnGrantQuery, "清理后的地址不应继续携带 grant")
+
+	cleanReq, cleanRec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
+	for _, cookie := range rec.Result().Cookies() {
+		if cookie.Name == webVpnSessionCookie {
+			cleanReq.AddCookie(cookie)
+		}
+	}
+	assert.True(t, WebVpnHandler(cleanRec, cleanReq))
+	assert.Equal(t, http.StatusOK, cleanRec.Code, "清理 URL 后应凭正式会话直接放行")
+}
+
 // 免登授权（grant）跟随门户会话寿命
+func TestWebVpnInvalidQueryGrantRedirectsToCleanURL(t *testing.T) {
+	_, teardown := setupWebVpnTest(t)
+	defer teardown()
+
+	portalTok, err := admin.SetJwtData(map[string]any{"portal_user": "alice"}, time.Now().Add(time.Hour).Unix())
+	assert.NoError(t, err)
+
+	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true, portal: portalTok})
+	req.URL.RawQuery = url.Values{webvpnGrantQuery: []string{"invalid-grant"}, "keep": []string{"1"}}.Encode()
+	assert.True(t, WebVpnHandler(rec, req))
+	assert.Equal(t, http.StatusFound, rec.Code, "无效 URL grant 也应先清理地址栏")
+	location := rec.Header().Get("Location")
+	assert.NotContains(t, location, webvpnGrantQuery, "无效 grant 不应继续出现在跳转地址")
+	assert.Contains(t, location, "keep=1", "清理 grant 时应保留其它查询参数")
+}
+
 func TestWebVpnGrantIsReusable(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()

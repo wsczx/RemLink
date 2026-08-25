@@ -19,13 +19,14 @@ import (
 var remLinkSessionCookies = []string{
 	sessionCookieName, // webvpn_session
 	"portal_session",  // 门户会话（跨子域通配，同样须剥离）
+	grantCookieName,   // 一次性 WebVPN 免登授权，不得转发给内网后端
 	"auth-session-id", // WebAuth/OTP 认证会话
 	"acSamlv2Token",   // SAML SSO 会话令牌
 }
 
 // 构造 WebVPN 应用的反向代理
 func NewReverseProxy(app *dbdata.WebVpnApp, originalHost string) (*httputil.ReverseProxy, error) {
-	target, err := url.Parse(app.Backend)
+	target, err := dbdata.ParseWebVpnBackendURL(app.Backend)
 	if err != nil {
 		return nil, err
 	}
@@ -52,6 +53,7 @@ func NewReverseProxy(app *dbdata.WebVpnApp, originalHost string) (*httputil.Reve
 			req.Header.Set("X-RemLink-WebVpn", "1")
 		},
 		ModifyResponse: func(resp *http.Response) error {
+			scrubBackendCORSHeaders(resp.Header)
 			if loc := resp.Header.Get("Location"); loc != "" {
 				if u, e := url.Parse(loc); e == nil && u.Host != "" {
 					if HostMatchesBackend(u.Host, target.Host) {
@@ -68,6 +70,12 @@ func NewReverseProxy(app *dbdata.WebVpnApp, originalHost string) (*httputil.Reve
 			return nil
 		},
 		ErrorHandler: func(ew http.ResponseWriter, req *http.Request, e error) {
+			origin := req.Header.Get("Origin")
+			if origin != "" && dbdata.WebVpnCorsOriginAllowed(app, origin) {
+				ew.Header().Set("Access-Control-Allow-Origin", origin)
+				ew.Header().Set("Access-Control-Allow-Credentials", "true")
+				ew.Header().Set("Vary", "Origin")
+			}
 			if errors.Is(e, context.Canceled) || errors.Is(e, context.DeadlineExceeded) ||
 				strings.Contains(e.Error(), "client disconnected") ||
 				strings.Contains(e.Error(), "connection reset by peer") {
@@ -83,6 +91,18 @@ func NewReverseProxy(app *dbdata.WebVpnApp, originalHost string) (*httputil.Reve
 }
 
 // 校验用户/组/IP/路径白名单（请求级完整授权）。
+func pathAllowed(path, prefix string) bool {
+	path = strings.TrimSpace(path)
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return false
+	}
+	if prefix != "/" {
+		prefix = strings.TrimRight(prefix, "/")
+	}
+	return path == prefix || (prefix == "/" && strings.HasPrefix(path, "/")) || strings.HasPrefix(path, prefix+"/")
+}
+
 func Authorized(app *dbdata.WebVpnApp, user *dbdata.User, r *http.Request) bool {
 	if app.Status != 1 {
 		return false
@@ -102,7 +122,7 @@ func Authorized(app *dbdata.WebVpnApp, user *dbdata.User, r *http.Request) bool 
 	if len(app.AllowPath) > 0 {
 		ok := false
 		for _, p := range app.AllowPath {
-			if strings.HasPrefix(r.URL.Path, p) {
+			if pathAllowed(r.URL.Path, p) {
 				ok = true
 				break
 			}
@@ -151,6 +171,19 @@ func StripRemLinkCookies(cookies []*http.Cookie) string {
 		b.WriteString(c.Value)
 	}
 	return b.String()
+}
+
+func scrubBackendCORSHeaders(header http.Header) {
+	for _, name := range []string{
+		"Access-Control-Allow-Origin",
+		"Access-Control-Allow-Credentials",
+		"Access-Control-Allow-Headers",
+		"Access-Control-Allow-Methods",
+		"Access-Control-Expose-Headers",
+		"Access-Control-Max-Age",
+	} {
+		header.Del(name)
+	}
 }
 
 // 清洗后端响应 Set-Cookie 头里的 Domain 属性（指向后端主机时剥离）

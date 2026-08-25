@@ -762,6 +762,7 @@ export default {
       webvpnLoading: false,
       webvpnDomain: "",
       webvpnMode: false, // 是否 WebVPN 子域名验证场景（登录页仅验证访问权限，不进入门户首页）
+      webvpnGrant: "", // 登录成功后跨门户子域回跳所需的一次性授权
       loginForm: { username: "", password: "" },
       smsForm: { phone: "", code: "" },
       smsSending: false,
@@ -1068,7 +1069,10 @@ export default {
       const path = redirect && redirect.startsWith("/") && !redirect.startsWith("//")
         ? redirect
         : "/"
-      window.location.href = window.location.origin + path
+      const query = this.webvpnGrant
+        ? (path.includes("?") ? "&" : "?") + "webvpn_grant=" + encodeURIComponent(this.webvpnGrant)
+        : ""
+      window.location.href = window.location.origin + path + query
     },
     resumeCallbackChallenge() {
       if (!this.$route.query.session_id) return
@@ -1188,6 +1192,7 @@ export default {
         this.challengeCode = ""
         this.challengeSession = ""
         this.loginForm.password = ""
+        this.webvpnGrant = data.webvpn_grant || ""
         // WebVPN 子域名验证场景：登录成功后直接回跳内网应用，不进入门户首页。
         if (this.webvpnMode) {
           this.doWebVpnRedirect()

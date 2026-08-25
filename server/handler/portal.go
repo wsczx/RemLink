@@ -960,6 +960,7 @@ func portalIssueLoginResponse(w http.ResponseWriter, r *http.Request, user *dbda
 	if err != nil {
 		return portalAuthError("登录失败")
 	}
+	var webVPNGrant string
 	if w != nil {
 		// WebVPN 子域登录场景：只签发 webvpn 免登授权
 		// 不写门户 portal_session。否则门户登录态会被父域共享 cookie 污染，
@@ -980,17 +981,24 @@ func portalIssueLoginResponse(w http.ResponseWriter, r *http.Request, user *dbda
 		// 用户在 WebVPN 子域首次访问时凭此兑换正式会话，无需重复登录
 		if base.GetCfg().WebVpnDomain != "" {
 			if jti, jerr := admin.JtiOf(token); jerr == nil {
-				if _, gerr := webvpn.GetManager().Session().IssueGrant(w, r, user, jti); gerr != nil {
+				var gerr error
+				webVPNGrant, gerr = webvpn.GetManager().Session().IssueGrant(w, r, user, jti)
+				if gerr != nil {
 					base.Warn("WebVPN 免登授权签发失败:", gerr)
+					webVPNGrant = ""
 				}
 			}
 		}
 	}
-	return portalAuthResponse{Data: map[string]any{
+	data := map[string]any{
 		"status": "pass",
 		"token":  token,
 		"user":   portalUserInfo(user, r),
-	}}
+	}
+	if webVPNGrant != "" {
+		data["webvpn_grant"] = webVPNGrant
+	}
+	return portalAuthResponse{Data: data}
 }
 
 func portalAuthError(msg string) portalAuthResponse {

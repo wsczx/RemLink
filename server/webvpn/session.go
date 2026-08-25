@@ -1,6 +1,7 @@
 package webvpn
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -35,6 +36,12 @@ const (
 	sessionMaxLifetimeDefaultMin = 480
 	grantTTLSec                  = 3600 * 3
 )
+
+type crossSiteCookieContextKey struct{}
+
+func WithCrossSiteCookie(r *http.Request, enabled bool) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), crossSiteCookieContextKey{}, enabled))
+}
 
 func NewSessionManager() *AuthSessionManager {
 	return &AuthSessionManager{
@@ -99,13 +106,23 @@ func (m *AuthSessionManager) IssueGrant(w http.ResponseWriter, r *http.Request, 
 
 // 用免登授权换取 WebVPN 会话，失败时回退到门户会话
 func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Request) (string, *dbdata.User, bool) {
-	// 优先兑换一次性 grant；若携带门户会话则校验其 JTI。
-	if c, err := r.Cookie(grantCookieName); err == nil && c.Value != "" {
+	// 优先兑换一次性 grant；URL 参数用于跨门户子域回跳，Cookie 作为兼容回退。
+	grantValue := ""
+	if value := r.URL.Query().Get(grantCookieName); value != "" {
+		grantValue = value
+	} else if c, err := r.Cookie(grantCookieName); err == nil && c.Value != "" {
+		grantValue = c.Value
+	}
+	if grantValue != "" {
+		c := &http.Cookie{Name: grantCookieName, Value: grantValue}
 		m.grantMu.Lock()
 		defer m.grantMu.Unlock()
 
 		data, err := admin.GetJwtData(c.Value)
-		if err == nil {
+		if err != nil {
+			// JWT 解析失败、过期或已吊销均是确定失效，避免每次请求重复兑换。
+			m.ClearGrantCookie(w, r)
+		} else {
 			username, _ := data["webvpn_grant_user"].(string)
 			grantJTI, _ := data["webvpn_grant_jti"].(string)
 			portal, portalOK := m.portalSessionData(r)
@@ -118,13 +135,18 @@ func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Reques
 					grantValid = false
 				}
 			}
-			if grantValid {
+			if !grantValid {
+				// 字段缺失、门户 JTI 不一致或用户撤销时间命中，均是确定失效。
+				m.ClearGrantCookie(w, r)
+			} else {
 				user := m.freshUser(username)
 				if user == nil {
 					// 本地库查不到时回退到 grant 携带的三方身份
 					user = m.externalUserFromClaims(username, data)
 				}
-				if user != nil {
+				if user == nil {
+					m.ClearGrantCookie(w, r)
+				} else {
 					token, err := m.Issue(w, r, user, 0)
 					if err == nil {
 						// JWT 本身不可变；兑换成功后吊销其 jti，防止复制的 grant 重放。
@@ -143,6 +165,9 @@ func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Reques
 		}
 		token, err := m.Issue(w, r, user, 0)
 		if err == nil {
+			if _, err := r.Cookie(grantCookieName); err == nil {
+				m.ClearGrantCookie(w, r)
+			}
 			return token, user, true
 		}
 	}
@@ -319,13 +344,15 @@ func (m *AuthSessionManager) ClearCookie(w http.ResponseWriter, r *http.Request)
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
-		SameSite: http.SameSiteLaxMode,
+		SameSite: sessionSameSite(r),
 	})
 }
 
 // 整用户踢出（全量登出）：抬高吊销阈值使旧会话 O(1) 失效，并清缓存。
 func (m *AuthSessionManager) RevokeUser(username string) {
-	dbdata.WebVpnRevokeUser(username)
+	if err := dbdata.WebVpnRevokeUser(username); err != nil {
+		base.Error("WebVPN 会话吊销持久化失败:", username, err)
+	}
 	m.userMu.Lock()
 	delete(m.userCache, username)
 	m.userMu.Unlock()
@@ -348,6 +375,10 @@ func (m *AuthSessionManager) setGrantCookie(w http.ResponseWriter, r *http.Reque
 }
 
 func (m *AuthSessionManager) cookie(name, token string, r *http.Request) *http.Cookie {
+	sameSite := http.SameSiteLaxMode
+	if name == sessionCookieName {
+		sameSite = sessionSameSite(r)
+	}
 	return &http.Cookie{
 		Name:     name,
 		Value:    token,
@@ -355,8 +386,15 @@ func (m *AuthSessionManager) cookie(name, token string, r *http.Request) *http.C
 		Domain:   CookieDomain(r.Host),
 		HttpOnly: true,
 		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
-		SameSite: http.SameSiteLaxMode,
+		SameSite: sameSite,
 	}
+}
+
+func sessionSameSite(r *http.Request) http.SameSite {
+	if enabled, _ := r.Context().Value(crossSiteCookieContextKey{}).(bool); enabled && (r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https") {
+		return http.SameSiteNoneMode
+	}
+	return http.SameSiteLaxMode
 }
 
 func (m *AuthSessionManager) cachedUser(username string) *dbdata.User {

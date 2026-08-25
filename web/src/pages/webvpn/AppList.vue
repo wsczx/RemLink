@@ -125,6 +125,15 @@
           </el-select>
           <div class="form-tip">客户端公网 IP/CIDR 白名单，限制可访问的出口。</div>
         </el-form-item>
+        <el-form-item label="跨站访问">
+          <el-switch v-model="form.allowCrossSite" />
+          <div class="form-tip">仅在需要跨域页面、接口或 iframe 访问时启用；关闭时同源访问不受影响。</div>
+        </el-form-item>
+        <el-form-item label="允许跨域来源">
+          <el-input v-model="form.corsOriginsText" type="textarea" :rows="3"
+            placeholder="每行一个完整地址，如 https://oa.mv.example.com" />
+          <div class="form-tip">跨站访问开启后，仅允许精确匹配的 http/https Origin；留空或关闭开关 = 仅同源请求。</div>
+        </el-form-item>
         <el-form-item label="状态">
           <el-switch v-model="form.statusOn" active-text="启用" inactive-text="禁用" />
         </el-form-item>
@@ -191,6 +200,8 @@ export default {
         groups: [],
         allow_path: [],
         ip_allow_list: [],
+        allowCrossSite: false,
+        corsOriginsText: '',
         statusOn: true
       }
     },
@@ -259,6 +270,8 @@ export default {
           groups: row.groups || [],
           allow_path: row.allow_path || [],
           ip_allow_list: row.ip_allow_list || [],
+          allowCrossSite: !!row.allow_cross_site,
+          corsOriginsText: (row.cors_allowed_origins || []).join('\n'),
           statusOn: row.status === 1
         }
       } else {
@@ -279,6 +292,8 @@ export default {
         groups: row.groups || [],
         allow_path: row.allow_path || [],
         ip_allow_list: row.ip_allow_list || [],
+        allow_cross_site: !!row.allow_cross_site,
+        cors_allowed_origins: this.parseCorsOrigins(row.cors_allowed_origins),
         status: next
       }
       axios.post('/webvpn/app/set', payload).then(resp => {
@@ -307,6 +322,10 @@ export default {
         }).catch(() => this.$message.error('网络错误'))
       }).catch(() => { })
     },
+    parseCorsOrigins(value) {
+      const text = Array.isArray(value) ? value.join('\n') : (value || '')
+      return text.split(/[\n,]+/).map(item => item.trim()).filter(Boolean)
+    },
     submitForm() {
       this.$refs.form.validate(valid => {
         if (!valid) return
@@ -322,6 +341,8 @@ export default {
           groups: this.form.groups,
           allow_path: this.form.allow_path,
           ip_allow_list: this.form.ip_allow_list,
+          allow_cross_site: this.form.allowCrossSite,
+          cors_allowed_origins: this.parseCorsOrigins(this.form.corsOriginsText),
           status: this.form.statusOn ? 1 : 0
         }
         axios.post('/webvpn/app/set', payload).then(resp => {

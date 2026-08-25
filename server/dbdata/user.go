@@ -69,7 +69,9 @@ func SetUser(v *User) error {
 	}
 	if err == nil {
 		// 用户组或状态变更后，使已签发的 WebVPN 会话失效
-		WebVpnRevokeUser(v.Username)
+		if revokeErr := WebVpnRevokeUser(v.Username); revokeErr != nil {
+			base.Error("用户更新成功但 WebVPN 会话吊销持久化失败:", v.Username, revokeErr)
+		}
 	}
 
 	return err

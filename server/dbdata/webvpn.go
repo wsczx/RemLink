@@ -2,6 +2,7 @@ package dbdata
 
 import (
 	"errors"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -12,10 +13,12 @@ import (
 )
 
 var (
-	errWebVpnEmptyName    = errors.New("应用名称不能为空")
-	errWebVpnInvalidName  = errors.New("应用名称仅允许小写字母、数字与中划线")
-	errWebVpnEmptyBackend = errors.New("后端地址不能为空")
-	errWebVpnInvalidId    = errors.New("无效的 ID")
+	errWebVpnEmptyName      = errors.New("应用名称不能为空")
+	errWebVpnInvalidName    = errors.New("应用名称仅允许小写字母、数字与中划线")
+	errWebVpnEmptyBackend   = errors.New("后端地址不能为空")
+	errWebVpnInvalidBackend = errors.New("后端地址必须是完整的 http/https 地址")
+	errWebVpnInvalidId      = errors.New("无效的 ID")
+	errWebVpnInvalidOrigin  = errors.New("CORS 来源必须是完整的 http/https 地址且不能包含路径")
 )
 
 // 校验应用名是否仅含小写字母、数字与中划线
@@ -31,6 +34,23 @@ func webVpnAppNameValid(name string) bool {
 		return false
 	}
 	return true
+}
+
+// ParseWebVpnBackendURL 校验并解析 WebVPN 反向代理目标。
+// 保留内网目标能力，但拒绝无法安全解释的 URL 形式。
+func ParseWebVpnBackendURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u == nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.Opaque != "" || u.RawQuery != "" || u.Fragment != "" || u.Hostname() == "" {
+		return nil, errWebVpnInvalidBackend
+	}
+	if port := u.Port(); port != "" {
+		for _, c := range port {
+			if c < '0' || c > '9' {
+				return nil, errWebVpnInvalidBackend
+			}
+		}
+	}
+	return u, nil
 }
 
 // 应用配置的进程内缓存，避免每个请求都查库
@@ -53,19 +73,21 @@ func InvalidateWebVpnAppCache() {
 // WebVPN 反向代理应用配置
 // 通过子域名 *.WebVpnDomain 访问：子域名 = Name，反代到 Backend。
 type WebVpnApp struct {
-	Id          int       `json:"id" xorm:"pk autoincr not null"`
-	Name        string    `json:"name" xorm:"varchar(60) not null unique"` // 子域名前缀，也是应用唯一标识
-	Note        string    `json:"note" xorm:"varchar(255)"`
-	Backend     string    `json:"backend" xorm:"varchar(255)"`      // 后端地址，如 https://10.0.0.5:8080
-	Users       []string  `json:"users" xorm:"Text"`                // 授权用户名白名单；空=全部用户（受 Groups 约束）
-	Groups      []string  `json:"groups" xorm:"Text"`               // 授权用户组白名单；空=不限组
-	AllowPath   []string  `json:"allow_path" xorm:"Text"`           // 路径前缀白名单；空=全部路径
-	IpAllowList []string  `json:"ip_allow_list" xorm:"Text"`        // 客户端来源 IP 白名单（CIDR 或单 IP）；空=不限制
-	HostRewrite string    `json:"host_rewrite" xorm:"varchar(255)"` // 反代时改写到后端的 Host（覆盖默认的后端地址）；空=用后端地址
-	SkipVerify  bool      `json:"skip_verify" xorm:"Bool"`          // 后端为自签/内网证书时跳过 TLS 校验
-	Status      int8      `json:"status" xorm:"Int"`                // 1=启用
-	CreatedAt   time.Time `json:"created_at" xorm:"DateTime created"`
-	UpdatedAt   time.Time `json:"updated_at" xorm:"DateTime updated"`
+	Id                 int       `json:"id" xorm:"pk autoincr not null"`
+	Name               string    `json:"name" xorm:"varchar(60) not null unique"` // 子域名前缀，也是应用唯一标识
+	Note               string    `json:"note" xorm:"varchar(255)"`
+	Backend            string    `json:"backend" xorm:"varchar(255)"`      // 后端地址，如 https://10.0.0.5:8080
+	Users              []string  `json:"users" xorm:"Text"`                // 授权用户名白名单；空=全部用户（受 Groups 约束）
+	Groups             []string  `json:"groups" xorm:"Text"`               // 授权用户组白名单；空=不限组
+	AllowPath          []string  `json:"allow_path" xorm:"Text"`           // 路径前缀白名单；空=全部路径
+	IpAllowList        []string  `json:"ip_allow_list" xorm:"Text"`        // 客户端来源 IP 白名单（CIDR 或单 IP）；空=不限制
+	AllowCrossSite     bool      `json:"allow_cross_site" xorm:"Bool"`     // 是否启用跨站访问；开启后仍须命中来源白名单
+	CorsAllowedOrigins []string  `json:"cors_allowed_origins" xorm:"Text"` // 允许跨域访问的精确 Origin；空=仅同源
+	HostRewrite        string    `json:"host_rewrite" xorm:"varchar(255)"` // 反代时改写到后端的 Host（覆盖默认的后端地址）；空=用后端地址
+	SkipVerify         bool      `json:"skip_verify" xorm:"Bool"`          // 后端为自签/内网证书时跳过 TLS 校验
+	Status             int8      `json:"status" xorm:"Int"`                // 1=启用
+	CreatedAt          time.Time `json:"created_at" xorm:"DateTime created"`
+	UpdatedAt          time.Time `json:"updated_at" xorm:"DateTime updated"`
 }
 
 // 分页查询所有 WebVPN 应用；name 非空时按子域名/名称前缀模糊过滤
@@ -95,6 +117,12 @@ func SetWebVpnApp(a *WebVpnApp) error {
 	}
 	if a.Backend == "" {
 		return errWebVpnEmptyBackend
+	}
+	if _, err := ParseWebVpnBackendURL(a.Backend); err != nil {
+		return err
+	}
+	if err := normalizeWebVpnCorsOrigins(a); err != nil {
+		return err
 	}
 	// 记录变更前的授权范围，用于权限收窄/调整时吊销相关用户会话
 	var oldUsers, oldGroups []string
@@ -244,6 +272,49 @@ func contains(slice []string, target string) bool {
 	return slices.Contains(slice, target)
 }
 
+func normalizeWebVpnCorsOrigins(a *WebVpnApp) error {
+	if len(a.CorsAllowedOrigins) == 0 {
+		a.CorsAllowedOrigins = nil
+		return nil
+	}
+	seen := make(map[string]struct{}, len(a.CorsAllowedOrigins))
+	origins := make([]string, 0, len(a.CorsAllowedOrigins))
+	for _, raw := range a.CorsAllowedOrigins {
+		origin := strings.TrimSpace(raw)
+		u, err := url.Parse(origin)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+			return errWebVpnInvalidOrigin
+		}
+		key := strings.ToLower(u.Scheme + "://" + u.Host)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		origins = append(origins, origin)
+	}
+	a.CorsAllowedOrigins = origins
+	return nil
+}
+
+// 检查 WebVPN app的精确配置源
+func WebVpnCorsOriginAllowed(a *WebVpnApp, origin string) bool {
+	if a == nil || !a.AllowCrossSite || origin == "" {
+		return false
+	}
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return false
+	}
+	key := strings.ToLower(u.Scheme + "://" + u.Host)
+	for _, allowed := range a.CorsAllowedOrigins {
+		v, err := url.Parse(strings.TrimSpace(allowed))
+		if err == nil && strings.ToLower(v.Scheme+"://"+v.Host) == key {
+			return true
+		}
+	}
+	return false
+}
+
 // WebVPN 访问审计记录（每次代理请求落一条，异步批量写入）。
 type WebVpnAudit struct {
 	Id         int64     `json:"id" xorm:"pk autoincr not null"`
@@ -384,14 +455,15 @@ func LoadWebVpnRevoke() {
 
 // 吊销指定用户的全部 WebVPN 会话（整用户下线）。
 // 通过抬高吊销阈值实现：此后该用户签名时间早于阈值的会话都将被拒绝。
-func WebVpnRevokeUser(username string) {
+func WebVpnRevokeUser(username string) error {
 	if username == "" {
-		return
+		return nil
 	}
 	ts := time.Now().Unix()
 
-	// 写内存缓存
+	// 写内存缓存并保留旧值，以便持久化失败时恢复。
 	webVpnRevokeBeforeMu.Lock()
+	oldTs, hadOld := webVpnRevokeBefore[username]
 	webVpnRevokeBefore[username] = ts
 	webVpnRevokeBeforeMu.Unlock()
 
@@ -405,8 +477,19 @@ func WebVpnRevokeUser(username string) {
 		err = Add(rec)
 	}
 	if err != nil {
+		webVpnRevokeBeforeMu.Lock()
+		if webVpnRevokeBefore[username] == ts {
+			if hadOld {
+				webVpnRevokeBefore[username] = oldTs
+			} else {
+				delete(webVpnRevokeBefore, username)
+			}
+		}
+		webVpnRevokeBeforeMu.Unlock()
 		base.Error("持久化 WebVPN 吊销记录失败:", err)
+		return err
 	}
+	return nil
 }
 
 // 返回指定用户的吊销阈值（0 表示未吊销）。
@@ -440,14 +523,13 @@ func WebVpnRevokeReset() {
 // 批量吊销一批用户的 WebVPN 会话（权限变更后让已签发会话立即失效）。
 // WebVPN 未启用（WebVpnDomain 为空）时直接跳过，避免无意义地逐用户写库。
 func WebVpnRevokeUsers(usernames []string) {
-	if len(usernames) == 0 {
-		return
-	}
-	if base.GetCfg().WebVpnDomain == "" {
+	if len(usernames) == 0 || base.GetCfg().WebVpnDomain == "" {
 		return
 	}
 	for _, u := range usernames {
-		WebVpnRevokeUser(u)
+		if err := WebVpnRevokeUser(u); err != nil {
+			base.Error("批量持久化 WebVPN 吊销记录失败:", u, err)
+		}
 	}
 }
 
@@ -471,7 +553,10 @@ func WebVpnRevokeGroupMembers(groupNames []string) {
 		if kicked[u.Username] {
 			continue
 		}
-		WebVpnRevokeUser(u.Username)
+		if err := WebVpnRevokeUser(u.Username); err != nil {
+			base.Error("批量持久化 WebVPN 吊销记录失败:", u.Username, err)
+			continue
+		}
 		kicked[u.Username] = true
 	}
 }
