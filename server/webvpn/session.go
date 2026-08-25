@@ -114,11 +114,10 @@ func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Reques
 		grantValue = c.Value
 	}
 	if grantValue != "" {
-		c := &http.Cookie{Name: grantCookieName, Value: grantValue}
 		m.grantMu.Lock()
 		defer m.grantMu.Unlock()
 
-		data, err := admin.GetJwtData(c.Value)
+		data, err := admin.GetJwtData(grantValue)
 		if err != nil {
 			// JWT 解析失败、过期或已吊销均是确定失效，避免每次请求重复兑换。
 			m.ClearGrantCookie(w, r)
@@ -150,7 +149,7 @@ func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Reques
 					token, err := m.Issue(w, r, user, 0)
 					if err == nil {
 						// JWT 本身不可变；兑换成功后吊销其 jti，防止复制的 grant 重放。
-						admin.RevokeJwtToken(c.Value)
+						admin.RevokeJwtToken(grantValue)
 						m.ClearGrantCookie(w, r)
 						return token, user, true
 					}
