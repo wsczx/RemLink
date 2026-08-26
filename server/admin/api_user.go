@@ -31,6 +31,7 @@ func UserList(w http.ResponseWriter, r *http.Request) {
 	userType := strings.TrimSpace(r.FormValue("type"))
 	group := strings.TrimSpace(r.FormValue("group"))
 	status := strings.TrimSpace(r.FormValue("status"))
+	expiry := strings.TrimSpace(r.FormValue("expiry"))
 	pageS := r.FormValue("page")
 	page, _ := strconv.Atoi(pageS)
 	if page < 1 {
@@ -64,6 +65,17 @@ func UserList(w http.ResponseWriter, r *http.Request) {
 	if status != "" {
 		wheres = append(wheres, "status = ?")
 		args = append(args, status)
+	}
+	if expiry != "" {
+		now := time.Now()
+		switch expiry {
+		case "expired":
+			wheres = append(wheres, "status = 1 AND limittime IS NOT NULL AND limittime < ?")
+			args = append(args, now)
+		case "valid":
+			wheres = append(wheres, "status = 1 AND (limittime IS NULL OR limittime >= ?)")
+			args = append(args, now)
+		}
 	}
 
 	var allDatas []dbdata.User

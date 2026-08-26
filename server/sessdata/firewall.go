@@ -174,6 +174,7 @@ func (i *IPT) SetupGlobalNAT(vpnCIDR, masterDev string, inContainer bool) error 
 			return err
 		}
 	}
+	base.Info("iptables: Setup Global NAT and Forward rules")
 	return nil
 }
 func (i *IPT) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
@@ -219,6 +220,7 @@ func (i *IPT) SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool) erro
 			return err
 		}
 	}
+	base.Info("iptables: Setup Global NAT6 and Forward rules")
 	return nil
 }
 

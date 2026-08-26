@@ -65,6 +65,11 @@
             <el-option label="启用" value="1"></el-option>
             <el-option label="停用" value="0"></el-option>
           </el-select>
+          <el-select v-model="filterExpiry" placeholder="过期状态" size="small" clearable class="filter-select"
+            @change="handleSearch">
+            <el-option label="未过期" value="valid"></el-option>
+            <el-option label="已过期" value="expired"></el-option>
+          </el-select>
           <el-upload accept=".xlsx,.xls" :http-request="upLoadUser" :limit="1" :show-file-list="false"
             class="inline-upload">
             <el-button size="small" icon="el-icon-upload2">批量导入</el-button>
@@ -353,6 +358,7 @@ export default {
       filterType: '',
       filterGroup: '',
       filterStatus: '',
+      filterExpiry: '',
       otpImgData: { visible: false, username: '', nickname: '', base64Img: '' },
       ruleForm: {
         id: 0,
@@ -397,7 +403,7 @@ export default {
     statExternal() { return this.statsExternal },
     statActive() { return this.statsActive },
     isExternalUser() {
-      return this.ruleForm.type === 'ldap' || this.ruleForm.type === 'wxwork' || this.ruleForm.type === 'feishu';
+      return this.ruleForm.type === 'ldap' || this.ruleForm.type === 'wxwork' || this.ruleForm.type === 'feishu' || this.ruleForm.type === 'dingtalk';
     },
   },
   methods: {
@@ -596,6 +602,7 @@ export default {
           type: this.filterType || '',
           group: this.filterGroup || '',
           status: this.filterStatus || '',
+          expiry: this.filterExpiry || '',
           page_size: this.pageSize
         }
       }).then(resp => {
