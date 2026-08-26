@@ -9,7 +9,7 @@ import (
 // 去除数据头
 func BenchmarkHeaderCopy(b *testing.B) {
 	l := 1500
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		b.StopTimer()
 		pl := getPayload()
 		pl.Data = pl.Data[:l]
@@ -27,7 +27,7 @@ func BenchmarkHeaderCopy(b *testing.B) {
 
 func BenchmarkHeaderAppend(b *testing.B) {
 	l := 1500
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		b.StopTimer()
 		pl := getPayload()
 		pl.Data = pl.Data[:l]

@@ -184,11 +184,16 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		// IPv6 路由下发到 -IP6 头（CIDR 格式）；v4 维持原 IpMask 下发
-		if _, ipNet, err := net.ParseCIDR(v.Val); err == nil && ipNet.IP.To4() == nil {
-			HttpAddHeader(w, "X-CSTP-Split-Include-IP6", ipNet.String())
-		} else {
-			HttpAddHeader(w, "X-CSTP-Split-Include", v.IpMask)
+		if _, ipNet, err := net.ParseCIDR(v.Val); err == nil {
+			if ipNet.IP.To4() == nil {
+				HttpAddHeader(w, "X-CSTP-Split-Include-IP6", ipNet.String())
+				continue
+			}
+			if ones, bits := ipNet.Mask.Size(); ones == 0 && bits == 32 {
+				continue
+			}
 		}
+		HttpAddHeader(w, "X-CSTP-Split-Include", v.IpMask)
 	}
 	// 不允许的路由
 	for _, v := range rp.RouteExclude {

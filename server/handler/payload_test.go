@@ -25,28 +25,28 @@ func handlerTcpPayload(packet []byte) []byte {
 }
 func BenchmarkSniParser(b *testing.B) {
 	data := handlerTcpPayload(httpsPacket)
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		sniParser(data)
 	}
 }
 
 func BenchmarkNewSniParser(b *testing.B) {
 	data := handlerTcpPayload(httpsPacket)
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		sniNewParser(data)
 	}
 }
 
 func BenchmarkHttpParser(b *testing.B) {
 	data := handlerTcpPayload(httpPacket)
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		httpParser(data)
 	}
 }
 
 func BenchmarkNewHttpParser(b *testing.B) {
 	data := handlerTcpPayload(httpPacket)
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		httpNewParser(data)
 	}
 }
