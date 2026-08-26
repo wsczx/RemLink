@@ -31,3 +31,30 @@ func TestScrubBackendCORSHeaders(t *testing.T) {
 	}
 	assert.Equal(t, "kept", header.Get("X-Backend"))
 }
+
+func TestStripRemLinkCookiesIsCaseInsensitive(t *testing.T) {
+	cookies := []*http.Cookie{
+		{Name: "WEBVPN_SESSION", Value: "spoofed"},
+		{Name: "Portal_Session", Value: "spoofed"},
+		{Name: "JSESSIONID", Value: "backend"},
+	}
+
+	assert.Equal(t, "JSESSIONID=backend", StripRemLinkCookies(cookies))
+}
+
+func TestScrubSetCookieDomain(t *testing.T) {
+	resp := &http.Response{Header: make(http.Header)}
+	resp.Header.Add("Set-Cookie", "webvpn_session=spoofed; Path=/")
+	resp.Header.Add("Set-Cookie", "PORTAL_SESSION=spoofed; Path=/")
+	resp.Header.Add("Set-Cookie", "backend=value; DOMAIN=.backend.example; Path=/; HttpOnly")
+	resp.Header.Add("Set-Cookie", "other=value; Domain=public.example; Path=/")
+	resp.Header.Add("Set-Cookie", "plain=value; Path=/")
+
+	scrubSetCookieDomain(resp, "backend.example:443")
+
+	assert.Equal(t, []string{
+		"backend=value; Path=/; HttpOnly",
+		"other=value; Domain=public.example; Path=/",
+		"plain=value; Path=/",
+	}, resp.Header.Values("Set-Cookie"))
+}

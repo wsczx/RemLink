@@ -147,13 +147,9 @@ func realClientIP(r *http.Request) string {
 
 // 剥离 RemLink 自有会话 cookie（含门户会话），避免透传内网后端
 func StripRemLinkCookies(cookies []*http.Cookie) string {
-	drop := make(map[string]bool, len(remLinkSessionCookies))
-	for _, n := range remLinkSessionCookies {
-		drop[n] = true
-	}
 	var kept []*http.Cookie
 	for _, c := range cookies {
-		if drop[c.Name] {
+		if isRemLinkSessionCookie(c.Name) {
 			continue
 		}
 		kept = append(kept, c)
@@ -186,7 +182,16 @@ func scrubBackendCORSHeaders(header http.Header) {
 	}
 }
 
-// 清洗后端响应 Set-Cookie 头里的 Domain 属性（指向后端主机时剥离）
+func isRemLinkSessionCookie(name string) bool {
+	for _, reserved := range remLinkSessionCookies {
+		if strings.EqualFold(name, reserved) {
+			return true
+		}
+	}
+	return false
+}
+
+// 清洗后端响应 Set-Cookie：阻止覆盖 RemLink 会话，并剥离指向后端的 Domain 属性
 func scrubSetCookieDomain(resp *http.Response, backendHost string) {
 	cookies := resp.Header.Values("Set-Cookie")
 	if len(cookies) == 0 {
@@ -195,25 +200,24 @@ func scrubSetCookieDomain(resp *http.Response, backendHost string) {
 	resp.Header.Del("Set-Cookie")
 	bh := strings.ToLower(stripPort(backendHost))
 	for _, c := range cookies {
-		idx := strings.Index(c, "Domain=")
-		if idx < 0 {
-			resp.Header.Add("Set-Cookie", c)
+		nameEnd := strings.IndexByte(c, '=')
+		if nameEnd > 0 && isRemLinkSessionCookie(strings.TrimSpace(c[:nameEnd])) {
 			continue
 		}
-		rest := c[idx+len("Domain="):]
-		end := strings.IndexByte(rest, ';')
-		dom := rest
-		tail := ""
-		if end >= 0 {
-			dom = rest[:end]
-			tail = rest[end:]
+		parts := strings.Split(c, ";")
+		kept := parts[:1]
+		for _, part := range parts[1:] {
+			key, value, ok := strings.Cut(part, "=")
+			if !ok || !strings.EqualFold(strings.TrimSpace(key), "Domain") {
+				kept = append(kept, part)
+				continue
+			}
+			d := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(value), "."))
+			if d == "" || (!strings.EqualFold(d, bh) && !strings.HasSuffix(bh, "."+d)) {
+				kept = append(kept, part)
+			}
 		}
-		d := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(dom, ".")))
-		if d != "" && (strings.EqualFold(d, bh) || strings.HasSuffix(bh, "."+d)) {
-			c = strings.TrimRight(c[:idx], " ") + tail
-			c = strings.TrimSpace(strings.TrimSuffix(c, ";"))
-		}
-		resp.Header.Add("Set-Cookie", c)
+		resp.Header.Add("Set-Cookie", strings.TrimSpace(strings.Join(kept, ";")))
 	}
 }
 
