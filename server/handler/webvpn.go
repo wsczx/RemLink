@@ -27,10 +27,6 @@ func WebVpnHandler(w http.ResponseWriter, r *http.Request) bool {
 	if strings.HasPrefix(r.URL.Path, "/webvpn/") {
 		return false
 	}
-	// 门户静态资源（/ui/*）必须放行：WebVPN 登录卡片前端由此加载
-	if strings.HasPrefix(r.URL.Path, "/ui/") {
-		return false
-	}
 	// 门户相关路径一律禁止在 WebVPN 子域下访问（防止跨子域携带通配 portal_session cookie 越权调用门户接口）：
 	// 仅放行 GET /portal（登录页）与白名单内的登录前置接口（见 portalLoginEndpoints）。
 	if r.URL.Path == "/portal" && r.Method == http.MethodGet {
@@ -79,6 +75,11 @@ func WebVpnHandler(w http.ResponseWriter, r *http.Request) bool {
 		u.RawQuery = q.Encode()
 		http.Redirect(w, r, u.String(), http.StatusFound)
 		return true
+	}
+	// 未登录 /ui/ 由 RemLink 前端渲染登录页
+	// 登录后 /ui/ 透传至后端，以支持 JumpServer 等后端应用自身使用 /ui/ 的前端入口
+	if strings.HasPrefix(r.URL.Path, "/ui/") && (!ok || user == nil) {
+		return false
 	}
 	if !ok || user == nil {
 		// 门户会话有效但免登兑换失败（权限中途被取消 / grant 过期 / 会话已被吊销）：
