@@ -14,7 +14,7 @@ var (
 	adminOpLogPool = utils.NewWorkerPool(1, 100)
 )
 
-// AdminLog 异步写入管理员操作日志（安全审计），管理员用户名自动取自当前配置。
+// 异步写入管理员操作日志（安全审计）
 // opType: 操作类型, opTarget: 操作目标, detail: 详情, clientIP: 操作者IP
 func AdminLog(opType, opTarget, detail, clientIP string) {
 	adminUser := substr(base.GetCfg().AdminUser, 0, 60)
@@ -45,7 +45,7 @@ func ClearAdminOpLog(ts string) (int64, error) {
 	return affected, err
 }
 
-// AdminOpLogTypes 操作类型中文名
+// 操作类型中文名
 var AdminOpLogTypes = []string{
 	"用户管理",
 	"用户组管理",
@@ -55,8 +55,7 @@ var AdminOpLogTypes = []string{
 	"安全设置",
 	"Provider管理",
 	"IP映射管理",
-	"管理员登录",
-	"其他操作",
+	"WebVPN应用管理",
 }
 
 // 构建管理员操作日志查询 session

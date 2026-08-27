@@ -47,7 +47,7 @@
         <div class="card-actions">
           <el-input v-model="searchData" placeholder="用户名/姓名/邮箱/手机号/类型" size="small" prefix-icon="el-icon-search"
             clearable class="search-input" @keydown.enter.native="handleSearch" @clear="handleSearch" />
-          <el-select v-model="filterType" placeholder="类型" size="small" clearable class="filter-select"
+          <el-select v-model="filterType" placeholder="类型" size="small" clearable class="filter-select filter-type"
             @change="handleSearch">
             <el-option label="本地" value="local"></el-option>
             <el-option label="LDAP" value="ldap"></el-option>
@@ -56,16 +56,16 @@
             <el-option label="飞书" value="feishu"></el-option>
             <el-option label="钉钉" value="dingtalk"></el-option>
           </el-select>
-          <el-select v-model="filterGroup" placeholder="用户组" size="small" clearable class="filter-select" filterable
+          <el-select v-model="filterGroup" placeholder="用户组" size="small" clearable class="filter-select filter-group" filterable
             @change="handleSearch">
             <el-option v-for="g in groupNames" :key="g" :label="g" :value="g"></el-option>
           </el-select>
-          <el-select v-model="filterStatus" placeholder="状态" size="small" clearable class="filter-select"
+          <el-select v-model="filterStatus" placeholder="状态" size="small" clearable class="filter-select filter-status"
             @change="handleSearch">
             <el-option label="启用" value="1"></el-option>
             <el-option label="停用" value="0"></el-option>
           </el-select>
-          <el-select v-model="filterExpiry" placeholder="过期状态" size="small" clearable class="filter-select"
+          <el-select v-model="filterExpiry" placeholder="过期状态" size="small" clearable class="filter-select filter-expiry"
             @change="handleSearch">
             <el-option label="未过期" value="valid"></el-option>
             <el-option label="已过期" value="expired"></el-option>
@@ -727,6 +727,23 @@ export default {
   display: inline-block;
 }
 
+/* 筛选项按内容设置宽度，避免短选项占用过多空间 */
+.filter-type {
+  width: 88px;
+}
+
+.filter-group {
+  width: 130px;
+}
+
+.filter-status {
+  width: 88px;
+}
+
+.filter-expiry {
+  width: 110px;
+}
+
 /* ========== 表格内样式 ========== */
 .user-name {
   font-weight: 600;
@@ -1141,6 +1158,22 @@ export default {
     min-width: 0;
     margin-left: 0;
   }
+
+  .card-actions .filter-type,
+  .card-actions .filter-status {
+    flex: 0 0 88px;
+    width: 88px !important;
+  }
+
+  .card-actions .filter-group {
+    flex: 0 1 130px;
+    width: 130px !important;
+  }
+
+  .card-actions .filter-expiry {
+    flex: 0 0 110px;
+    width: 110px !important;
+  }
 }
 
 @media (max-width: 600px) {
@@ -1160,6 +1193,22 @@ export default {
     flex: 1 1 140px;
     width: auto !important;
     margin-left: 0;
+  }
+
+  .card-actions .filter-type,
+  .card-actions .filter-status {
+    flex: 1 1 88px;
+    width: 88px !important;
+  }
+
+  .card-actions .filter-group {
+    flex: 1 1 130px;
+    width: 130px !important;
+  }
+
+  .card-actions .filter-expiry {
+    flex: 1 1 110px;
+    width: 110px !important;
   }
 
   /* 分页条在手机端隐藏冗余项并允许横向滚动，避免末页「下一页」等按钮被裁切 */
