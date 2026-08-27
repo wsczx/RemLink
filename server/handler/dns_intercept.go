@@ -140,17 +140,21 @@ func interceptDNS(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 			return true
 		}
 		if fakeIP6 := cSess.FakeDNS.AcquireFakeIPv6(domain); fakeIP6 != nil {
-			// 异步解析 AAAA 并写入映射/DNAT；失败会写入负缓存，后续查询据此回退 v4
-			cSess.FakeDNS.ResolveAndMapping(fakeIP6.String(), domain, upstream)
-			resp.Answer = append(resp.Answer, &dns.AAAA{
-				Hdr: dns.RR_Header{
-					Name:   msg.Question[0].Name,
-					Rrtype: dns.TypeAAAA,
-					Class:  dns.ClassINET,
-					Ttl:    60,
-				},
-				AAAA: fakeIP6,
-			})
+			// 映射完成后再返回 AAAA FakeIP，避免客户端立即连接尚未就绪的地址
+			if err := cSess.FakeDNS.ResolveAndMappingSync(fakeIP6.String(), domain, upstream); err == nil {
+				resp.Answer = append(resp.Answer, &dns.AAAA{
+					Hdr: dns.RR_Header{
+						Name:   msg.Question[0].Name,
+						Rrtype: dns.TypeAAAA,
+						Class:  dns.ClassINET,
+						Ttl:    60,
+					},
+					AAAA: fakeIP6,
+				})
+			} else {
+				base.Debug("Failed to synchronously map AAAA FakeIP:", domain, "error:", err)
+				resp.Rcode = dns.RcodeServerFailure
+			}
 		}
 		dnsResp, err := resp.Pack()
 		if err != nil {
@@ -203,8 +207,13 @@ func interceptDNS(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 	}
 
 	base.Debug("Allocated FakeIP:", domain, "->", fakeIP.String())
-	// 异步预解析并写入 NAT 规则
-	cSess.FakeDNS.ResolveAndMapping(fakeIP.String(), domain, sessdata.FormatUpstream(cSess.Policy.GetUpstreamDNS()))
+	// 先完成真实地址解析和 DNAT，再把 FakeIP 返回给客户端，避免首个连接落入未就绪黑洞。
+	upstream := sessdata.FormatUpstream(cSess.Policy.GetUpstreamDNS())
+	if err := cSess.FakeDNS.ResolveAndMappingSync(fakeIP.String(), domain, upstream); err != nil {
+		base.Debug("Failed to synchronously map FakeIP:", domain, "error:", err)
+		// 不向客户端返回永远无法转发的 FakeIP；交由普通 DNS 转发。
+		return false
+	}
 
 	// 构造 DNS 响应
 	resp := new(dns.Msg)

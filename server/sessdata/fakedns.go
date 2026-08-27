@@ -32,8 +32,10 @@ type FakeDNSManager struct {
 	dnsCache   map[string]*dnsCache
 	dnsCacheMu sync.RWMutex
 
-	// 异步解析的域名去重(domain -> struct{}), 避免重复解析/竞态
-	resolving sync.Map
+	// 映射任务去重：同一 FakeIP 的异步映射/刷新只允许一个任务
+	mappingTasks sync.Map
+	// 服务端可信上游解析任务共享：同域名、同地址族、同上游只保留一个查询
+	dnsResolveTasks sync.Map
 
 	// 防火墙后端
 	fw Firewall
@@ -104,6 +106,13 @@ type dnsCache struct {
 	RealIP   string
 	TTL      uint32
 	ExpireAt time.Time
+}
+
+type dnsResolveTask struct {
+	done chan struct{}
+	ip   string
+	ttl  uint32
+	err  error
 }
 
 // 全局单例
@@ -333,6 +342,24 @@ func (m *FakeDNSManager) LookupAndTouch(fakeIP string) (realIP, domain string, n
 	return realIP, domain, needRefresh
 }
 
+// 同步解析域名并写入 fakeIP->realIP 映射；用于 DNS 响应前确保首个连接可转发
+func (m *FakeDNSManager) ResolveAndMappingSync(fakeIP, domain, upstreamDNS string) error {
+	if m.GetRealIP(fakeIP) != "" {
+		return nil
+	}
+	// 内部按域名、地址族和上游共享任务
+	realIP, ttl, err := m.resolveWithCache(domain, upstreamDNS, strings.Contains(fakeIP, ":"))
+	if err != nil {
+		return err
+	}
+	if err := m.AddMapping(fakeIP, realIP, domain); err != nil {
+		return err
+	}
+	m.setRefreshAt(fakeIP, ttl)
+	base.Debug("Resolved & mapped synchronously:", domain, "->", realIP)
+	return nil
+}
+
 // 异步解析域名并将 fakeIP->realIP 映射写入并配置 NAT 规则
 func (m *FakeDNSManager) ResolveAndMapping(fakeIP, domain, upstreamDNS string) {
 	// 已有映射直接返回
@@ -340,18 +367,18 @@ func (m *FakeDNSManager) ResolveAndMapping(fakeIP, domain, upstreamDNS string) {
 		return
 	}
 	// 去重: 同一域名同族(A/AAAA)只允许一个在解析；v4/v6 互不阻塞
-	resolvingKey := domain
+	mappingTasksKey := domain
 	if strings.Contains(fakeIP, ":") {
-		resolvingKey += "|AAAA"
+		mappingTasksKey += "|AAAA"
 	}
-	if _, loaded := m.resolving.LoadOrStore(resolvingKey, struct{}{}); loaded {
+	if _, loaded := m.mappingTasks.LoadOrStore(mappingTasksKey, struct{}{}); loaded {
 		return
 	}
 
 	m.stopMu.RLock()
 	if m.stopped.Load() {
 		m.stopMu.RUnlock()
-		m.resolving.Delete(resolvingKey)
+		m.mappingTasks.Delete(mappingTasksKey)
 		return
 	}
 	m.wg.Add(1)
@@ -359,7 +386,7 @@ func (m *FakeDNSManager) ResolveAndMapping(fakeIP, domain, upstreamDNS string) {
 
 	go func() {
 		defer m.wg.Done()
-		defer m.resolving.Delete(resolvingKey)
+		defer m.mappingTasks.Delete(mappingTasksKey)
 
 		// v6 fakeIP 解析 AAAA，v4 解析 A
 		realIP, ttl, err := m.resolveWithCache(domain, upstreamDNS, strings.Contains(fakeIP, ":"))
@@ -379,17 +406,17 @@ func (m *FakeDNSManager) ResolveAndMapping(fakeIP, domain, upstreamDNS string) {
 // 映射到期时异步重新解析并替换 DNAT。
 func (m *FakeDNSManager) RenewMapping(fakeIP, domain, upstreamDNS string) {
 	isV6 := strings.Contains(fakeIP, ":")
-	resolvingKey := domain
+	mappingTasksKey := domain
 	if isV6 {
-		resolvingKey += "|AAAA"
+		mappingTasksKey += "|AAAA"
 	}
-	if _, loaded := m.resolving.LoadOrStore(resolvingKey, struct{}{}); loaded {
+	if _, loaded := m.mappingTasks.LoadOrStore(mappingTasksKey, struct{}{}); loaded {
 		return
 	}
 	m.stopMu.RLock()
 	if m.stopped.Load() {
 		m.stopMu.RUnlock()
-		m.resolving.Delete(resolvingKey)
+		m.mappingTasks.Delete(mappingTasksKey)
 		return
 	}
 	m.wg.Add(1)
@@ -397,7 +424,7 @@ func (m *FakeDNSManager) RenewMapping(fakeIP, domain, upstreamDNS string) {
 
 	go func() {
 		defer m.wg.Done()
-		defer m.resolving.Delete(resolvingKey)
+		defer m.mappingTasks.Delete(mappingTasksKey)
 
 		// 绕过缓存重新解析，配合 queryDNS 随机选更快节点
 		var (
@@ -632,6 +659,17 @@ func (m *FakeDNSManager) resolveWithCache(domain, upstreamDNS string, v6 bool) (
 	}
 	m.dnsCacheMu.RUnlock()
 
+	taskKey := dnsCacheKey(domain, upstreamDNS, v6)
+	task := &dnsResolveTask{done: make(chan struct{})}
+	actual, loaded := m.dnsResolveTasks.LoadOrStore(taskKey, task)
+	if loaded {
+		task = actual.(*dnsResolveTask)
+		<-task.done
+		return task.ip, task.ttl, task.err
+	}
+	defer m.dnsResolveTasks.Delete(taskKey)
+	defer close(task.done)
+
 	var (
 		realIP string
 		ttl    uint32
@@ -642,18 +680,16 @@ func (m *FakeDNSManager) resolveWithCache(domain, upstreamDNS string, v6 bool) (
 	} else {
 		realIP, ttl, err = m.ResolveDomain(domain, upstreamDNS)
 	}
+	task.ip, task.ttl, task.err = realIP, ttl, err
 	if err != nil {
-		// 仅 v6（AAAA）失败写负缓存：上游确认无 AAAA/不可达时，避免后续反复异步探测；
-		// v4 不写负缓存（避免瞬时抖动导致 v4 黑洞），沿用原有每次重试语义。
-		if v6 {
-			negTTL := negCacheNetErrTTL
-			if errors.Is(err, errDNSAuthoritative) {
-				negTTL = negCacheAuthTTL
-			}
-			m.dnsCacheMu.Lock()
-			m.dnsCache[cacheKey] = &dnsCache{RealIP: "", TTL: 0, ExpireAt: time.Now().Add(negTTL)}
-			m.dnsCacheMu.Unlock()
+		// A/AAAA 均写入短时负缓存，避免失效 CDN 节点在客户端重试时反复查询并阻塞
+		negTTL := negCacheNetErrTTL
+		if errors.Is(err, errDNSAuthoritative) {
+			negTTL = negCacheAuthTTL
 		}
+		m.dnsCacheMu.Lock()
+		m.dnsCache[cacheKey] = &dnsCache{RealIP: "", TTL: 0, ExpireAt: time.Now().Add(negTTL)}
+		m.dnsCacheMu.Unlock()
 		return "", 0, err
 	}
 	m.updateDNSCache(cacheKey, realIP, ttl)
@@ -776,17 +812,28 @@ func (m *FakeDNSManager) queryDNS(msg *dns.Msg, server string) (string, uint32, 
 	if r.Rcode != dns.RcodeSuccess {
 		return "", 0, fmt.Errorf("%w: rcode=%d", errDNSAuthoritative, r.Rcode)
 	}
-	// 收集所有 A 记录，随机选一条，避免 CDN 多 IP 时钉死第一个节点
+	// 只收集请求类型对应的地址，避免 AAAA 查询误选 A 记录导致 DNAT6 失败
+	// 多地址时随机选择一条，避免 CDN 长期钉死第一个节点
 	var ips []string
 	var ttl uint32
+	qType := dns.TypeA
+	if len(msg.Question) > 0 {
+		qType = msg.Question[0].Qtype
+	}
 	for _, ans := range r.Answer {
 		switch a := ans.(type) {
 		case *dns.A:
+			if qType != dns.TypeA {
+				continue
+			}
 			ips = append(ips, a.A.String())
 			if ttl == 0 {
 				ttl = a.Hdr.Ttl
 			}
 		case *dns.AAAA:
+			if qType != dns.TypeAAAA {
+				continue
+			}
 			ips = append(ips, a.AAAA.String())
 			if ttl == 0 {
 				ttl = a.Hdr.Ttl

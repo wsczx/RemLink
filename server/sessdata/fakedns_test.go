@@ -479,8 +479,8 @@ func TestResolveAndMapping_AlreadyMapped(t *testing.T) {
 
 	// 已有映射，应直接返回不触发解析
 	m.ResolveAndMapping(fakeIP.String(), "example.com", "8.8.8.8:53")
-	// resolving 中不应有 example.com
-	_, loaded := m.resolving.Load("example.com")
+	// 映射任务中不应有 example.com
+	_, loaded := m.mappingTasks.Load("example.com")
 	assert.False(t, loaded)
 }
 
@@ -492,7 +492,7 @@ func TestResolveAndMapping_Stopped(t *testing.T) {
 	fakeIP := m.AcquireFakeIP("example.com")
 	m.ResolveAndMapping(fakeIP.String(), "example.com", "8.8.8.8:53")
 	// stopped 后不应触发解析
-	_, loaded := m.resolving.Load("example.com")
+	_, loaded := m.mappingTasks.Load("example.com")
 	assert.False(t, loaded)
 }
 
@@ -673,6 +673,6 @@ func TestResolveAndMapping_V6AAAA(t *testing.T) {
 	fakeIP := m.AcquireFakeIPv6("example.com")
 	// 异步解析键带 |AAAA，与 v4 互不阻塞
 	m.ResolveAndMapping(fakeIP.String(), "example.com", "8.8.8.8:53")
-	_, loaded := m.resolving.Load("example.com|AAAA")
+	_, loaded := m.mappingTasks.Load("example.com|AAAA")
 	assert.True(t, loaded)
 }

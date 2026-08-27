@@ -294,7 +294,8 @@ func (i *IPT) CreateChains(vpnCIDR, fakeIPRange string) error {
 		if err != nil && !strings.Contains(err.Error(), "Chain already exists") {
 			return fmt.Errorf("failed to create v6 DNAT chain: %v", err)
 		}
-		dnatJumpRule := []string{"-s", vpnCIDR, "-d", fakeIPRange, "-j", iptDnatChain}
+		// FakeDNS 流量可能来自组自定义地址池，按 FakeIP 目的地址匹配
+		dnatJumpRule := []string{"-d", fakeIPRange, "-j", iptDnatChain}
 		if err := i.ipt6.AppendUnique("nat", "PREROUTING", dnatJumpRule...); err != nil {
 			return fmt.Errorf("failed to add v6 DNAT jump rule: %v", err)
 		}
@@ -309,7 +310,8 @@ func (i *IPT) CreateChains(vpnCIDR, fakeIPRange string) error {
 	}
 
 	// 在 PREROUTING 链中添加跳转规则
-	dnatJumpRule := []string{"-s", vpnCIDR, "-d", fakeIPRange, "-j", iptDnatChain}
+	// FakeDNS 流量可能来自组自定义地址池，按 FakeIP 目的地址匹配
+	dnatJumpRule := []string{"-d", fakeIPRange, "-j", iptDnatChain}
 	err = i.ipt.AppendUnique("nat", "PREROUTING", dnatJumpRule...)
 	if err != nil {
 		return fmt.Errorf("failed to add DNAT jump rule: %v", err)
