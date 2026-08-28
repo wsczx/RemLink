@@ -6,7 +6,7 @@
         <div class="card-actions">
           <el-input v-model="searchName" placeholder="搜索应用名称 / 子域名" size="small" prefix-icon="el-icon-search" clearable
             class="search-input" @keyup.enter.native="handleSearch" @clear="handleSearch" />
-          <el-button size="small" icon="el-icon-refresh" @click="handleSearch">刷新</el-button>
+          <el-button size="small" icon="el-icon-search" @click="handleSearch">查询</el-button>
           <el-button size="small" type="primary" icon="el-icon-plus" @click="handleEdit('')">
             添加应用
           </el-button>
