@@ -145,6 +145,8 @@ func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Reques
 				}
 				if user == nil {
 					m.ClearGrantCookie(w, r)
+				} else if dbdata.IsUserExpired(user) {
+					m.ClearGrantCookie(w, r)
 				} else {
 					token, err := m.Issue(w, r, user, 0)
 					if err == nil {
@@ -159,6 +161,9 @@ func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Reques
 	}
 	// 回退到门户会话
 	if user, ok := m.userFromPortalSession(r); ok && user != nil {
+		if dbdata.IsUserExpired(user) {
+			return "", nil, false
+		}
 		if before := dbdata.WebVpnRevokeBeforeOf(user.Username); before > 0 && m.portalIssuedAt(r) <= before {
 			return "", nil, false
 		}
@@ -257,6 +262,9 @@ func (m *AuthSessionManager) UserFromToken(token string) (*dbdata.User, bool) {
 		} else {
 			return nil, false
 		}
+	}
+	if dbdata.IsUserExpired(user) {
+		return nil, false
 	}
 
 	// 组随每次请求 token 重新解析，不写缓存，避免不同 token 的组串味

@@ -48,7 +48,7 @@ func portalCurrentUser(r *http.Request) (*dbdata.User, bool) {
 	}
 	user := &dbdata.User{}
 	if err := dbdata.One("Username", username, user); err == nil {
-		return user, user.Status == 1
+		return user, user.Status == 1 && !dbdata.IsUserExpired(user)
 	}
 
 	userType, _ := data["portal_type"].(string)
