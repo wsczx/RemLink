@@ -74,20 +74,6 @@ jobs:
           echo $GITHUB_REF >> version_info
           echo $GITHUB_REF_NAME >> version_info
 
-      - name: Pack source code
-        shell: bash
-        run: |
-          mkdir -p artifact-src
-          tar --exclude='.git' \
-              --exclude='.env*' \
-              --exclude='server/.env*' \
-              --exclude='web/node_modules' \
-              --exclude='server/ui' \
-              --exclude='server/conf' \
-              --exclude='artifact-dist' \
-              --exclude='artifact-src' \
-              -czf artifact-src/RemLink-src-v${{ env.APP_VER }}.tar.gz .
-
       - name: Extract changelog for current version
         id: changelog
         shell: bash
@@ -120,21 +106,6 @@ jobs:
           echo "body<<EOF" >> $GITHUB_OUTPUT
           echo "$section" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Release source to private repo (wsczx/RemLink-private)
-        uses: ncipollo/release-action@v1
-        with:
-          token: ${{ secrets.CUSTOM_GITHUB_TOKEN }}
-          owner: wsczx
-          repo: RemLink-private
-          tag: v${{ env.APP_VER }}
-          name: RemLink-src v${{ env.APP_VER }}
-          artifacts: artifact-src/*
-          allowUpdates: true
-          replacesArtifacts: true
-          removeArtifacts: true
-          prerelease: ${{ env.APP_PRERELEASE }}
-          body: ${{ steps.changelog.outputs.body }}
 
       - name: Build and push
         uses: docker/build-push-action@v6

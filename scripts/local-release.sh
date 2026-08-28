@@ -15,7 +15,6 @@
 # 预发布识别：version 含 beta/alpha/rc/preview/dev 时自动标记为 GitHub Prerelease（正式版不带标识则发布正式 Release）
 set -euo pipefail
 
-REPO_PRIVATE=wsczx/RemLink-private
 REPO_PUBLIC=wsczx/RemLink
 VER=$(cat version)
 COMMIT=$(git rev-parse HEAD)
@@ -58,18 +57,6 @@ fi
 # 前端构建
 bash scripts/build_web.sh
 
-# 打包私有仓库源码
-rm -rf artifact-src && mkdir -p artifact-src
-tar --exclude='.git' \
-    --exclude='.env*' \
-    --exclude='server/.env*' \
-    --exclude='web/node_modules' \
-    --exclude='server/ui' \
-    --exclude='server/conf' \
-    --exclude='artifact-dist' \
-    --exclude='artifact-src' \
-    -czf "artifact-src/RemLink-src-v${VER}.tar.gz" .
-
 # 提取当前版本 changelog 作为 Release 正文
 ver="${VER#v}"
 body=$(awk -v ver="v$ver" '
@@ -107,11 +94,6 @@ fi
 
 # 提取二进制
 RELEASE_ARCHES=$(echo "$ARCH" | tr ',' ' ') bash scripts/release.sh
-
-# 发布到私有仓库（源码）
-gh release delete "v${VER}" -R "$REPO_PRIVATE" 2>/dev/null || true
-gh release create "v${VER}" -R "$REPO_PRIVATE" \
-  -t "RemLink-src v${VER}" -n "$body" $PRERELEASE_FLAG artifact-src/*
 
 # 发布到公共仓库（二进制）
 gh release delete "v${VER}" -R "$REPO_PUBLIC" 2>/dev/null || true
@@ -158,5 +140,4 @@ else
 fi
 
 echo "==> 发布完成："
-echo "    私有: https://github.com/${REPO_PRIVATE}/releases/tag/v${VER}"
 echo "    公共: https://github.com/${REPO_PUBLIC}/releases/tag/v${VER}"

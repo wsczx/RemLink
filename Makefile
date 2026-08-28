@@ -6,7 +6,7 @@ VERSION := $(shell cat version)
 web:
 	bash scripts/build_web.sh
 
-## 构建二进制发布包（需先执行 make web）
+## 构建前端并构建 Docker 镜像
 build: web
 	bash scripts/build_docker.sh
 
@@ -53,7 +53,7 @@ help:
 	@echo "RemLink 构建命令:"
 	@echo ""
 	@echo "  make web        构建前端"
-	@echo "  make build      构建前端 + Docker 镜像 + 发布包"
+	@echo "  make build      构建前端 + Docker 镜像"
 	@echo "  make docker     构建 Docker 镜像"
 	@echo "  make local      本地编译二进制（musl + UPX）"
 	@echo "  make local-noupx 本地编译二进制（不压缩）"
