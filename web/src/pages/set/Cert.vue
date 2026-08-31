@@ -140,8 +140,8 @@
                   <el-form-item label="用户名">
                     <el-select v-model="generateForm.username" placeholder="请输入或选择用户名" filterable clearable allow-create
                       default-first-option style="width: 100%;" @change="onUserChange">
-                      <el-option v-for="user in userList" :key="user.username" :label="user.username"
-                        :value="user.username" />
+                      <el-option v-for="user in userList" :key="user.username"
+                        :label="userLabel(user.username, user.nickname)" :value="user.username" />
                     </el-select>
                   </el-form-item>
                   <el-form-item label="用户组" v-if="userGroups.length > 0">
@@ -234,8 +234,11 @@
                   :header-cell-style="{ background: 'var(--bg-header)', color: 'var(--text-primary)', fontWeight: '600', fontSize: '13px' }"
                   @selection-change="handleSelectionChange">
                   <el-table-column type="selection" width="45" align="center"></el-table-column>
-                  <el-table-column prop="username" label="用户名" min-width="130" show-overflow-tooltip
-                    sortable></el-table-column>
+                  <el-table-column label="用户名" min-width="130" show-overflow-tooltip sortable>
+                    <template slot-scope="scope">
+                      {{ certUserLabel(scope.row.username) }}
+                    </template>
+                  </el-table-column>
                   <el-table-column prop="groupname" label="用户组" min-width="120" show-overflow-tooltip
                     sortable></el-table-column>
                   <el-table-column label="设备绑定" width="75" align="center">
@@ -309,8 +312,10 @@
 
 <script>
 import axios from "axios";
+import userLabel from "@/mixins/userLabel";
 
 export default {
+  mixins: [userLabel],
   name: "Cert",
   created() {
     this.$emit("update:route_path", this.$route.path);
@@ -325,6 +330,7 @@ export default {
     // 初始加载客户端证书状态（如果当前是客户端证书tab）
     if (this.activeTab === 'clientCert') {
       this.checkCAStatus();
+      this.loadClientUserInfo();
       this.loadClientCertList();
     }
   },
@@ -333,6 +339,7 @@ export default {
       if (val === 'letsCert') { this.getletsCert(); }
       else if (val === 'clientCert') {
         this.checkCAStatus();
+        this.loadClientUserInfo();
         this.loadClientCertList();
       }
     },
@@ -486,16 +493,23 @@ export default {
         });
       }).catch(() => { });
     },
-    generateClientCert() {
-      this.generateCertDialog = true;
-      this.generateForm = { username: '', groupName: '', maxDevices: 3, deviceBindingEnabled: false, generateType: 'server', csrData: '' };
-      this.userGroups = [];
+    loadClientUserInfo() {
       axios.get('/set/client_cert/user_cert_info').then(resp => {
         if (resp.data.code === 0) {
           this.userList = resp.data.data.users || [];
           this.allGroups = resp.data.data.groups || [];
         }
       });
+    },
+    certUserLabel(username) {
+      const user = this.userList.find(item => item.username === username);
+      return this.userLabel(username, user && user.nickname);
+    },
+    generateClientCert() {
+      this.generateCertDialog = true;
+      this.generateForm = { username: '', groupName: '', maxDevices: 3, deviceBindingEnabled: false, generateType: 'server', csrData: '' };
+      this.userGroups = [];
+      this.loadClientUserInfo();
     },
     onUserChange(username) {
       this.generateForm.groupName = '';
