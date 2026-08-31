@@ -1,0 +1,19 @@
+# Binaries for programs and plugins
+.idea/
+remlink-deploy
+remlink-deploy.tar.gz
+remlink-deploy-*
+remlink
+remlink.db
+
+dist
+artifact-dist
+artifact-src
+version_info
+
+remlink_amd64
+remlink_arm64
+
+# lock files: 项目使用 Yarn，禁止提交 npm lock
+web/package-lock.json
+*.upx

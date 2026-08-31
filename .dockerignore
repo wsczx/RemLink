@@ -1,0 +1,30 @@
+# Git
+.git/
+.gitignore
+
+# 数据库文件（包含敏感数据）
+server/conf/
+*.db
+
+# 日志文件
+*.log
+
+# 构建产物
+remlink-deploy.tar.gz
+
+# 环境变量
+.env
+.env.*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node
+node_modules/
+
+# 文档
+doc/
+docs/

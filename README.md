@@ -61,6 +61,7 @@ RemLink 基于 [ietf-openconnect](https://tools.ietf.org/html/draft-mavrogiannop
 - RADIUS 认证（含 Access-Challenge 二次验证）
 - 企业微信 OAuth2 扫码登录
 - 飞书 OAuth2 扫码登录
+- OIDC 兼容的第三方身份认证
 - SMS 短信验证码（腾讯云 + 阿里云，含防暴力破解）
 - WebAuth 浏览器端认证
 - 认证 Pipeline 可编排架构（多步骤自由组合 + 断点恢复）
@@ -167,7 +168,7 @@ sudo ./remlink
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/wsczx/RemLink/main/deploy/install.sh | sudo bash
-# 或指定版本： sudo VERSION=0.16.1 bash install.sh
+# 或指定版本： sudo VERSION=0.18.5 bash install.sh
 # 仅安装不启动： sudo bash install.sh --no-start
 ```
 
@@ -389,6 +390,45 @@ docker pull docker.1ms.run/wsczx/remlink:latest
 
 </details>
 
+## 开发与构建
+
+### 开发环境
+
+- Linux 环境及 tun/tap、网络管理和防火墙相关内核能力
+- Docker
+- GNU Make
+
+默认构建流程在 Docker 容器中完成，因此不要求宿主机安装 Go、Node.js 或 Yarn。只有使用 `make local`、`make go`、`make test`，或直接进行前端开发时，才需要在宿主机安装相应工具。项目使用 Yarn 管理前端依赖，不提交 `web/package-lock.json`。构建命令：
+
+```bash
+git clone https://github.com/wsczx/RemLink.git
+cd RemLink
+
+make help          # 查看所有命令
+make web           # 构建前端并嵌入服务端
+make local         # 本地编译二进制，产物位于 server/remlink
+make build         # 使用 Docker 构建前端并构建 Docker 镜像
+make docker        # 构建 Docker 镜像（需先完成前端构建）
+make release       # 构建并提取二进制发布包，同时发布到 GitHub Release
+```
+
+前端构建建议通过 `make web` 或 Docker 执行，避免宿主机 Node.js 与旧版构建链的 OpenSSL 兼容问题。完整构建产物位于 `artifact-dist/`。
+
+### 项目结构
+
+```text
+server/       Go 服务端、认证、VPN 协议和 Web API
+web/          Vue 管理后台与用户门户
+deploy/       systemd、Docker Compose、Kubernetes 和安装脚本
+docker/       Docker 构建文件
+scripts/      构建、发布和开发辅助脚本
+doc/          用户文档、常见问题和截图
+```
+
+### 提交与贡献
+
+欢迎提交 Issue、Pull Request 和文档改进。提交前请确认没有将数据库、环境变量文件、构建产物或密钥加入 Git，并完成必要的测试和文档更新。
+
 ## 常见问题
 
 请前往 [常见问题文档](doc/question.md) 查看。
@@ -401,4 +441,6 @@ docker pull docker.1ms.run/wsczx/remlink:latest
 
 ## License
 
-RemLink 为闭源商业软件，采用专属最终用户许可协议（EULA）。未经授权，不得复制、修改、反向工程或再分发本软件及其任何部分。完整条款见 [LICENSE](LICENSE)。
+RemLink 服务端及项目中未另行声明的部分采用 [GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0）授权。前端代码沿用上游 AnyLink 的 [MIT License](https://github.com/bjdgyc/anylink/blob/main/web/LICENSE)，第三方依赖按照各自许可证授权。
+
+RemLink 基于 [AnyLink](https://github.com/bjdgyc/anylink) 开发，感谢原作者及所有贡献者的开源贡献。使用、修改或分发 RemLink 时，请遵守相应许可证及第三方组件的授权条款。

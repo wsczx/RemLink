@@ -1,0 +1,193 @@
+package handler
+
+import (
+	"net"
+	"time"
+
+	"github.com/wsczx/remlink/base"
+	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/utils"
+	"github.com/wsczx/remlink/sessdata"
+)
+
+func LinkDtls(conn net.Conn, cSess *sessdata.ConnSession) {
+	base.Debug("LinkDtls connect ip:", cSess.IpAddr, "user:", cSess.Username, "udp-rip:", conn.RemoteAddr())
+	dSess := cSess.NewDtlsConn()
+	if dSess == nil {
+		// 创建失败，直接关闭链接
+		_ = conn.Close()
+		return
+	}
+
+	defer func() {
+		// 解析畸形报文等异常不应带崩整个进程
+		if err := recover(); err != nil {
+			base.Error("LinkDtls panic", cSess.Username, err)
+		}
+		base.Debug("LinkDtls return", cSess.Username, cSess.IpAddr)
+		_ = conn.Close()
+		dSess.Close()
+	}()
+
+	var (
+		err  error
+		n    int
+		dead = time.Duration(cSess.CstpDpd+5) * time.Second
+	)
+
+	go dtlsWrite(conn, dSess, cSess)
+
+	for {
+		err = conn.SetReadDeadline(utils.NowSec().Add(dead))
+		if err != nil {
+			base.Error("SetDeadline: ", cSess.Username, cSess.IpAddr, err)
+			return
+		}
+
+		pl := getPayload()
+		n, err = conn.Read(pl.Data)
+		if err != nil {
+			base.Warn("read hdata: ", cSess.Username, cSess.IpAddr, err)
+			return
+		}
+
+		// DTLS 头部至少需要 1 字节（type）
+		if n < 1 {
+			continue
+		}
+
+		// 限流设置
+		err = cSess.RateLimit(n, true)
+		if err != nil {
+			base.Error(err)
+		}
+
+		switch pl.Data[0] {
+		case 0x07: // KEEPALIVE
+			// do nothing
+			base.Trace("recv LinkDtls Keepalive", cSess.Username, cSess.IpAddr, conn.RemoteAddr())
+		case 0x05: // DISCONNECT
+			cSess.SetLogoutCode(dbdata.UserLogoutClient)
+			base.Info("DISCONNECT DTLS", dbdata.UserLabel(cSess.Username, cSess.Nickname), cSess.IpAddr, conn.RemoteAddr())
+			return
+		case 0x03: // DPD-REQ
+			base.Trace("recv LinkDtls DPD-REQ", cSess.Username, cSess.IpAddr, conn.RemoteAddr(), n)
+			pl.PType = 0x04
+			// 从零开始 可以直接赋值
+			pl.Data = pl.Data[:n]
+			if payloadOutDtls(cSess, dSess, pl) {
+				return
+			}
+		case 0x04:
+			base.Trace("recv LinkDtls DPD-RESP", cSess.Username, cSess.IpAddr, conn.RemoteAddr())
+		case 0x08: // decompress
+			if cSess.DtlsPickCmp == nil || n < 2 {
+				continue
+			}
+			dst := getByteFull()
+			// 只解压实际读到的数据，避免把缓冲区残留脏数据一起解压
+			nn, err := cSess.DtlsPickCmp.Uncompress(pl.Data[1:n], *dst)
+			if err != nil {
+				putByte(dst)
+				base.Error("dtls decompress error", err, n)
+				continue
+			}
+			if nn <= 0 || nn+1 > BufferSize {
+				putByte(dst)
+				base.Error("dtls decompress invalid len:", cSess.Username, nn)
+				continue
+			}
+			pl.Data = append(pl.Data[:1], (*dst)[:nn]...)
+			putByte(dst)
+			n = nn + 1
+			fallthrough
+		case 0x00: // DATA
+			// n==1 时载荷为空，下游 payloadIn 读 pl.Data[0] 会越界
+			if n < 2 {
+				continue
+			}
+			// 去除数据头
+			// copy(pl.Data, pl.Data[1:n])
+			// 更新切片长度
+			// pl.Data = pl.Data[:n-1]
+			pl.Data = append(pl.Data[:0], pl.Data[1:n]...)
+			if payloadIn(cSess, pl) {
+				return
+			}
+			// 只记录返回正确的数据时间
+			cSess.LastDataTime.Store(utils.NowSec().Unix())
+		}
+
+	}
+}
+
+func dtlsWrite(conn net.Conn, dSess *sessdata.DtlsSession, cSess *sessdata.ConnSession) {
+	defer func() {
+		base.Debug("dtlsWrite return", cSess.Username, cSess.IpAddr)
+		_ = conn.Close()
+		dSess.Close()
+	}()
+
+	var (
+		pl *sessdata.Payload
+	)
+
+	for {
+		// dtls优先推送数据
+		select {
+		case pl = <-cSess.PayloadOutDtls:
+		case <-dSess.CloseChan:
+			return
+		}
+
+		if pl.LType != sessdata.LTypeIPData {
+			continue
+		}
+
+		// header = []byte{payload.PType}
+		if pl.PType == 0x00 { // data
+			isCompress := false
+			if cSess.DtlsPickCmp != nil && len(pl.Data) > base.GetCfg().NoCompressLimit {
+				dst := getByteFull()
+				size, err := cSess.DtlsPickCmp.Compress(pl.Data, (*dst)[1:])
+				if err == nil && size < len(pl.Data) {
+					(*dst)[0] = 0x08
+					pl.Data = append(pl.Data[:0], (*dst)[:size+1]...)
+					isCompress = true
+				}
+				putByte(dst)
+			}
+			// 未压缩
+			if !isCompress {
+				// 获取数据长度
+				l := len(pl.Data)
+				// 先扩容 +1
+				pl.Data = pl.Data[:l+1]
+				// 数据后移
+				copy(pl.Data[1:], pl.Data)
+				// 添加头信息
+				pl.Data[0] = pl.PType
+			}
+		} else {
+			// 设置头类型
+			if pl.PType == 0x04 {
+				pl.Data[0] = pl.PType
+			} else {
+				pl.Data = append(pl.Data[:0], pl.PType)
+			}
+		}
+		n, err := conn.Write(pl.Data)
+		if err != nil {
+			base.Warn("write err", cSess.Username, cSess.IpAddr, err)
+			return
+		}
+
+		putPayload(pl)
+
+		// 限流设置
+		err = cSess.RateLimit(n, false)
+		if err != nil {
+			base.Error(err)
+		}
+	}
+}

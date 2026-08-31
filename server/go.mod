@@ -1,0 +1,107 @@
+module github.com/wsczx/remlink
+
+go 1.26.0
+
+toolchain go1.26.5
+
+require (
+	github.com/arl/statsviz v0.6.0
+	github.com/denisenkom/go-mssqldb v0.12.3
+	github.com/go-acme/lego/v4 v4.34.0
+	github.com/go-co-op/gocron/v2 v2.21.1
+	github.com/go-ldap/ldap v3.0.3+incompatible
+	github.com/go-sql-driver/mysql v1.8.1
+	github.com/gocarina/gocsv v0.0.0-20240520201108-78e41c74b4b1
+	github.com/golang-jwt/jwt/v4 v4.5.2
+	github.com/google/gopacket v1.1.19
+	github.com/google/nftables v0.3.0
+	github.com/gorilla/handlers v1.5.2
+	github.com/gorilla/mux v1.8.1
+	github.com/lanrenwo/lzsgo v0.0.2
+	github.com/lib/pq v1.10.9
+	github.com/mattn/go-sqlite3 v1.14.24
+	github.com/miekg/dns v1.1.72
+	github.com/pion/dtls/v3 v3.1.5
+	github.com/pion/logging v0.2.4
+	github.com/pires/go-proxyproto v0.8.1
+	github.com/shirou/gopsutil v3.21.11+incompatible
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
+	github.com/songgao/packets v0.0.0-20160404182456-549a10cd4091
+	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
+	github.com/spf13/cobra v1.8.1
+	github.com/stretchr/testify v1.11.1
+	github.com/vishvananda/netlink v1.3.1
+	github.com/xhit/go-simple-mail/v2 v2.16.0
+	github.com/xlzd/gotp v0.1.0
+	github.com/xuri/excelize/v2 v2.11.0
+	golang.org/x/crypto v0.53.0
+	golang.org/x/net v0.56.0
+	golang.org/x/text v0.39.0
+	golang.org/x/time v0.15.0
+	layeh.com/radius v0.0.0-20231213012653-1006025d24f8
+	xorm.io/xorm v1.3.9
+)
+
+require (
+	filippo.io/edwards25519 v1.1.1 // indirect
+	github.com/alibabacloud-go/alibabacloud-gateway-spi v0.0.5 // indirect
+	github.com/alibabacloud-go/darabonba-openapi/v2 v2.1.16 // indirect
+	github.com/alibabacloud-go/debug v1.0.1 // indirect
+	github.com/alibabacloud-go/tea v1.4.0 // indirect
+	github.com/alibabacloud-go/tea-utils/v2 v2.0.9 // indirect
+	github.com/aliyun/credentials-go v1.4.7 // indirect
+	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
+	github.com/clbanning/mxj/v2 v2.7.0 // indirect
+	github.com/felixge/httpsnoop v1.0.4 // indirect
+	github.com/go-acme/alidns-20150109/v4 v4.7.0 // indirect
+	github.com/go-acme/tencentclouddnspod v1.3.24 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
+	github.com/go-test/deep v1.1.0 // indirect
+	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9 // indirect
+	github.com/golang-sql/sqlexp v0.1.0 // indirect
+	github.com/google/go-cmp v0.7.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
+	github.com/jonboulle/clockwork v0.5.0 // indirect
+	github.com/kr/pretty v0.3.1 // indirect
+	github.com/mdlayher/netlink v1.7.3-0.20250113171957-fbb4dce95f42 // indirect
+	github.com/mdlayher/socket v0.5.0 // indirect
+	github.com/pion/transport/v4 v4.0.2 // indirect
+	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common v1.3.77 // indirect
+	github.com/tiendc/go-deepcopy v1.7.2 // indirect
+	github.com/tjfoc/gmsm v1.4.1 // indirect
+	github.com/toorop/go-dkim v0.0.0-20240103092955-90b7d1423f92 // indirect
+	github.com/vishvananda/netns v0.0.5 // indirect
+	github.com/yusufpapurcu/wmi v1.2.4 // indirect
+	golang.org/x/mod v0.37.0 // indirect
+	golang.org/x/sync v0.21.0 // indirect
+	golang.org/x/tools v0.47.0 // indirect
+)
+
+require (
+	github.com/coreos/go-iptables v0.8.0
+	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
+	github.com/go-ole/go-ole v1.3.0 // indirect
+	github.com/goccy/go-json v0.10.3 // indirect
+	github.com/golang/snappy v0.0.4 // indirect
+	github.com/gorilla/websocket v1.5.3
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/json-iterator/go v1.1.13-0.20220915233716-71ac16282d12 // indirect
+	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
+	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
+	github.com/richardlehane/mscfb v1.0.7 // indirect
+	github.com/richardlehane/msoleps v1.0.6 // indirect
+	github.com/robfig/cron/v3 v3.0.1 // indirect
+	github.com/spf13/pflag v1.0.7 // indirect
+	github.com/syndtr/goleveldb v1.0.0 // indirect
+	github.com/tklauser/go-sysconf v0.3.14 // indirect
+	github.com/tklauser/numcpus v0.9.0 // indirect
+	github.com/xuri/efp v0.0.1 // indirect
+	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
+	golang.org/x/sys v0.46.0 // indirect
+	gopkg.in/asn1-ber.v1 v1.0.0-20181015200546-f715ec2f112d // indirect
+	gopkg.in/ini.v1 v1.67.1 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
+	software.sslmate.com/src/go-pkcs12 v0.7.2
+	xorm.io/builder v0.3.13 // indirect
+)
