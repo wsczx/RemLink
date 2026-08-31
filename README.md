@@ -2,6 +2,7 @@
 
 ![GitHub release](https://img.shields.io/github/v/release/wsczx/RemLink)
 ![GitHub downloads](https://img.shields.io/github/downloads/wsczx/RemLink/total)
+[![Gitee](https://img.shields.io/badge/Gitee-RemLink-C71D23?logo=gitee)](https://gitee.com/wsczx/remlink)
 [![Docker pulls](https://img.shields.io/docker/pulls/wsczx/remlink.svg)](https://hub.docker.com/r/wsczx/remlink)
 
 RemLink 是一个企业级远程办公软件，支持多人同时在线，兼容 AnyConnect(推荐) / OpenConnect 客户端。
