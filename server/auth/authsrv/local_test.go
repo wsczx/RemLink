@@ -9,8 +9,6 @@ import (
 	"github.com/wsczx/remlink/pkg/utils"
 )
 
-// ========== 辅助函数 ==========
-
 func createTestUser(username, password string, disableOtp bool) *dbdata.User {
 	hashedPwd, _ := utils.PasswordHash(password)
 	u := &dbdata.User{
@@ -28,14 +26,10 @@ func createTestUser(username, password string, disableOtp bool) *dbdata.User {
 	return u
 }
 
-// ========== Name ==========
-
 func TestLocalAuth_Name(t *testing.T) {
 	la := &LocalAuth{}
 	assert.Equal(t, "local", la.Name())
 }
-
-// ========== Authenticate 测试 ==========
 
 func TestLocalAuth_EmptyUsername(t *testing.T) {
 	preTestData(t)
@@ -151,8 +145,6 @@ func TestLocalAuth_WrongGroup(t *testing.T) {
 	assert.Contains(t, err.Error(), "用户组错误")
 }
 
-// ========== ldap 类型用户不能本地认证 ==========
-
 func TestLocalAuth_LdapUser(t *testing.T) {
 	preTestData(t)
 	hashedPwd, _ := utils.PasswordHash("testpass123")
@@ -181,8 +173,6 @@ func TestLocalAuth_LdapUser(t *testing.T) {
 	assert.Contains(t, err.Error(), "LDAP 用户不能使用本地认证")
 }
 
-// ========== DisableOtp 用户正常登录 ==========
-
 func TestLocalAuth_WithOtpDisabled(t *testing.T) {
 	preTestData(t)
 	pwd := "abcdef123456"
@@ -209,8 +199,6 @@ func TestLocalAuth_WithOtpDisabled(t *testing.T) {
 	assert.Equal(t, auth.StepPass, result)
 	assert.Nil(t, err)
 }
-
-// ========== 已提供独立 otp_code 时 local 不修改它 ==========
 
 func TestLocalAuth_ExistingOtpCode(t *testing.T) {
 	preTestData(t)
@@ -268,8 +256,6 @@ func TestLocalAuth_ExistingOtpCode_WrongPwd(t *testing.T) {
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "密码错误")
 }
-
-// ========== 密码+OTP 合并输入（兜底剥离） ==========
 
 func TestLocalAuth_PasswordWithOTPEmbedded(t *testing.T) {
 	preTestData(t)
@@ -330,8 +316,6 @@ func TestLocalAuth_PortalLogin_NoStrip(t *testing.T) {
 	assert.Equal(t, auth.StepFail, result)
 	assert.NotNil(t, err)
 }
-
-// ========== nil Extra ==========
 
 func TestLocalAuth_NilExtra(t *testing.T) {
 	preTestData(t)

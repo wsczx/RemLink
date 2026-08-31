@@ -544,8 +544,6 @@ func (a *testAuthStub) Authenticate(*auth.Context) (auth.StepResult, error) {
 	return auth.StepPass, nil
 }
 
-// ========== 组级 v6 池（V2） ==========
-
 func TestInitV6_GatewayAndBounds(t *testing.T) {
 	p := &ipPoolConfig{}
 	assert.Nil(t, p.initV6("2001:db8:5::/120"))

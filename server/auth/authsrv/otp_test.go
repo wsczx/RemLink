@@ -13,8 +13,6 @@ import (
 	"github.com/xlzd/gotp"
 )
 
-// ========== CheckOtp 测试（纯函数，无需 DB） ==========
-
 func TestCheckOtp_ValidCode(t *testing.T) {
 	ast := assert.New(t)
 
@@ -94,14 +92,10 @@ func TestCheckOtp_EmptySecret(t *testing.T) {
 	ast.False(result, "空 secret 应拒绝")
 }
 
-// ========== Name ==========
-
 func TestOTPAuth_Name(t *testing.T) {
 	oa := &OTPAuth{}
 	assert.Equal(t, "otp", oa.Name())
 }
-
-// ========== Challenge ==========
 
 func TestOTPAuth_Challenge(t *testing.T) {
 	ast := assert.New(t)
@@ -111,8 +105,6 @@ func TestOTPAuth_Challenge(t *testing.T) {
 	ast.Equal(auth.ChallengeOTP, ch.Type)
 	ast.Equal("otp", ch.Template)
 }
-
-// ========== Authenticate 测试（需要 DB） ==========
 
 func TestOTPAuth_Disabled(t *testing.T) {
 	preTestData(t)
@@ -197,8 +189,6 @@ func TestOTPAuth_InvalidCode_Retry(t *testing.T) {
 	assert.Equal(t, "", code)
 }
 
-// ========== 从 DB 加载 OTP 信息（cert+otp/ldap+otp 组合） ==========
-
 func TestOTPAuth_LoadFromDB(t *testing.T) {
 	preTestData(t)
 	hashedPwd, _ := utils.PasswordHash("testpass123")
@@ -229,8 +219,6 @@ func TestOTPAuth_LoadFromDB(t *testing.T) {
 	assert.Equal(t, auth.StepPending, result)
 	assert.Nil(t, err)
 }
-
-// ========== 并发安全 ==========
 
 func TestOTPAuth_CheckOtp_Concurrent(t *testing.T) {
 	secret := gotp.RandomSecret(16)
@@ -275,8 +263,6 @@ func TestOTPAuth_CheckOtp_Concurrent_SameUser(t *testing.T) {
 	}
 	assert.Equal(t, 1, passCount, "同一用户+code 并发只有一次通过")
 }
-
-// ========== sendOtpToUser ==========
 
 func TestSendOtpToUser_PhoneCallsFunc(t *testing.T) {
 	ast := assert.New(t)

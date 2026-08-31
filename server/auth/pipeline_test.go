@@ -73,8 +73,6 @@ func buildResult(ctx *Context, result StepResult, err error, pipeline *Pipeline,
 	return pr
 }
 
-// ========== Run 测试 ==========
-
 func TestExecute_SingleStep_Pass(t *testing.T) {
 	ast := assert.New(t)
 	mockRegister("mock_pass", &mockAuth{name: "mock_pass", result: StepPass})
@@ -151,8 +149,6 @@ func TestExecute_EmptySteps(t *testing.T) {
 	ast.NotNil(result.Err)
 	ast.Contains(result.Err.Error(), "未包含任何步骤")
 }
-
-// ========== Resume 测试 ==========
 
 func TestResume_ContinueAfterPending(t *testing.T) {
 	ast := assert.New(t)
@@ -248,8 +244,6 @@ func TestResume_StepIdxZero_StartFromBeginning(t *testing.T) {
 	ast.Equal(StepPass, result.Result)
 }
 
-// ========== PipelineResult 结构 ==========
-
 func TestPipelineResult_UsernamePropagation(t *testing.T) {
 	ast := assert.New(t)
 	mockRegister("mock_up", &mockAuth{name: "mock_up", result: StepPass})
@@ -267,8 +261,6 @@ func TestPipelineResult_UsernamePropagation(t *testing.T) {
 	ast.Equal("认证日志信息", result.Info)
 }
 
-// ========== 结果对象独立性 ==========
-
 func TestExecute_ResultImmutable(t *testing.T) {
 	ast := assert.New(t)
 	mockRegister("mock_imm", &mockAuth{name: "mock_imm", result: StepPass})
@@ -281,8 +273,6 @@ func TestExecute_ResultImmutable(t *testing.T) {
 
 	ast.NotSame(r1, r2, "两次执行应返回独立的结果对象")
 }
-
-// ========== StepFail 无 error 场景 ==========
 
 func TestExecute_StepFailWithoutError(t *testing.T) {
 	ast := assert.New(t)

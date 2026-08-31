@@ -107,8 +107,6 @@ func TestBackupTable_NewSlicePtr_NewPtr(t *testing.T) {
 	}
 }
 
-// ========== 备份文件校验 ==========
-
 func TestBackupFileRead_InvalidFilename(t *testing.T) {
 	ast := assert.New(t)
 
@@ -150,8 +148,6 @@ func TestDeleteBackup_InvalidFilename(t *testing.T) {
 	ast.Error(err)
 	ast.Contains(err.Error(), "invalid")
 }
-
-// ========== 备份创建 ==========
 
 func TestCreateBackup_Config(t *testing.T) {
 	ast := assert.New(t)
@@ -253,8 +249,6 @@ func TestCreateBackup_InvalidType(t *testing.T) {
 	ast.NoError(err)
 }
 
-// ========== 备份列表 / 删除 ==========
-
 func TestListBackups_Empty(t *testing.T) {
 	ast := assert.New(t)
 	defer cleanupBackupFiles(t)
@@ -303,8 +297,6 @@ func TestListAndDeleteBackup(t *testing.T) {
 		ast.NotEqual(f.Name, filename)
 	}
 }
-
-// ========== 备份还原完整链路 ==========
 
 func TestBackup_RoundTrip(t *testing.T) {
 	ast := assert.New(t)

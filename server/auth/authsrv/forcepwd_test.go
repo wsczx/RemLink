@@ -26,14 +26,10 @@ func createForcePwdUser(username, userType string, forcePwd bool) *dbdata.User {
 	return u
 }
 
-// ========== Name ==========
-
 func TestForcePwd_Name(t *testing.T) {
 	f := &ForcePwd{}
 	assert.Equal(t, "forcepwd", f.Name())
 }
-
-// ========== Authenticate ==========
 
 func TestForcePwd_UserNotFound(t *testing.T) {
 	preTestData(t)
@@ -130,8 +126,6 @@ func TestForcePwd_TrustInMemoryUserInfo(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-// ========== Challenge ==========
-
 // ctx 为 nil → Challenge 返回 nil
 func TestForcePwd_Challenge_NilCtx(t *testing.T) {
 	f := &ForcePwd{}
@@ -152,8 +146,6 @@ func TestForcePwd_Challenge_ReturnsInfo(t *testing.T) {
 	assert.Equal(t, auth.ChallengeForcePwd, ci.Type)
 	assert.Equal(t, "fp_challenge", ci.Data["username"])
 }
-
-// ========== insertForcePwd ==========
 
 // 管道含 local → 在 local 之后插入 forcepwd 步骤
 func TestInsertForcePwd_AfterLocal(t *testing.T) {

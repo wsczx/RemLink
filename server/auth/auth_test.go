@@ -6,8 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// ========== StepResult.String ==========
-
 func TestStepResult_String(t *testing.T) {
 	ast := assert.New(t)
 
@@ -16,8 +14,6 @@ func TestStepResult_String(t *testing.T) {
 	ast.Equal("Fail", StepFail.String())
 	ast.Equal("Unknown", StepResult(99).String())
 }
-
-// ========== Context.SetInfo & LogInfo ==========
 
 func TestContext_LogInfo_WithSetInfo(t *testing.T) {
 	ast := assert.New(t)
@@ -78,8 +74,6 @@ func TestContext_LogInfo_UnknownStepType(t *testing.T) {
 	ast.Equal("unknown_type_abc认证通过", ctx.LogInfo())
 }
 
-// ========== buildInfoFromSteps 内部函数 ==========
-
 func TestBuildInfoFromSteps(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -111,8 +105,6 @@ func TestBuildInfoFromSteps(t *testing.T) {
 	}
 }
 
-// ========== AddPassedStep ==========
-
 func TestContext_AddPassedStep_Order(t *testing.T) {
 	ast := assert.New(t)
 
@@ -124,8 +116,6 @@ func TestContext_AddPassedStep_Order(t *testing.T) {
 	ast.Len(ctx.passedSteps, 3)
 	ast.Equal([]string{"cert", "ldap", "otp"}, ctx.passedSteps)
 }
-
-// ========== Context with nil Extra ==========
 
 func TestContext_LogInfo_NilExtra(t *testing.T) {
 	ctx := &Context{}

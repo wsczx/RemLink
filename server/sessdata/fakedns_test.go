@@ -109,8 +109,6 @@ func bigEndianUint32(b []byte) uint32 {
 	return uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
 }
 
-// ========== AcquireFakeIP ==========
-
 func TestAcquireFakeIP_NewDomain(t *testing.T) {
 	m := newTestManager(t)
 	ip := m.AcquireFakeIP("example.com")
@@ -146,8 +144,6 @@ func TestAcquireFakeIP_UpdatesLastAccess(t *testing.T) {
 	assert.True(t, time.Since(entry.GetLastAccess()) < 100*time.Millisecond)
 }
 
-// ========== IsFakeIP ==========
-
 func TestIsFakeIP_InRange(t *testing.T) {
 	m := newTestManager(t)
 	ip := net.ParseIP("100.64.0.5")
@@ -165,8 +161,6 @@ func TestIsFakeIP_NilPool(t *testing.T) {
 	assert.False(t, m.IsFakeIP(net.ParseIP("100.64.0.5")))
 }
 
-// ========== GetRealIP / GetDomain ==========
-
 func TestGetRealIP_NotExists(t *testing.T) {
 	m := newTestManager(t)
 	assert.Equal(t, "", m.GetRealIP("100.64.0.99"))
@@ -176,8 +170,6 @@ func TestGetDomain_NotExists(t *testing.T) {
 	m := newTestManager(t)
 	assert.Equal(t, "", m.GetDomain("100.64.0.99"))
 }
-
-// ========== AddMapping ==========
 
 func TestAddMapping_NewMapping(t *testing.T) {
 	m := newTestManager(t)
@@ -248,8 +240,6 @@ func TestAddMapping_NewMappingAddFail(t *testing.T) {
 	assert.Equal(t, "", m.GetRealIP(fakeIP.String()))
 }
 
-// ========== RemoveMapping ==========
-
 func TestRemoveMapping_Exists(t *testing.T) {
 	m := newTestManager(t)
 	fakeIP := m.AcquireFakeIP("example.com")
@@ -264,8 +254,6 @@ func TestRemoveMapping_NotExists(t *testing.T) {
 	err := m.RemoveMapping("100.64.0.99")
 	assert.Nil(t, err) // 不存在不算错误
 }
-
-// ========== LookupAndTouch ==========
 
 func TestLookupAndTouch_NoMapping(t *testing.T) {
 	m := newTestManager(t)
@@ -318,8 +306,6 @@ func TestLookupAndTouch_RefreshNotExpired(t *testing.T) {
 	assert.False(t, needRefresh)
 }
 
-// ========== UpdateAccess ==========
-
 func TestUpdateAccess(t *testing.T) {
 	m := newTestManager(t)
 	fakeIP := m.AcquireFakeIP("example.com")
@@ -334,8 +320,6 @@ func TestUpdateAccess_NotExists(t *testing.T) {
 	m := newTestManager(t)
 	m.UpdateAccess("100.64.0.99")
 }
-
-// ========== DNS Cache ==========
 
 func TestUpdateDNSCache(t *testing.T) {
 	m := newTestManager(t)
@@ -386,8 +370,6 @@ func TestCleanupExpiredDNSCache(t *testing.T) {
 	assert.True(t, validExists)
 }
 
-// ========== cleanupExpiredFakeIPs ==========
-
 func TestCleanupExpiredFakeIPs(t *testing.T) {
 	m := newTestManager(t)
 	// 活跃的（不应被清理）
@@ -409,8 +391,6 @@ func TestCleanupExpiredFakeIPs(t *testing.T) {
 	assert.Equal(t, "", m.GetDomain(ip2.String()))
 	assert.Equal(t, "", m.GetRealIP(ip2.String()))
 }
-
-// ========== setRefreshAt ==========
 
 func TestSetRefreshAt(t *testing.T) {
 	m := newTestManager(t)
@@ -444,8 +424,6 @@ func TestSetRefreshAt_NotInActive(t *testing.T) {
 	m.setRefreshAt("100.64.0.99", 60)
 }
 
-// ========== Stop ==========
-
 func TestStop_CleansUpFirewall(t *testing.T) {
 	m := newTestManager(t)
 	m.Start()
@@ -470,8 +448,6 @@ func TestStop_Idempotent(t *testing.T) {
 	m.Stop()
 }
 
-// ========== ResolveAndMapping（不依赖真实 DNS） ==========
-
 func TestResolveAndMapping_AlreadyMapped(t *testing.T) {
 	m := newTestManager(t)
 	fakeIP := m.AcquireFakeIP("example.com")
@@ -495,8 +471,6 @@ func TestResolveAndMapping_Stopped(t *testing.T) {
 	_, loaded := m.mappingTasks.Load("example.com")
 	assert.False(t, loaded)
 }
-
-// ========== 并发测试 ==========
 
 func TestAcquireFakeIP_Concurrent(t *testing.T) {
 	m := newTestManager(t)
@@ -533,8 +507,6 @@ func TestAddMapping_ConcurrentSameFakeIP(t *testing.T) {
 
 	assert.Equal(t, "1.2.3.4", m.GetRealIP(fakeIP.String()))
 }
-
-// ========== AcquireFakeIPv6（V2） ==========
 
 func TestAcquireFakeIPv6_NewDomain(t *testing.T) {
 	m := newTestManager(t)

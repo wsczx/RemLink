@@ -38,8 +38,6 @@ func createTestPolicyGroup(t *testing.T, groupName string, authProfile json.RawM
 	ast.Nil(err)
 }
 
-// ========== local + otp 端到端 ==========
-
 func TestLocalPlusOtp_FullFlow(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
@@ -68,7 +66,6 @@ func TestLocalPlusOtp_FullFlow(t *testing.T) {
 		OtpSecret: otpSecret,
 	})
 
-	// ====== 第一步：输入用户名密码 ======
 	body1 := buildAuthReplyBody(username, password, group, "")
 	req1 := newAuthRequest(body1)
 	w1 := httptest.NewRecorder()
@@ -86,7 +83,6 @@ func TestLocalPlusOtp_FullFlow(t *testing.T) {
 	}
 	ast.NotEmpty(sessionID, "应设置 auth-session-id cookie")
 
-	// ====== 第二步：输入 OTP ======
 	validOtp := gotp.NewDefaultTOTP(otpSecret).Now()
 	body2 := buildAuthReplyBody(username, "", group, validOtp)
 	req2 := newAuthRequest(body2)
@@ -128,8 +124,6 @@ func TestLocalPlusOtp_WrongPassword(t *testing.T) {
 	ast.Equal(http.StatusOK, w.Code)
 	ast.Contains(w.Body.String(), "密码错误")
 }
-
-// ========== cert + otp 端到端 ==========
 
 func TestCertPlusOtp_CertPassesThenOtpChallenge(t *testing.T) {
 	base.Test()
@@ -192,8 +186,6 @@ func TestCertPlusOtp_NoTLS_ImmediateFail(t *testing.T) {
 	ast.Contains(w.Body.String(), "证书")
 }
 
-// ========== 无效/过期 pending session ==========
-
 func TestResume_InvalidSessionCookie(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
@@ -253,8 +245,6 @@ func TestResume_ExpiredSession(t *testing.T) {
 	ast.Contains(w.Body.String(), "error")
 }
 
-// ========== 初始化流程 ==========
-
 func TestLinkAuth_Init_ReturnsLoginForm(t *testing.T) {
 	base.Test()
 	preIpData(t)
@@ -272,8 +262,6 @@ func TestLinkAuth_Init_ReturnsLoginForm(t *testing.T) {
 	ast.Equal(http.StatusOK, w.Code)
 	ast.Contains(w.Body.String(), "auth-request")
 }
-
-// ========== SSO Token + OTP 身份保留 ==========
 
 func TestSsoToken_WithOtp_PreservesIdentity(t *testing.T) {
 	base.Test()
@@ -340,8 +328,6 @@ func TestSsoToken_WithOtp_PreservesIdentity(t *testing.T) {
 	_, err = AuthSessionManager.Get(ssoToken)
 	ast.NotNil(err, "SSO 临时会话应在处理后清理")
 }
-
-// ========== 辅助函数 ==========
 
 func buildAuthReplyBody(username, password, group, secondaryPassword string) string {
 	body := `<?xml version="1.0" encoding="UTF-8"?>

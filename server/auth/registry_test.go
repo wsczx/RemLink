@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// ========== 辅助函数 ==========
-
 // 临时注册 mock 认证器，返回清理函数
 func testRegister(name string, a Authenticator) func() {
 	Registry.Register(name, func() Authenticator { return a })
@@ -50,8 +48,6 @@ func mockResolver(cfg map[string]any) ProviderResolverFunc {
 		return cfg, nil
 	}
 }
-
-// ========== Registry 测试 ==========
 
 func TestRegister_Duplicate_Panics(t *testing.T) {
 	ast := assert.New(t)
@@ -102,8 +98,6 @@ func TestRegisteredNames(t *testing.T) {
 	assert.Contains(t, names, "names_b")
 }
 
-// ========== Registrar 并发安全 ==========
-
 func TestRegistry_ConcurrentAccess(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range 50 {
@@ -117,8 +111,6 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 }
-
-// ========== GetPipeline 测试 ==========
 
 func TestGetPipeline_EmptySteps(t *testing.T) {
 	pipeline, err := GetPipeline(GroupAuthProfile{}, nil)
@@ -232,8 +224,6 @@ func TestGetPipeline_UnknownType_StepIndexInError(t *testing.T) {
 	assert.Contains(t, err.Error(), "步骤 1")
 }
 
-// ========== Provider 配置注入边界测试（通过 GetPipeline 覆盖） ==========
-
 func TestGetPipeline_EmptyProvider_NoOp(t *testing.T) {
 	cleanup := testRegister("no_prov", &mockAuth{name: "no_prov", result: StepPass})
 	defer cleanup()
@@ -258,8 +248,6 @@ func TestGetPipeline_EmptyConfigMap_NoOp(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, pipeline)
 }
-
-// ========== ParseAuthProfile 测试 ==========
 
 func TestParseAuthProfile_Valid(t *testing.T) {
 	raw := json.RawMessage(`{"step":[{"type":"local"},{"type":"otp"}]}`)
@@ -326,8 +314,6 @@ func TestParseAuthProfile_OTPOnly_Invalid(t *testing.T) {
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "第一步不能是 OTP")
 }
-
-// ========== GetProviderConfigFromMap 测试 ==========
 
 func TestGetProviderConfigFromMap_Valid(t *testing.T) {
 	type ldapConfig struct {
