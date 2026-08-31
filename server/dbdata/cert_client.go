@@ -273,10 +273,10 @@ func GetClientCertList(pageSize, pageIndex int, username, groupname, status stri
 	session.OrderBy("id desc")
 	// 添加搜索条件
 	if username != "" {
-		session.And("username LIKE ?", "%"+username+"%")
+		session.And("username LIKE ? ESCAPE '\\'", "%"+EscapeLike(username)+"%")
 	}
 	if groupname != "" {
-		session.And("groupname LIKE ?", "%"+groupname+"%")
+		session.And("groupname LIKE ? ESCAPE '\\'", "%"+EscapeLike(groupname)+"%")
 	}
 	if status != "" {
 		if statusInt, err := strconv.Atoi(status); err == nil {
