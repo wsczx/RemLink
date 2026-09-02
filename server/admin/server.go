@@ -107,6 +107,8 @@ func StartAdmin() {
 	r.HandleFunc("/set/client_cert/ca_status", CheckCAStatus)
 	r.HandleFunc("/set/client_cert/init_ca", InitClientCA).Methods(http.MethodPost)
 	r.HandleFunc("/set/client_cert/generate", GenerateClientCert).Methods(http.MethodPost)
+	r.HandleFunc("/set/client_cert/batch_generate", BatchGenerateClientCert).Methods(http.MethodPost)
+	r.HandleFunc("/set/client_cert/renew", RenewClientCert).Methods(http.MethodPost)
 	r.HandleFunc("/set/client_cert/download", DownloadClientP12)
 	r.HandleFunc("/set/client_cert/list", GetClientCertList)
 	r.HandleFunc("/set/client_cert/changecertstatus", ChangeClientCertStatus).Methods(http.MethodPost)
