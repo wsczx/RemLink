@@ -237,8 +237,8 @@ func GenerateClientCert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	maxDevices, err := strconv.Atoi(maxDevicesStr)
-	if err != nil || maxDevices < 0 {
-		RespError(w, RespInternalErr, "最大设备数必须为非负整数")
+	if err != nil || maxDevices < 1 {
+		RespError(w, RespInternalErr, "最大设备数必须为正整数")
 		return
 	}
 
@@ -262,6 +262,75 @@ func GenerateClientCert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbdata.AdminLog("证书管理", username, "为用户生成客户端证书(组:"+groupname+")", r.RemoteAddr)
+	certData.PrivateKey = certData.PrivateKey.Masked()
+	RespSucess(w, certData)
+}
+
+// 批量生成客户端证书
+func BatchGenerateClientCert(w http.ResponseWriter, r *http.Request) {
+	raw := r.FormValue("usernames")
+	if strings.TrimSpace(raw) == "" {
+		RespError(w, RespParamErr, "用户名列表不能为空")
+		return
+	}
+	groupname := r.FormValue("group_name")
+	if groupname == "" {
+		RespError(w, RespParamErr, "用户组不能为空")
+		return
+	}
+	// 支持换行、逗号、空格分隔
+	usernames := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == '\n' || r == ',' || r == ' ' || r == '\r' || r == '\t'
+	})
+
+	deviceBindingEnabled := false
+	if deviceBindingStr := r.FormValue("device_binding_enabled"); deviceBindingStr == "true" {
+		deviceBindingEnabled = true
+	}
+	maxDevicesStr := r.FormValue("max_devices")
+	if maxDevicesStr == "" {
+		maxDevicesStr = "3"
+	}
+	maxDevices, err := strconv.Atoi(maxDevicesStr)
+	if err != nil || maxDevices < 1 {
+		RespError(w, RespParamErr, "最大设备数必须为正整数")
+		return
+	}
+
+	success, failed := dbdata.BatchGenerateClientCert(usernames, groupname, deviceBindingEnabled, maxDevices)
+	dbdata.AdminLog("证书管理", "批量", fmt.Sprintf("批量生成客户端证书 %d 个(组:%s)", success, groupname), r.RemoteAddr)
+	RespSucess(w, map[string]any{
+		"success": success,
+		"failed":  failed,
+	})
+}
+
+// 续期客户端证书：删除旧证书并以相同参数重新签发
+func RenewClientCert(w http.ResponseWriter, r *http.Request) {
+	username := r.FormValue("username")
+	if username == "" {
+		RespError(w, RespParamErr, "用户名不能为空")
+		return
+	}
+	groupname := r.FormValue("group_name")
+	if groupname == "" {
+		RespError(w, RespParamErr, "用户组不能为空")
+		return
+	}
+	csrData := r.FormValue("csr")
+
+	var certData *dbdata.ClientCertData
+	var err error
+	if csrData != "" {
+		certData, err = dbdata.RenewClientCert(username, groupname, csrData)
+	} else {
+		certData, err = dbdata.RenewClientCert(username, groupname)
+	}
+	if err != nil {
+		RespError(w, RespInternalErr, fmt.Sprintf("证书续期失败: %v", err))
+		return
+	}
+	dbdata.AdminLog("证书管理", username, "续期了客户端证书(组:"+groupname+")", r.RemoteAddr)
 	certData.PrivateKey = certData.PrivateKey.Masked()
 	RespSucess(w, certData)
 }
