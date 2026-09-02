@@ -14,6 +14,20 @@ import (
 	"github.com/wsczx/remlink/base"
 )
 
+func TestEscapeLike(t *testing.T) {
+	tests := map[string]string{
+		"plain":      "plain",
+		"user_name":  `user\_name`,
+		"100%_user":  `100\%\_user`,
+		`path\value`: `path\\value`,
+	}
+	for input, want := range tests {
+		t.Run(input, func(t *testing.T) {
+			assert.Equal(t, want, EscapeLike(input))
+		})
+	}
+}
+
 func TestGenerateClientCert(t *testing.T) {
 	base.Test()
 	ast := assert.New(t)

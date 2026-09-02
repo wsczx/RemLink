@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -273,10 +274,10 @@ func GetClientCertList(pageSize, pageIndex int, username, groupname, status stri
 	session.OrderBy("id desc")
 	// 添加搜索条件
 	if username != "" {
-		session.And("username LIKE ?", "%"+username+"%")
+		session.And("username LIKE ? ESCAPE '\\'", "%"+EscapeLike(username)+"%")
 	}
 	if groupname != "" {
-		session.And("groupname LIKE ?", "%"+groupname+"%")
+		session.And("groupname LIKE ? ESCAPE '\\'", "%"+EscapeLike(groupname)+"%")
 	}
 	if status != "" {
 		if statusInt, err := strconv.Atoi(status); err == nil {
@@ -486,6 +487,55 @@ func GenerateClientCert(username, groupname string, deviceBindingEnabled bool, m
 	}
 
 	return clientCertData, nil
+}
+
+// 批量生成客户端证书
+func BatchGenerateClientCert(usernames []string, groupname string, deviceBindingEnabled bool, maxDevices int) (success int, failed []string) {
+	for _, username := range usernames {
+		username = strings.TrimSpace(username)
+		if username == "" {
+			continue
+		}
+		if _, err := GenerateClientCert(username, groupname, deviceBindingEnabled, maxDevices); err != nil {
+			failed = append(failed, fmt.Sprintf("%s: %v", username, err))
+			continue
+		}
+		success++
+	}
+	return success, failed
+}
+
+// 为指定用户续期客户端证书：保留原设备绑定/最大设备数等参数
+// 删除旧证书后以相同用户名与组重新签发（有效期顺延 1 年）
+// CSR 模式证书因不持有私钥，续期需由调用方重新上传 CSR（csrData 非空）
+func RenewClientCert(username, groupname string, csrData ...string) (*ClientCertData, error) {
+	old, err := GetClientCert(username, groupname)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, fmt.Errorf("用户 %s 在组 %s 下没有可续期的证书", username, groupname)
+		}
+		return nil, fmt.Errorf("获取旧证书失败: %v", err)
+	}
+	// CSR 模式必须有新 CSR 才能续期
+	if old.IsCSRBased && len(csrData) == 0 {
+		return nil, fmt.Errorf("CSR 模式证书续期需重新上传 CSR")
+	}
+	if err := old.Delete(); err != nil {
+		return nil, fmt.Errorf("删除旧证书失败: %v", err)
+	}
+	newCert, err := GenerateClientCert(username, groupname, old.DeviceBindingEnabled, old.MaxDevices, csrData...)
+	if err != nil {
+		return nil, err
+	}
+	newNotAfter := old.NotAfter.AddDate(0, 0, 365)
+	if newNotAfter.Before(time.Now()) {
+		newNotAfter = time.Now().AddDate(0, 0, 365)
+	}
+	newCert.NotAfter = newNotAfter
+	if err := newCert.Save(); err != nil {
+		return nil, fmt.Errorf("更新续期后过期时间失败: %v", err)
+	}
+	return newCert, nil
 }
 
 // 生成 PKCS#12 格式证书文件
