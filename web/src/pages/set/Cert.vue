@@ -122,6 +122,7 @@
                   <i class="el-icon-question help-icon-inline"></i>
                 </el-tooltip>
                 <el-button type="primary" size="small" @click="generateClientCert">生成证书</el-button>
+                <el-button type="success" size="small" icon="el-icon-plus" @click="batchGenerateClientCert">批量生成</el-button>
                 <el-button size="small" :disabled="multipleSelection.length === 0" @click="batchSendCertMail">
                   <i class="el-icon-message"></i> 发送邮件
                 </el-button>
@@ -182,12 +183,74 @@
                 </span>
               </el-dialog>
 
+              <!-- 批量生成证书对话框 -->
+              <el-dialog title="批量生成客户端证书" :visible.sync="batchGenerateDialog" width="560px" :append-to-body="true">
+                <el-form :model="batchGenerateForm" label-width="100px" size="small">
+                  <el-form-item label="用户组" required>
+                    <el-select v-model="batchGenerateForm.groupName" placeholder="请选择目标用户组" filterable style="width: 100%;"
+                      @change="onBatchGroupChange">
+                      <el-option v-for="group in allGroups" :key="group" :label="group" :value="group" />
+                    </el-select>
+                    <div class="batch-tip">
+                      <i class="el-icon-info"></i>
+                      <span>所选组下的用户需已存在，非该组成员将被自动跳过。</span>
+                    </div>
+                  </el-form-item>
+                  <el-form-item label="用户名列表">
+                    <el-checkbox v-model="batchGenerateForm.allUsers" @change="onAllUsersChange">全选该组用户</el-checkbox>
+                    <div class="batch-tip">
+                      <i class="el-icon-info"></i>
+                      <span>勾选或留空 = 为该组全部用户生成；如需部分用户，请在下方勾选。</span>
+                    </div>
+                    <el-input v-model="batchUserSearch" placeholder="搜索用户名 / 昵称..." size="small"
+                      prefix-icon="el-icon-search" clearable :disabled="batchGenerateForm.allUsers"
+                      style="margin: 8px 0;">
+                      <template slot="append" v-if="batchGenerateForm.allUsers">
+                        <span style="color: var(--text-placeholder);">全选模式</span>
+                      </template>
+                    </el-input>
+                    <div v-if="batchGenerateForm.allUsers" class="apply-empty" style="padding:12px;">
+                      <i class="el-icon-info"></i>
+                      <p>将为「{{ batchGenerateForm.groupName || '未选组' }}」下全部用户生成</p>
+                    </div>
+                    <div v-else-if="filteredGroupUsers.length > 0" class="apply-list apply-list-scroll">
+                      <el-checkbox-group v-model="batchGenerateForm.usernames">
+                        <div v-for="u in filteredGroupUsers" :key="u.username" class="apply-item">
+                          <el-checkbox :label="u.username">
+                            <span class="apply-item-name">{{ certUserLabel(u.username) }}</span>
+                          </el-checkbox>
+                        </div>
+                      </el-checkbox-group>
+                    </div>
+                    <div v-else class="apply-empty">
+                      <i class="el-icon-search"></i>
+                      <p>该组下暂无用户，或没有匹配的用户</p>
+                    </div>
+                  </el-form-item>
+                  <el-form-item label="设备绑定">
+                    <el-switch v-model="batchGenerateForm.deviceBindingEnabled" active-color="#13ce66"
+                      inactive-color="#ff4949" />
+                  </el-form-item>
+                  <el-form-item label="最大设备数">
+                    <el-input-number v-model="batchGenerateForm.maxDevices" :min="1" :max="10" :step="1" size="small"
+                      style="width: 120px;" />
+                  </el-form-item>
+                </el-form>
+                <span slot="footer">
+                  <el-button @click="batchGenerateDialog = false">取消</el-button>
+                  <el-button type="primary" @click="confirmBatchGenerate" :loading="batchGenerating">开始生成</el-button>
+                </span>
+              </el-dialog>
+
               <!-- 发送证书邮件对话框 -->
               <el-dialog title="发送证书邮件" :visible.sync="sendMailDialog" width="480px" :append-to-body="true">
                 <el-form :model="sendMailForm" label-width="100px" size="small">
                   <el-form-item label="P12 密码">
                     <el-input v-model="sendMailForm.password" placeholder="留空则不设置密码" show-password></el-input>
-                    <div class="form-tip-new" style="margin-top:4px;">安装证书时需要输入的密码，留空允许无密码安装</div>
+                    <div class="batch-tip">
+                      <i class="el-icon-info"></i>
+                      <span>安装证书时需要输入的密码，留空允许无密码安装。</span>
+                    </div>
                   </el-form-item>
                   <el-form-item label="发送对象">
                     <div class="send-mail-list" v-if="sendMailForm.certs.length > 0">
@@ -234,9 +297,9 @@
                   :header-cell-style="{ background: 'var(--bg-header)', color: 'var(--text-primary)', fontWeight: '600', fontSize: '13px' }"
                   @selection-change="handleSelectionChange">
                   <el-table-column type="selection" width="45" align="center"></el-table-column>
-                  <el-table-column label="用户名" min-width="130" show-overflow-tooltip sortable>
+                  <el-table-column label="用户名" min-width="200" sortable class-name="cert-username-col">
                     <template slot-scope="scope">
-                      {{ certUserLabel(scope.row.username) }}
+                      <span class="cert-username-cell">{{ certUserLabel(scope.row.username) }}</span>
                     </template>
                   </el-table-column>
                   <el-table-column prop="groupname" label="用户组" min-width="120" show-overflow-tooltip
@@ -249,17 +312,26 @@
                       </el-tag>
                     </template>
                   </el-table-column>
-                  <el-table-column label="设备ID" min-width="200" show-overflow-tooltip>
+                  <el-table-column label="设备ID" min-width="200" class-name="cert-device-col">
                     <template slot-scope="scope">
-                      <div v-if="scope.row.device_id && scope.row.device_id.length > 0">
-                        <div v-for="(deviceId, index) in scope.row.device_id" :key="index" class="device-item">
-                          <span class="device-id-text">{{ deviceId }}</span>
-                          <el-button size="mini" type="text" class="device-unbind-btn"
-                            @click="unbindDevice(scope.row, deviceId)" title="解绑此设备">
-                            <i class="el-icon-unlock"></i>
-                          </el-button>
+                      <el-tooltip v-if="scope.row.device_id && scope.row.device_id.length > 0"
+                        placement="top" effect="dark">
+                        <div slot="content" class="device-tip-content">
+                          <div v-for="(deviceId, index) in scope.row.device_id" :key="index"
+                            class="device-tip-line">
+                            {{ deviceId }}
+                          </div>
                         </div>
-                      </div>
+                        <div class="device-cell-ellipsis">
+                          <div v-for="(deviceId, index) in scope.row.device_id" :key="index" class="device-item">
+                            <span class="device-id-text">{{ deviceId }}</span>
+                            <el-button size="mini" type="text" class="device-unbind-btn"
+                              @click="unbindDevice(scope.row, deviceId)" title="解绑此设备">
+                              <i class="el-icon-unlock"></i>
+                            </el-button>
+                          </div>
+                        </div>
+                      </el-tooltip>
                       <span v-else class="text-muted">未绑定</span>
                     </template>
                   </el-table-column>
@@ -290,6 +362,8 @@
                           @click="changeCertStatus(scope.row)" :disabled="scope.row.status === 2">
                           {{ scope.row.status === 0 ? '禁用' : '启用' }}
                         </el-button>
+                        <el-button size="mini" type="primary" @click="renewCert(scope.row)"
+                          :disabled="scope.row.status === 2">续期</el-button>
                         <el-button size="mini" type="danger" @click="deleteCert(scope.row)">删除</el-button>
                       </div>
                     </template>
@@ -415,6 +489,13 @@ export default {
         deviceBindingEnabled: false, generateType: 'server', csrData: ''
       },
       userList: [], userGroups: [], allGroups: [],
+      batchGenerateDialog: false,
+      batchGenerating: false,
+      batchUserSearch: '',
+      groupUsers: [],
+      batchGenerateForm: {
+        groupName: '', usernames: [], allUsers: false, maxDevices: 3, deviceBindingEnabled: false
+      },
       clientCertList: [],
       searchForm: { username: '', groupname: '', status: '' },
       pagination: { current: 1, size: 10, total: 0 },
@@ -430,6 +511,15 @@ export default {
     // 泛域名模式下域名输入框的只读展示值
     wildDomainText() {
       return this.webvpnDomain ? "*." + this.webvpnDomain : "未配置 WebVPN 域名";
+    },
+    // 批量生成：按搜索词过滤当前组用户，避免一次性渲染大量节点
+    filteredGroupUsers() {
+      if (!this.batchUserSearch) return this.groupUsers;
+      const s = this.batchUserSearch.toLowerCase();
+      return this.groupUsers.filter(u =>
+        (u.username && u.username.toLowerCase().includes(s)) ||
+        (u.nickname && u.nickname.toLowerCase().includes(s))
+      );
     },
   },
   methods: {
@@ -497,7 +587,7 @@ export default {
       axios.get('/set/client_cert/user_cert_info').then(resp => {
         if (resp.data.code === 0) {
           this.userList = resp.data.data.users || [];
-          this.allGroups = resp.data.data.groups || [];
+          this.allGroups = (resp.data.data.groups || []).map(g => g.name || g);
         }
       });
     },
@@ -547,6 +637,74 @@ export default {
           this.loadClientCertList();
         } else this.$message.error(resp.data.msg);
       });
+    },
+    // 批量生成：打开对话框并重置表单
+    batchGenerateClientCert() {
+      this.batchGenerateDialog = true;
+      this.groupUsers = [];
+      this.batchUserSearch = '';
+      this.batchGenerateForm = { groupName: '', usernames: [], allUsers: false, maxDevices: 3, deviceBindingEnabled: false };
+    },
+    onBatchGroupChange(groupName) {
+      this.batchGenerateForm.usernames = [];
+      this.batchGenerateForm.allUsers = false;
+      this.batchUserSearch = '';
+      this.groupUsers = this.userList.filter(u => (u.groups || u.Groups || []).includes(groupName));
+      if (!groupName) return;
+      axios.get('/group/cert_auth_check', { params: { groupname: groupName } }).then(resp => {
+        if (resp.data.code === 0 && !resp.data.data.has_cert_auth) {
+          this.$message.warning(`当前组"${groupName}"尚未配置证书认证，建议先配置 TLS 证书认证步骤`);
+        }
+      }).catch(() => { });
+    },
+    onAllUsersChange(checked) {
+      if (checked) this.batchGenerateForm.usernames = [];
+    },
+    confirmBatchGenerate() {
+      const form = this.batchGenerateForm;
+      if (!form.groupName) { this.$message.error('请选择目标用户组'); return; }
+      // 留空（未选具体用户且未勾全选）时，默认该组全部用户
+      let usernames = form.usernames;
+      if (form.allUsers || usernames.length === 0) {
+        usernames = this.groupUsers.map(u => u.username);
+      }
+      if (usernames.length === 0) {
+        this.$message.error('该组下没有可生成证书的用户，请确认用户已加入该组');
+        return;
+      }
+      const fd = new FormData();
+      fd.append('usernames', usernames.join('\n'));
+      fd.append('group_name', form.groupName);
+      fd.append('device_binding_enabled', form.deviceBindingEnabled);
+      fd.append('max_devices', form.maxDevices);
+      this.batchGenerating = true;
+      axios.post('/set/client_cert/batch_generate', fd).then(resp => {
+        this.batchGenerating = false;
+        if (resp.data.code === 0) {
+          const { success, failed } = resp.data.data;
+          let msg = `成功生成 ${success} 个证书`;
+          if (failed && failed.length) msg += `，失败 ${failed.length} 个：` + failed.join('；');
+          this.$message({ type: success ? 'success' : 'warning', message: msg, duration: 5000 });
+          this.batchGenerateDialog = false;
+          this.loadClientCertList();
+        } else this.$message.error(resp.data.msg);
+      }).catch(() => { this.batchGenerating = false; });
+    },
+    // 续期：对已有证书以相同参数重新签发
+    renewCert(row) {
+      this.$confirm(`确定要为 ${row.username}（组：${row.groupname}）续期证书吗？旧证书将被替换。`, '续期确认', {
+        confirmButtonText: '确定续期', cancelButtonText: '取消', type: 'warning'
+      }).then(() => {
+        const fd = new FormData();
+        fd.append('username', row.username);
+        fd.append('group_name', row.groupname);
+        axios.post('/set/client_cert/renew', fd).then(resp => {
+          if (resp.data.code === 0) {
+            this.$message.success('证书续期成功');
+            this.loadClientCertList();
+          } else this.$message.error(resp.data.msg);
+        });
+      }).catch(() => { });
     },
     downloadCert(row) {
       if (row.is_csr_based) {
@@ -883,10 +1041,10 @@ export default {
 
 .device-id-text {
   flex: 1;
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
 }
 
 .device-unbind-btn {
@@ -1070,5 +1228,101 @@ export default {
     width: 100%;
     margin: 0 !important;
   }
+}
+
+/* 批量生成：信息提示框（蓝色 info 风格，提行展示） */
+.batch-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 8px 0 4px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 20px;
+  color: #606266;
+  background: #f4f4f5;
+  border: 1px solid #e9e9eb;
+  border-radius: 6px;
+}
+
+.batch-tip i {
+  margin-top: 1px;
+  font-size: 14px;
+  flex-shrink: 0;
+  color: #909399;
+}
+
+/* 批量生成：用户勾选列表（参考策略管理「应用到用户」） */
+.apply-list-scroll {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color-light);
+  border-radius: 6px;
+  padding: 4px 0;
+}
+
+.apply-item {
+  padding: 6px 12px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.apply-item:hover {
+  background: var(--bg-stripe);
+}
+
+.apply-item-name {
+  font-weight: 500;
+}
+
+.apply-empty {
+  text-align: center;
+  color: var(--text-placeholder);
+  padding: 24px 0;
+}
+
+/* 用户名列：自适应换行，长三方 ID 不断裂截断完整显示 */
+.cert-username-col .cell {
+  white-space: normal;
+  word-break: break-all;
+  line-height: 20px;
+}
+
+.cert-username-cell {
+  font-weight: 500;
+}
+
+/* 设备ID列：单元格正常显示，悬浮 tooltip 分行展示完整 ID */
+.cert-device-col .device-cell-ellipsis {
+  max-width: 100%;
+}
+
+/* tooltip 内容：每个设备一行，长 ID 自动断行 */
+.device-tip-content {
+  max-width: 360px;
+  white-space: normal;
+  word-break: break-all;
+}
+
+.device-tip-line {
+  line-height: 20px;
+  padding: 1px 0;
+}
+
+.device-tip-line + .device-tip-line {
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  margin-top: 2px;
+  padding-top: 3px;
+}
+
+.cert-device-col .device-item + .device-item {
+  border-top: 1px dashed var(--border-color-light);
+  margin-top: 2px;
+  padding-top: 4px;
+}
+
+.apply-empty i {
+  font-size: 28px;
+  margin-bottom: 8px;
 }
 </style>
