@@ -303,6 +303,10 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+		// 将用户信息写入会话
+		if samlSession.Ctx.UserInfo != nil {
+			sessionData.Ctx.SetUserInfo(samlSession.Ctx.UserInfo)
+		}
 
 		sessionData.Ctx.Conn.Username = username
 		sessionData.Ctx.Conn.GroupName = groupName

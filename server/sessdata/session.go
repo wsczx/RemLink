@@ -99,6 +99,13 @@ type Session struct {
 	CSess *ConnSession
 }
 
+// 判定该会话所属用户是否已过期（在线期间到期，或断线后到期）
+func (s *Session) IsExpired() bool {
+	s.mux.RLock()
+	defer s.mux.RUnlock()
+	return dbdata.IsExpired(s.LimitTime)
+}
+
 func checkSession() {
 	// 检测过期的session
 	go func() {
@@ -113,13 +120,11 @@ func checkSession() {
 			t := time.Now()
 			for k, v := range sessions {
 				v.mux.RLock()
-				if !v.IsActive {
-					if timeoutSeconds != 0 && t.Sub(v.LastLogin) > timeout {
-						timeoutToken = append(timeoutToken, k)
-					}
-				} else if v.LimitTime != nil && t.After(*v.LimitTime) {
-					// 活跃会话：用户在线期间到期，踢下线
+				// 活跃/非活跃会话：用户在线期间到期，踢下线
+				if dbdata.IsExpired(v.LimitTime) {
 					expiredToken = append(expiredToken, k)
+				} else if !v.IsActive && timeoutSeconds != 0 && t.Sub(v.LastLogin) > timeout {
+					timeoutToken = append(timeoutToken, k)
 				}
 				v.mux.RUnlock()
 			}
@@ -138,12 +143,11 @@ func checkSession() {
 func UpdateUserLimitTime(username string, limitTime *time.Time) {
 	expiredToken := []string{}
 	sessMux.RLock()
-	now := time.Now()
 	for k, v := range sessions {
 		v.mux.Lock()
 		if v.Username == username {
 			v.LimitTime = limitTime
-			if v.IsActive && limitTime != nil && now.After(*limitTime) {
+			if dbdata.IsExpired(limitTime) {
 				expiredToken = append(expiredToken, k)
 			}
 		}
@@ -606,6 +610,30 @@ func DelSessByStoken(stoken string) {
 		return
 	}
 	CloseSess(sarr[1], dbdata.UserLogoutBanner)
+}
+
+// 关闭指定用户的全部会话
+func CloseUserSessions(username string, code ...uint8) {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return
+	}
+
+	tokens := []string{}
+	sessMux.RLock()
+	for k, v := range sessions {
+		v.mux.RLock()
+		matched := v.Username == username
+		v.mux.RUnlock()
+		if matched {
+			tokens = append(tokens, k)
+		}
+	}
+	sessMux.RUnlock()
+
+	for _, token := range tokens {
+		CloseSess(token, code...)
+	}
 }
 
 // 记录用户下线日志，包含登出原因、上下行流量和在线时长
