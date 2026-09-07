@@ -11,8 +11,12 @@ import (
 	"github.com/xlzd/gotp"
 )
 
-func IsUserExpired(user *User) bool {
-	return user != nil && user.LimitTime != nil && !time.Now().Before(*user.LimitTime)
+func IsExpired(limitTime *time.Time) bool {
+	return limitTime != nil && !time.Now().Before(*limitTime)
+}
+
+func (u *User) IsExpired() bool {
+	return IsExpired(u.LimitTime)
 }
 
 func SetUser(v *User) error {

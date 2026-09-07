@@ -51,6 +51,14 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 用户已过期：立即关闭会话并拒绝建隧道
+	if sess.IsExpired() {
+		base.Info("用户已过期，拒绝重建隧道:", sess.Username)
+		sessdata.CloseSess(sess.Token, dbdata.UserLogoutExpire)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
 	// 开启link
 	cSess := sess.NewConn()
 	if cSess == nil {

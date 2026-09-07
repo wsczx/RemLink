@@ -145,7 +145,7 @@ func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Reques
 				}
 				if user == nil {
 					m.ClearGrantCookie(w, r)
-				} else if dbdata.IsUserExpired(user) {
+				} else if user.IsExpired() {
 					m.ClearGrantCookie(w, r)
 				} else {
 					token, err := m.Issue(w, r, user, 0)
@@ -161,7 +161,7 @@ func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Reques
 	}
 	// 回退到门户会话
 	if user, ok := m.userFromPortalSession(r); ok && user != nil {
-		if dbdata.IsUserExpired(user) {
+		if user.IsExpired() {
 			return "", nil, false
 		}
 		if before := dbdata.WebVpnRevokeBeforeOf(user.Username); before > 0 && m.portalIssuedAt(r) <= before {
@@ -263,7 +263,7 @@ func (m *AuthSessionManager) UserFromToken(token string) (*dbdata.User, bool) {
 			return nil, false
 		}
 	}
-	if dbdata.IsUserExpired(user) {
+	if user.IsExpired() {
 		return nil, false
 	}
 
