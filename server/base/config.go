@@ -1,7 +1,5 @@
 package base
 
-import "encoding/json"
-
 const (
 	LinkModeTUN     = "tun"
 	LinkModeTAP     = "tap"
@@ -106,15 +104,15 @@ type ServerConfig struct {
 	EnableUserPortal         bool   `json:"enable_user_portal"`
 	EnableWebAuth            bool   `json:"enable_web_auth"`
 	WebAuthBrowserMode       string `json:"web_auth_browser_mode"`
-	EnableWebAuthGroupFilter bool   `json:"enable_web_auth_group_filter"` // 开启后 Web 认证先输入用户名、按所属用户组过滤可选组（仅支持本地用户认证）；关闭则直接展示全部启用组
-	AllowMobileSSO           bool   `json:"allow_mobile_sso"`             // 允许手机端使用 SSO 单点登录（默认关闭；开启后手机端浏览器模式仍强制内置）
+	EnableWebAuthGroupFilter bool   `json:"enable_web_auth_group_filter"`
+	AllowMobileSSO           bool   `json:"allow_mobile_sso"`
 
-	WebVpnDomain    string `json:"webvpn_domain"`     // Web VPN域名
-	WebVpnSsoDomain string `json:"webvpn_sso_domain"` // Web 认证单点登录域名
+	WebVpnDomain    string `json:"webvpn_domain"`
+	WebVpnSsoDomain string `json:"webvpn_sso_domain"`
 
 	// WebVPN 会话时效
-	WebVpnSessionTTL         int `json:"webvpn_session_ttl"`          // 滑动续期周期(分钟)，距签发超过该值-1h 时续期；0 取默认 60
-	WebVpnSessionMaxLifetime int `json:"webvpn_session_max_lifetime"` // 绝对寿命上限(分钟)，首次登录起算，超过强制重新登录；0 取默认 480
+	WebVpnSessionTTL         int `json:"webvpn_session_ttl"`
+	WebVpnSessionMaxLifetime int `json:"webvpn_session_max_lifetime"`
 
 	// 高级功能可见性
 	ShowFakeDNS bool `json:"show_fakedns"`
@@ -140,7 +138,7 @@ var configMetas = map[string]configMeta{
 	"admin_otp":      {usage: "管理用户OTP两步验证密钥,可在安全设置页面扫码绑定", group: "基础信息", sensitive: true, hidden: true},
 	"jwt_secret":     {usage: "JWT密钥", group: "基础信息", sensitive: true},
 	"admin_temp":     {usage: "管理员仍在使用首次生成或重置后的临时密码", group: "基础信息", hidden: true},
-	"upgrade_source": {usage: "在线升级更新源：gitee / github；部署在国内的服务端建议选 gitee", group: "基础信息", defaultVal: "gitee", options: map[string]string{"Gitee": "gitee", "GitHub": "github"}},
+	"upgrade_source": {usage: "在线升级更新源：github / gitee；部署在国内的服务端可选 gitee 镜像", group: "基础信息", defaultVal: "github", options: map[string]string{"GitHub": "github", "Gitee": "gitee"}},
 
 	"server_addr":         {usage: "TCP服务监听地址，可只填端口(如 8443)监听所有网卡，或 IP:端口", group: "服务监听", defaultVal: ":443", restart: true},
 	"server_dtls":         {usage: "开启DTLS", group: "服务监听", restart: true},
@@ -218,28 +216,6 @@ var configMetas = map[string]configMeta{
 	"allow_mobile_sso":             {usage: "允许手机端使用 SSO 单点登录（企微/飞书/钉钉等）。默认关闭，开启后手机端浏览器模式仍强制内置", group: "门户设置"},
 
 	"show_fakedns": {usage: "在管理界面显示 FakeDNS 功能入口", group: "高级功能可见性", defaultVal: "false"},
-}
-
-// UnmarshalJSON 兼容旧配置键 ipv4_master（重命名为 master_dev 之前）。
-// 旧部署升级后，持久化配置(DB)与备份中仍可能含 ipv4_master，需回退到 MasterDev，
-// 否则该字段为空、回退默认 eth0，会导致 NAT 出网网卡错误、转发失效。
-func (c *ServerConfig) UnmarshalJSON(b []byte) error {
-	type alias ServerConfig
-	if err := json.Unmarshal(b, (*alias)(c)); err != nil {
-		return err
-	}
-	if c.MasterDev == "" {
-		var raw map[string]json.RawMessage
-		if err := json.Unmarshal(b, &raw); err == nil {
-			if v, ok := raw["ipv4_master"]; ok {
-				var s string
-				if json.Unmarshal(v, &s) == nil && s != "" {
-					c.MasterDev = s
-				}
-			}
-		}
-	}
-	return nil
 }
 
 const DefaultProfileXML = `<?xml version="1.0" encoding="UTF-8"?>
