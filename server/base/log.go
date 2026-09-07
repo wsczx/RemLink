@@ -27,12 +27,10 @@ type WarnLimiter struct {
 	interval time.Duration
 }
 
-// 创建指定时间间隔的日志限频器
 func NewWarnLimiter(interval time.Duration) *WarnLimiter {
 	return &WarnLimiter{last: make(map[string]time.Time), interval: interval}
 }
 
-// 判断本次日志是否允许输出
 func (t *WarnLimiter) Allow(key string, now time.Time) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -43,7 +41,6 @@ func (t *WarnLimiter) Allow(key string, now time.Time) bool {
 	return true
 }
 
-// 清理已过期的限频记录
 func (t *WarnLimiter) Clear(now time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -70,7 +67,7 @@ var (
 	dateFormat = "2006-01-02"
 	logName    = "remlink.log"
 
-	// BroadcastSyslogFunc WebSocket 实时日志推送回调
+	// WebSocket 实时日志推送回调
 	BroadcastSyslogFunc func(level int, msg string)
 )
 
@@ -78,7 +75,6 @@ func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 }
 
-// 实现 os.Writer 接口
 type logWriter struct {
 	mu        sync.Mutex
 	UseStdout bool
@@ -106,7 +102,6 @@ func (lw *logWriter) Write(p []byte) (n int, err error) {
 	return lw.File.Write(p)
 }
 
-// 创建新文件
 func (lw *logWriter) newFile() {
 	if lw.UseStdout {
 		lw.File = os.Stdout
@@ -154,7 +149,6 @@ func (w *sLogWriter) Write(p []byte) (n int, err error) {
 	return 0, nil
 }
 
-// 获取 log.Logger
 func GetServerLog() *log.Logger {
 	return serverLog
 }
@@ -163,7 +157,6 @@ func GetLogLevel() int {
 	return int(baseLevel.Load())
 }
 
-// 获取日志级别的字符串名称
 func GetLogLevelName(l int) string {
 	if name, ok := levels[l]; ok {
 		return name
@@ -195,7 +188,7 @@ func broadcastSyslogIfSet(l int, msg string) {
 	}
 }
 
-// 重新初始化日志输出并切换日志文件。
+// 切换日志文件并重建 logger
 func ReinitLog() {
 	cfg := GetCfg()
 	oldLw := baseLwPtr.Load()
