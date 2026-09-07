@@ -245,8 +245,8 @@ func (s *Session) NewConn() *ConnSession {
 		PayloadOutDtls: make(chan *Payload, 256),
 		dSess:          &atomic.Value{},
 	}
-	// IPv6 要求链路 MTU ≥ 1280，否则触发 v6 PMTU 黑洞（见 ipv6-dual-stack-design.md §4）。
-	// 用户级 Mtu 覆盖（非 0）会绕过下方 link_tunnel 的 SetMtu，故此处单独强制下限。
+	// IPv6 要求链路 MTU ≥ 1280，否则触发 v6 PMTU 黑洞
+	// 用户级 Mtu 覆盖（非 0）会绕过下方 link_tunnel 的 SetMtu，此处单独强制下限
 	if base.GetCfg().Ipv6CIDR != "" && cSess.Mtu != 0 && cSess.Mtu < 1280 {
 		base.Warn("用户级 Mtu=", cSess.Mtu, " 低于 IPv6 要求下限 1280，已自动上调到 1280 (user=", username, ")")
 		cSess.Mtu = 1280
@@ -297,14 +297,13 @@ func (s *Session) NewConn() *ConnSession {
 	return cSess
 }
 
-// SetLogoutCode 记录登出原因。只有首次设置生效：具体原因（主动断开、配额超限等）
-// 总是先于 defer 里的兜底原因写入，后到的兜底不应覆盖它。
+// 记录登出原因。只有首次设置生效
 func (cs *ConnSession) SetLogoutCode(code uint8) {
 	// code+1 存储，使零值可区分「未设置」与 UserLogoutLose(0)
 	cs.userLogoutCode.CompareAndSwap(0, uint32(code)+1)
 }
 
-// LogoutCode 返回登出原因码，未设置过则返回 UserLogoutLose。
+// 返回登出原因码，未设置过则返回 UserLogoutLose
 func (cs *ConnSession) LogoutCode() uint8 {
 	v := cs.userLogoutCode.Load()
 	if v == 0 {

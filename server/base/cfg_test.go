@@ -126,7 +126,7 @@ func TestSetConfigField(t *testing.T) {
 	}
 }
 
-// 覆盖 JSON 数字转为 float64 后的大数值配置。
+// 覆盖 JSON 数字转为 float64 后的大数值配置
 func TestSetConfigFieldFloat64(t *testing.T) {
 	SetCfgForTest(&ServerConfig{NoCompressLimit: 0})
 
@@ -246,7 +246,7 @@ func TestConfigMetasCoverServerConfig(t *testing.T) {
 	}
 }
 
-// 覆盖配置来源的优先级：db.json、显式启动参数、持久化配置和默认值。
+// 覆盖配置来源的优先级：db.json、显式启动参数、持久化配置和默认值
 func TestLoadPersistedPriority(t *testing.T) {
 	initLog() // 真实启动流程中 LoadPersisted 前 logger 已就绪
 	m := NewConfigManager()

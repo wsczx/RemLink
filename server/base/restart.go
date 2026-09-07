@@ -16,7 +16,6 @@ func RestartProcess() error {
 	return syscall.Exec(app, os.Args, os.Environ())
 }
 
-// 关闭设备 fd
 func closeDeviceFDs() {
 	entries, err := os.ReadDir("/proc/self/fd")
 	if err != nil {
