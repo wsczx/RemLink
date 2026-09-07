@@ -1,4 +1,4 @@
-// 在线升级：通过 GitHub Releases 检查更新、下载、替换、重启
+// 在线升级：检查更新、下载、替换、重启
 package base
 
 import (
@@ -69,11 +69,11 @@ var (
 func CheckUpdate(source string) (*ReleaseInfo, bool, error) {
 	var apiURL string
 	switch source {
-	case "github":
-		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", upgradeRepoOwner, upgradeRepoName)
-	default: // gitee
+	case "gitee":
 		apiURL = fmt.Sprintf("https://gitee.com/api/v5/repos/%s/%s/releases/latest", upgradeRepoOwner, upgradeRepoName)
-		source = "gitee"
+	default: // github
+		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", upgradeRepoOwner, upgradeRepoName)
+		source = "github"
 	}
 	ri, need, err := getLatestRelease(apiURL)
 	if err != nil {
@@ -83,7 +83,6 @@ func CheckUpdate(source string) (*ReleaseInfo, bool, error) {
 	return ri, need, nil
 }
 
-// 从指定 releases/latest API 获取最新版本信息
 func getLatestRelease(apiURL string) (*ReleaseInfo, bool, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
 	req, err := http.NewRequest("GET", apiURL, nil)
@@ -144,11 +143,11 @@ func getLatestRelease(apiURL string) (*ReleaseInfo, bool, error) {
 func DoUpgrade(info *ReleaseInfo, progressCh chan<- UpgradeProgress) {
 	defer close(progressCh)
 
-	if upgradeRunning.Load() {
+	// 保证并发下只有一个升级任务能进入
+	if !upgradeRunning.CompareAndSwap(false, true) {
 		progressCh <- UpgradeProgress{Stage: "error", Error: "已有升级任务在运行"}
 		return
 	}
-	upgradeRunning.Store(true)
 	defer func() { upgradeRunning.Store(false) }()
 
 	// 阶段1：下载（更新源由用户配置决定，无备用源回退）
@@ -324,7 +323,6 @@ func copyFile(src, dst string) error {
 	return d.Sync()
 }
 
-// 所在磁盘可用空间
 func diskFree(path string) (int64, error) {
 	var stat sysStatfs
 	if err := statfs(path, &stat); err != nil {
@@ -338,7 +336,6 @@ type sysStatfs struct {
 	Bavail uint64
 }
 
-// 字节数转为可读格式
 func humanSize(bytes int64) string {
 	const unit = 1024
 	if bytes < unit {
@@ -391,7 +388,7 @@ func calcPercent(downloaded, total int64) int {
 	return p
 }
 
-// compareVersion 比较两个语义化版本号
+// 比较两个语义化版本号
 // 返回值: >0 表示 v1 > v2, <0 表示 v1 < v2, 0 表示相等
 func compareVersion(v1, v2 string) int {
 	v1 = strings.TrimPrefix(v1, "v")
@@ -426,7 +423,6 @@ func compareVersion(v1, v2 string) int {
 	return 0
 }
 
-// 将版本号拆分为基础版本和预发布后缀
 func splitVersion(v string) (base, pre string) {
 	for i, c := range v {
 		if c == '-' {
@@ -436,7 +432,6 @@ func splitVersion(v string) (base, pre string) {
 	return v, ""
 }
 
-// 比较 x.y.z 形式的基础版本号
 func compareBase(a, b string) int {
 	partsA := strings.Split(a, ".")
 	partsB := strings.Split(b, ".")
