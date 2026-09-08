@@ -9,7 +9,7 @@ import (
 	"github.com/wsczx/remlink/base"
 )
 
-// LockInfo 锁定信息（供管理后台查询）
+// 锁定信息（供管理后台查询）
 type LockInfo struct {
 	Description string     `json:"description"`
 	Username    string     `json:"username"`
@@ -18,7 +18,7 @@ type LockInfo struct {
 	State       *LockState `json:"state"`
 }
 
-// LockState 锁定状态
+// 锁定状态
 type LockState struct {
 	Locked       bool      `json:"locked"`
 	FailureCount int       `json:"attempts"`
@@ -26,7 +26,7 @@ type LockState struct {
 	LastAttempt  time.Time `json:"lastAttempt"`
 }
 
-// IPListType IP 名单类型
+// IP 名单类型
 type IPListType int
 
 const (
@@ -34,7 +34,7 @@ const (
 	IPBlackList
 )
 
-// LockManager 防暴力破解管理器（全局单例）
+// 防暴力破解管理器（全局单例）
 type LockManager struct {
 	mu sync.Mutex
 
@@ -73,14 +73,14 @@ func GetLockManager() *LockManager {
 	return lm
 }
 
-// defaultExpireTime 默认锁定过期时间（秒）
+// 默认锁定过期时间（秒）
 const defaultExpireTime = 3600
 
 // 锁定模块内部告警日志的限频窗口：同一 key 在该窗口内最多输出一次
 const warnLogInterval = 60 * time.Second
 
 // 日志限频 key 前缀。仅作为 WarnLimiter 内部 map 的命名空间，用于区分不同类别的告警
-// 需保证不同类别之间保持彼此不同（否则会共享同一个限流窗口）。
+// 需保证不同类别之间保持彼此不同（否则会共享同一个限流窗口）
 const (
 	warnKeyExtractIP  = "extract_ip:"
 	warnKeyBlacklist  = "blacklist:"
@@ -135,7 +135,7 @@ func (m *LockManager) warnRateLimited(key string, fn func()) {
 	}
 }
 
-// 检查用户名和 IP 是否被锁定。返回 true 允许继续。
+// 检查用户名和 IP 是否被锁定。返回 true 允许继续
 func (m *LockManager) Check(username, ipaddr string) bool {
 	ip, _, err := net.SplitHostPort(ipaddr)
 	if err != nil {

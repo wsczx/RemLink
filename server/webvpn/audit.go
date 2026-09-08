@@ -9,7 +9,7 @@ import (
 	"github.com/wsczx/remlink/dbdata"
 )
 
-// 异步批量审计：proxy 投递记录到 channel，后台 goroutine 定时（1s）批量写库。
+// 异步批量审计：proxy 投递记录到 channel，后台 goroutine 定时（1s）批量写库
 type AuditBatcher struct {
 	queue    chan dbdata.WebVpnAudit
 	quit     chan struct{}
@@ -28,7 +28,7 @@ func NewAuditBatcher() *AuditBatcher {
 	}
 }
 
-// 非阻塞投递：队列满时普通记录丢弃，risk>=1 降级为本地日志，避免审计阻塞代理主路径。
+// 非阻塞投递：队列满时普通记录丢弃，risk>=1 降级为本地日志，避免审计阻塞代理主路径
 func (b *AuditBatcher) Log(rec dbdata.WebVpnAudit) {
 	b.stateMu.Lock()
 	defer b.stateMu.Unlock()
@@ -45,7 +45,7 @@ func (b *AuditBatcher) Log(rec dbdata.WebVpnAudit) {
 	}
 }
 
-// 启动后台批处理。
+// 启动后台批处理
 func (b *AuditBatcher) Start() {
 	b.stateMu.Lock()
 	defer b.stateMu.Unlock()
@@ -58,7 +58,7 @@ func (b *AuditBatcher) Start() {
 	go b.batchWriter(b.quit, b.done)
 }
 
-// 停止批处理并等待在途记录落库。
+// 停止批处理并等待在途记录落库
 func (b *AuditBatcher) Stop() {
 	b.stateMu.Lock()
 	if !b.started.Load() {
@@ -121,7 +121,7 @@ func (b *AuditBatcher) batchWriter(quit <-chan struct{}, done chan<- struct{}) {
 	}
 }
 
-// 依据状态码给审计风险等级：4xx=1(可疑) 5xx=2(高危) 其余=0。
+// 依据状态码给审计风险等级：4xx=1(可疑) 5xx=2(高危) 其余=0
 func RiskOf(statusCode int) int8 {
 	switch {
 	case statusCode >= 500:

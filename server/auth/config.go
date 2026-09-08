@@ -26,7 +26,7 @@ func (p *GroupAuthProfile) HasStep(typ string) bool {
 	return false
 }
 
-// Provider 配置的统一接口
+// 配置的统一接口
 type ProviderConfig interface {
 	ValidateConfig() error
 }
@@ -78,8 +78,8 @@ func hasRadiusAndOTP(steps []AuthMethodConfig) bool {
 	return hasRadius && hasOtp
 }
 
-// 检查认证管道是否同时包含 SSO 类型与需要密码的凭据类型。
-// SSO 由第三方身份提供、不产生登录密码，无法与需要密码的步骤(local/ldap/radius)组合。
+// 检查认证管道是否同时包含 SSO 类型与需要密码的凭据类型
+// 由第三方身份提供、不产生登录密码，无法与需要密码的步骤(local/ldap/radius)组合
 func hasSSOAndCredential(steps []AuthMethodConfig) bool {
 	hasSSO, hasCred := false, false
 	for _, s := range steps {

@@ -471,7 +471,7 @@ func loopIp(username, macAddr string, uniqueMac bool, ipRange *ipPoolConfig) net
 	ipRange.loopCurIp = ipRange.IpLongMin
 
 	if ipRange.loopFarIp.Id > 0 {
-		// 使用最早登陆的 ip（回收并重新分配给当前客户端）。
+		// 使用最早登陆的 ip（回收并重新分配给当前客户端）
 		ipStr := ipRange.loopFarIp.IpAddr
 		ip = net.ParseIP(ipStr)
 		ipRange.loopFarIp.MacAddr = macAddr

@@ -1,4 +1,4 @@
-// 管道执行测试：覆盖 GetPipeline+Run/Resume 的构建、执行、恢复、边界路径。
+// 管道执行测试：覆盖 GetPipeline+Run/Resume 的构建、执行、恢复、边界路径
 
 package auth
 
@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// mockAuth 可配置返回值的 mock 认证器
+// 可配置返回值的 mock 认证器
 type mockAuth struct {
 	name      string
 	result    StepResult
@@ -31,7 +31,7 @@ func mockUnregister(name string) {
 	unregister(name)
 }
 
-// 构建管道并执行，返回 PipelineResult（模拟 Service.Authenticate 但不需要 DB loader）。
+// 构建管道并执行，返回 PipelineResult（模拟 Service.Authenticate 但不需要 DB loader）
 func runPipeline(ctx *Context, profile GroupAuthProfile) *PipelineResult {
 	pipeline, err := GetPipeline(profile, nil)
 	if err != nil {
@@ -41,7 +41,7 @@ func runPipeline(ctx *Context, profile GroupAuthProfile) *PipelineResult {
 	return buildResult(ctx, result, err, pipeline, -1)
 }
 
-// 构建管道并从指定步号恢复，返回 PipelineResult。
+// 构建管道并从指定步号恢复，返回 PipelineResult
 func resumePipeline(ctx *Context, profile GroupAuthProfile, state PipelineState) *PipelineResult {
 	pipeline, err := GetPipeline(profile, nil)
 	if err != nil {
@@ -175,7 +175,7 @@ func TestResume_ContinueAfterPending(t *testing.T) {
 	ast.Equal("testuser", result1.Username)
 	ast.Equal("testgroup", result1.GroupName)
 
-	// Resume 恢复：从 StepIdx=1 继续（mock_pending 仍返回 StepPending）
+	// 恢复：从 StepIdx=1 继续（mock_pending 仍返回 StepPending）
 	ctx2 := &Context{Conn: ConnInfo{Username: "testuser", GroupName: "testgroup"}}
 	result2 := resumePipeline(ctx2, profile, result1.State)
 

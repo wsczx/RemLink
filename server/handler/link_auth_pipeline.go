@@ -1,4 +1,4 @@
-// 认证管道交互层，将 auth.PipelineResult 映射为 HTTP 响应。
+// 认证管道交互层，将 auth.PipelineResult 映射为 HTTP 响应
 
 package handler
 
@@ -17,7 +17,7 @@ var stepNamePrefixes = []string{
 	"cert:", "local:", "ldap:", "radius:", "otp:", "wxwork:", "feishu:", "saml:", "admin:",
 }
 
-// 认证失败时，将错误信息映射为用户可读的文案。
+// 认证失败时，将错误信息映射为用户可读的文案
 func stripStepPrefix(msg string) string {
 	for _, p := range stepNamePrefixes {
 		if strings.HasPrefix(msg, p) {
@@ -27,7 +27,7 @@ func stripStepPrefix(msg string) string {
 	return msg
 }
 
-// 认证失败时，根据错误类型返回面向用户的错误信息。
+// 认证失败时，根据错误类型返回面向用户的错误信息
 func authFailMessage(err error) string {
 	if err == nil {
 		return "认证失败"
@@ -48,7 +48,7 @@ func authFailMessage(err error) string {
 	}
 }
 
-// 从 ClientRequest 构建认证上下文（首次认证用）。
+// 从 ClientRequest 构建认证上下文（首次认证用）
 func newAuthContext(cr *ClientRequest, r *http.Request) *auth.Context {
 	return &auth.Context{
 		Conn: auth.ConnInfo{
@@ -66,13 +66,13 @@ func newAuthContext(cr *ClientRequest, r *http.Request) *auth.Context {
 	}
 }
 
-// 从已保存的认证会话恢复管道执行。
-// 调用前需将当前请求的密码/OTP 码写入 ctx。
+// 从已保存的认证会话恢复管道执行
+// 调用前需将当前请求的密码/OTP 码写入 ctx
 func resumeAuthSession(w http.ResponseWriter, r *http.Request,
 	sess *AuthSession) {
 
 	ctx := sess.Ctx
-	// TLS 需从当前请求重新注入
+	// 需从当前请求重新注入
 	ctx.Conn.TLS = r.TLS
 	ctx.Conn.RemoteAddr = r.RemoteAddr
 	// 重新加载用户信息，用户在断点期间可能已改密或清除强制改密标记
@@ -86,7 +86,7 @@ func resumeAuthSession(w http.ResponseWriter, r *http.Request,
 	handlePipelineResult(w, r, result, sess)
 }
 
-// 将管道执行结果映射为 HTTP 响应。
+// 将管道执行结果映射为 HTTP 响应
 func handlePipelineResult(w http.ResponseWriter, r *http.Request,
 	result *auth.PipelineResult, sessionData *AuthSession) {
 

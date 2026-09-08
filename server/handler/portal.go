@@ -420,7 +420,7 @@ func PortalLogout(w http.ResponseWriter, r *http.Request) {
 	portalOK(w, map[string]string{"message": "已退出"})
 }
 
-// 返回登录页品牌与认证方式开关，供门户、WebAuth、管理后台登录页在未登录时渲染。
+// 返回登录页品牌与认证方式开关，供门户、WebAuth、管理后台登录页在未登录时渲染
 func PortalLoginConfig(w http.ResponseWriter, r *http.Request) {
 	brand := dbdata.SettingPortalBrand{}
 	_ = dbdata.SettingGet(&brand)
@@ -440,7 +440,7 @@ func PortalLoginConfig(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// 返回门户支持且至少存在一个组已配置的 SSO 类型。
+// 返回门户支持且至少存在一个组已配置的 SSO 类型
 func portalEnabledSSOTypes() []string {
 	types := make([]string, 0, len(ssoProviders))
 	for t := range ssoProviders {
@@ -501,7 +501,7 @@ func portalIsTokenUsed(jti string) bool {
 	return ok
 }
 
-// 返回 true 表示 token 已经被消费过。
+// 返回 true 表示 token 已经被消费过
 func portalTryMarkToken(jti string) bool {
 	portalInitResetTokens()
 	portalResetTokens.mu.Lock()

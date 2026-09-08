@@ -16,12 +16,12 @@ func payloadIn(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 	}
 	// FakeIP 还原
 	if restoreFakeIP(cSess, pl) {
-		return false // FakeIP 已处理,不继续转发
+		return false // 已处理,不继续转发
 	}
 
 	if pl.LType == sessdata.LTypeIPData && pl.PType == 0x00 {
-		// FakeIP 目的段不受 LinkAcl 限制：fakeIP 是 FakeDNS 接管域名的占位地址，
-		// 真实目的在内核 PREROUTING DNAT 后才确定（v4/v6 统一），此处按 v4/v6 放行，
+		// FakeIP 目的段不受 LinkAcl 限制：fakeIP 是 FakeDNS 接管域名的占位地址
+		// 真实目的在内核 PREROUTING DNAT 后才确定（v4/v6 统一），此处按 v4/v6 放行
 		if !isFakeIPDst(cSess, pl) {
 			// 进行Acl规则判断
 			check := checkLinkAcl(cSess.Policy, pl)
@@ -81,8 +81,8 @@ func payloadOutDtls(cSess *sessdata.ConnSession, dSess *sessdata.DtlsSession, pl
 	return false
 }
 
-// 判断包的目的地址是否落在 FakeDNS 假地址段内（v4/v6 双池）。
-// FakeIP 是域名占位地址，真实目的由内核 DNAT 决定，ACL 不应基于占位地址做拦截。
+// 判断包的目的地址是否落在 FakeDNS 假地址段内（v4/v6 双池）
+// FakeIP 是域名占位地址，真实目的由内核 DNAT 决定，ACL 不应基于占位地址做拦截
 func isFakeIPDst(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 	if cSess.FakeDNS == nil || !cSess.Policy.EnableFakeDNS {
 		return false

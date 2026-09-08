@@ -11,7 +11,7 @@ import (
 	"github.com/wsczx/remlink/pkg/security"
 )
 
-// 写入密钥文件并加载到内存。
+// 写入密钥文件并加载到内存
 func ImportEncryptionKey(hexKey string) error {
 	key, err := hex.DecodeString(hexKey)
 	if err != nil {
@@ -36,7 +36,7 @@ var settingFactories = []func() any{
 	func() any { return &LegoUserData{} },
 }
 
-// 检查数据库中是否有已加密的数据。
+// 检查数据库中是否有已加密的数据
 func HasEncryptedData() bool {
 	certs, _ := certsEncrypted()
 	if certs > 0 {
@@ -52,7 +52,7 @@ func HasEncryptedData() bool {
 	return providersEncrypted()
 }
 
-// 批量加密库中所有敏感字段。
+// 批量加密库中所有敏感字段
 func EnableEncryption() (map[string]int, error) {
 	if !security.IsEnabled() {
 		return nil, fmt.Errorf("加密未启用")
@@ -104,7 +104,7 @@ func EnableEncryption() (map[string]int, error) {
 	return stats, nil
 }
 
-// 批量解密所有敏感字段并删除密钥。用原始 SQL 避开 Scan/Value 的解密回路。
+// 批量解密所有敏感字段并删除密钥。用原始 SQL 避开 Scan/Value 的解密回路
 func DisableEncryption() (map[string]int, []string, error) {
 	if !security.IsEnabled() {
 		return nil, nil, fmt.Errorf("加密未启用")
@@ -199,7 +199,7 @@ func providersEncrypted() bool {
 	return err == nil && total > 0
 }
 
-// 用原始 SQL 批量加/解密某表的某列，绕过 EncryptedString 的 Scan/Value 和 EncryptedJSON 的 FromDB/ToDB。
+// 用原始 SQL 批量加/解密某表的某列，绕过 EncryptedString 的 Scan/Value 和 EncryptedJSON 的 FromDB/ToDB
 func migrateRawColumn(table, col, label string, encrypt bool) (int, []string, error) {
 	rows, err := xdb.SQL(fmt.Sprintf("SELECT id, %s FROM %s", col, table)).QueryString()
 	if err != nil {

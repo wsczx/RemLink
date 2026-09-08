@@ -133,7 +133,7 @@ func TestParseV6Header_RejectsNonInitialFragment(t *testing.T) {
 	binary.BigEndian.PutUint16(pkt[4:6], 28)
 	pkt[6] = 44
 	pkt[40] = 6
-	binary.BigEndian.PutUint16(pkt[42:44], 8) // fragment offset=1
+	binary.BigEndian.PutUint16(pkt[42:44], 8) // offset=1
 	info, ok := parseV6Header(pkt)
 	if !ok || !info.IsFragment || info.FragmentOffset == 0 || info.SrcPort != 0 || info.DstPort != 0 {
 		t.Fatalf("expected non-initial fragment metadata without ports: %+v, ok=%v", info, ok)
@@ -231,7 +231,7 @@ func TestCheckLinkAcl_v6_MalformedDeny(t *testing.T) {
 	}
 }
 
-// 回归：大端口范围（如 1-65535）不应展开成 map，否则会撑爆 MySQL TEXT 列。
+// 回归：大端口范围（如 1-65535）不应展开成 map，否则会撑爆 MySQL TEXT 列
 func TestCheckLinkAcl_LargePortRange(t *testing.T) {
 	rp := &dbdata.Policy{
 		LinkAcl: []dbdata.GroupLinkAcl{
@@ -282,7 +282,7 @@ func buildV4Packet(t *testing.T, proto waterutil.IPProtocol, src, dst net.IP, ds
 	}
 	copy(pkt[12:16], src.To4())
 	copy(pkt[16:20], dst.To4())
-	binary.BigEndian.PutUint16(pkt[20:22], 12345) // src port
+	binary.BigEndian.PutUint16(pkt[20:22], 12345) // port
 	binary.BigEndian.PutUint16(pkt[22:24], dstPort)
 	return pkt
 }

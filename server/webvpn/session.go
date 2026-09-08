@@ -106,7 +106,7 @@ func (m *AuthSessionManager) IssueGrant(w http.ResponseWriter, r *http.Request, 
 
 // 用免登授权换取 WebVPN 会话，失败时回退到门户会话
 func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Request) (string, *dbdata.User, bool) {
-	// 优先兑换一次性 grant；URL 参数用于跨门户子域回跳，Cookie 作为兼容回退。
+	// 优先兑换一次性 grant；URL 参数用于跨门户子域回跳，Cookie 作为兼容回退
 	grantValue := ""
 	if value := r.URL.Query().Get(grantCookieName); value != "" {
 		grantValue = value
@@ -119,7 +119,7 @@ func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Reques
 
 		data, err := admin.GetJwtData(grantValue)
 		if err != nil {
-			// JWT 解析失败、过期或已吊销均是确定失效，避免每次请求重复兑换。
+			// JWT 解析失败、过期或已吊销均是确定失效，避免每次请求重复兑换
 			m.ClearGrantCookie(w, r)
 		} else {
 			username, _ := data["webvpn_grant_user"].(string)
@@ -127,7 +127,7 @@ func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Reques
 			portal, portalOK := m.portalSessionData(r)
 			portalJTI, _ := portal["jti"].(string)
 			// 子域通常收不到主门户的 host-only cookie，因此无门户会话时仍允许兑换；
-			// 若携带门户会话，则必须校验 JTI 一致。
+			// 若携带门户会话，则必须校验 JTI 一致
 			grantValid := username != "" && grantJTI != "" && (!portalOK || grantJTI == portalJTI)
 			if grantValid {
 				if before := dbdata.WebVpnRevokeBeforeOf(username); before > 0 && jwtInt64(data, "iat") <= before {
@@ -135,7 +135,7 @@ func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Reques
 				}
 			}
 			if !grantValid {
-				// 字段缺失、门户 JTI 不一致或用户撤销时间命中，均是确定失效。
+				// 字段缺失、门户 JTI 不一致或用户撤销时间命中，均是确定失效
 				m.ClearGrantCookie(w, r)
 			} else {
 				user := m.freshUser(username)
@@ -150,7 +150,7 @@ func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Reques
 				} else {
 					token, err := m.Issue(w, r, user, 0)
 					if err == nil {
-						// JWT 本身不可变；兑换成功后吊销其 jti，防止复制的 grant 重放。
+						// JWT 本身不可变；兑换成功后吊销其 jti，防止复制的 grant 重放
 						admin.RevokeJwtToken(grantValue)
 						m.ClearGrantCookie(w, r)
 						return token, user, true
@@ -190,7 +190,7 @@ func (m *AuthSessionManager) portalSessionData(r *http.Request) (map[string]any,
 	return data, true
 }
 
-// 返回有效门户会话的签发时间；不存在时返回 0。
+// 返回有效门户会话的签发时间；不存在时返回 0
 func (m *AuthSessionManager) portalIssuedAt(r *http.Request) int64 {
 	data, ok := m.portalSessionData(r)
 	if !ok {
@@ -199,7 +199,7 @@ func (m *AuthSessionManager) portalIssuedAt(r *http.Request) int64 {
 	return jwtInt64(data, "iat")
 }
 
-// 免登授权失效时，用仍有效的门户会话解析用户身份。返回 (nil, false) 表示无有效门户会话。
+// 免登授权失效时，用仍有效的门户会话解析用户身份。返回 (nil, false) 表示无有效门户会话
 func (m *AuthSessionManager) userFromPortalSession(r *http.Request) (*dbdata.User, bool) {
 	data, ok := m.portalSessionData(r)
 	if !ok {
@@ -219,7 +219,7 @@ func (m *AuthSessionManager) userFromPortalSession(r *http.Request) (*dbdata.Use
 	return nil, false
 }
 
-// 从请求解析当前 WebVPN 会话用户（校验 token 合法、未被踢出、未超绝对寿命）。
+// 从请求解析当前 WebVPN 会话用户（校验 token 合法、未被踢出、未超绝对寿命）
 func (m *AuthSessionManager) CurrentUser(r *http.Request) (*dbdata.User, bool) {
 	c, err := r.Cookie(sessionCookieName)
 	if err != nil || c.Value == "" {
@@ -278,7 +278,7 @@ func (m *AuthSessionManager) UserFromToken(token string) (*dbdata.User, bool) {
 	return user, true
 }
 
-// 会话已使用过半生命周期时，以数据库当前状态重签并刷新 cookie。
+// 会话已使用过半生命周期时，以数据库当前状态重签并刷新 cookie
 func (m *AuthSessionManager) Renew(w http.ResponseWriter, r *http.Request) (bool, error) {
 	c, err := r.Cookie(sessionCookieName)
 	if err != nil || c.Value == "" {
@@ -307,7 +307,7 @@ func (m *AuthSessionManager) Renew(w http.ResponseWriter, r *http.Request) (bool
 	return false, nil
 }
 
-// 吊销当前会话（单点登出）。
+// 吊销当前会话（单点登出）
 func (m *AuthSessionManager) RevokeCurrent(r *http.Request) {
 	c, err := r.Cookie(sessionCookieName)
 	if err != nil || c.Value == "" {
@@ -320,7 +320,7 @@ func (m *AuthSessionManager) RevokeCurrent(r *http.Request) {
 	}
 }
 
-// 清除一次性免登授权 cookie。
+// 清除一次性免登授权 cookie
 func (m *AuthSessionManager) ClearGrantCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     grantCookieName,
@@ -334,14 +334,14 @@ func (m *AuthSessionManager) ClearGrantCookie(w http.ResponseWriter, r *http.Req
 	})
 }
 
-// 清空进程内用户缓存（仅测试隔离用）。
+// 清空进程内用户缓存（仅测试隔离用）
 func (m *AuthSessionManager) ResetCache() {
 	m.userMu.Lock()
 	m.userCache = make(map[string]*userCacheEntry)
 	m.userMu.Unlock()
 }
 
-// 清除客户端 webvpn_session cookie。
+// 清除客户端 webvpn_session cookie
 func (m *AuthSessionManager) ClearCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
@@ -355,7 +355,7 @@ func (m *AuthSessionManager) ClearCookie(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// 整用户踢出（全量登出）：抬高吊销阈值使旧会话 O(1) 失效，并清缓存。
+// 整用户踢出（全量登出）：抬高吊销阈值使旧会话 O(1) 失效，并清缓存
 func (m *AuthSessionManager) RevokeUser(username string) {
 	if err := dbdata.WebVpnRevokeUser(username); err != nil {
 		base.Error("WebVPN 会话吊销持久化失败:", username, err)
@@ -428,7 +428,7 @@ func (m *AuthSessionManager) cachedUser(username string) *dbdata.User {
 	return u
 }
 
-// 本地库查不到时从 JWT claims 重建三方身份；type 为 local/ldap 必须落库，组非空才放行。
+// 本地库查不到时从 JWT claims 重建三方身份；type 为 local/ldap 必须落库，组非空才放行
 func (m *AuthSessionManager) externalUserFromClaims(username string, data map[string]any) *dbdata.User {
 	if username == "" {
 		return nil
@@ -458,7 +458,7 @@ func (m *AuthSessionManager) externalUserFromClaims(username string, data map[st
 	}
 }
 
-// 从数据库重载用户当前状态，用于续期/兑换时以服务端权威数据重签；查库失败返回 nil。
+// 从数据库重载用户当前状态，用于续期/兑换时以服务端权威数据重签；查库失败返回 nil
 func (m *AuthSessionManager) freshUser(username string) *dbdata.User {
 	if username == "" {
 		return nil
@@ -485,7 +485,7 @@ func (m *AuthSessionManager) maybeCleanLocked(now time.Time) {
 	}
 }
 
-// 兼容 JWT 数字字段多种类型（float64/int64/json.Number/string）。
+// 兼容 JWT 数字字段多种类型（float64/int64/json.Number/string）
 func jwtInt64(data map[string]any, key string) int64 {
 	switch v := data[key].(type) {
 	case float64:

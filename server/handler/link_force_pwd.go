@@ -71,7 +71,7 @@ var forcePwdPageHTML = `<!DOCTYPE html>
 </body>
 </html>`
 
-// 改密页（GET /+CSCOE+/force-pwd?state=xxx）。
+// 改密页（GET /+CSCOE+/force-pwd?state=xxx）
 func ForcePwdPage(w http.ResponseWriter, r *http.Request) {
 	state := r.URL.Query().Get("state")
 	if state == "" {
@@ -88,7 +88,7 @@ func ForcePwdPage(w http.ResponseWriter, r *http.Request) {
 	_ = t.Execute(w, map[string]string{"State": state})
 }
 
-// 处理改密提交（POST /+CSCOE+/force-pwd/submit）。
+// 处理改密提交（POST /+CSCOE+/force-pwd/submit）
 func ForcePwdSubmit(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "不支持的请求方法", http.StatusMethodNotAllowed)
@@ -128,7 +128,7 @@ func ForcePwdSubmit(w http.ResponseWriter, r *http.Request) {
 		forcePwdMessage(w, "账户已被锁定，请联系管理员", "", false)
 		return
 	}
-	// 复用共享的强制改密核心：校验策略 → 哈希 → 写库（pin_code + 清除 change_pwd）→ 重载会话用户。
+	// 复用共享的强制改密核心：校验策略 → 哈希 → 写库（pin_code + 清除 change_pwd）→ 重载会话用户
 	if err := RunForcePwdChange(sess.Ctx, username, newPwd); err != nil {
 		base.Error("强制改密失败:", err)
 		forcePwdMessage(w, "修改密码失败", state, false)

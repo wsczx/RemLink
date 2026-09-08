@@ -4,8 +4,8 @@ import (
 	"encoding/binary"
 )
 
-// parseDNSQuery 从一段 UDP 负载（DNS 报文）中提取第一个 Question 的域名。
-// 仅在目的端口为 53 的 UDP 包上调用。返回 "" 表示解析失败或非查询报文。
+// 从一段 UDP 负载（DNS 报文）中提取第一个 Question 的域名
+// 仅在目的端口为 53 的 UDP 包上调用。返回 "" 表示解析失败或非查询报文
 func parseDNSQuery(udpPl []byte) string {
 	// DNS 头固定 12 字节：id(2) flags(2) qdcount(2) ancount(2) nscount(2) arcount(2)
 	if len(udpPl) < 12 {

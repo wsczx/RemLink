@@ -1,4 +1,4 @@
-// Flow 负责把认证管道结果分发给三端回调。
+// Flow 负责把认证管道结果分发给三端回调
 
 package handler
 
@@ -72,7 +72,7 @@ func (f *Flow) Dispatch(w http.ResponseWriter, r *http.Request, result *auth.Pip
 	f.dispatch(w, r, result)
 }
 
-// 统一处理锁定计数并按终态调用对应回调。
+// 统一处理锁定计数并按终态调用对应回调
 func (f *Flow) dispatch(w http.ResponseWriter, r *http.Request, result *auth.PipelineResult) {
 	f.Result = result
 	f.RemoteAddr = r.RemoteAddr

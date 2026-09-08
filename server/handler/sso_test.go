@@ -23,8 +23,7 @@ func TestSSOCallbackPathsMatchRoutes(t *testing.T) {
 	}
 }
 
-// SAML 成功页文案应为通用「认证成功」，不应写死特定 IdP（如企业微信）。
-// 回归：2026-08-08 将成功页硬编码的「已成功通过企业微信认证」改为通用文案。
+// SAML 成功页文案应为通用「认证成功」
 func TestSAMLSuccessHTML_Generic(t *testing.T) {
 	html := samlSuccessHTML
 	if !strings.Contains(html, "认证成功") {

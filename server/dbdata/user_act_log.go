@@ -89,10 +89,10 @@ var (
 	}
 )
 
-// 异步写入用户操作日志。isPortal 为 true 时按门户（浏览器）解析客户端与系统。
+// 异步写入用户操作日志。isPortal 为 true 时按门户（浏览器）解析客户端与系统
 func (ua *UserActLogProcess) Add(u UserActLog, userAgent string, isPortal ...bool) {
 	// 账号/IP 已被锁定后的重复登录失败没有新的审计价值，按 username|ip 每分钟限频一条，
-	// 避免前端自动重试刷屏撑爆数据库。
+	// 避免前端自动重试刷屏撑爆数据库
 	if u.Status == UserAuthFail && u.IsLockedFail {
 		host, _, _ := net.SplitHostPort(u.RemoteAddr)
 		if host == "" {
@@ -114,7 +114,7 @@ func (ua *UserActLogProcess) Add(u UserActLog, userAgent string, isPortal ...boo
 			u.PlatformVersion = browserVer
 		}
 	} else {
-		// 调用方已指定客户端类型（如后台管理员）时，仍需按 User-Agent 识别操作系统。
+		// 调用方已指定客户端类型（如后台管理员）时，仍需按 User-Agent 识别操作系统
 		if u.Os == 0 {
 			u.Os = os_idx
 		}
@@ -240,13 +240,13 @@ func (ua *UserActLogProcess) ParseUserAgent(userAgent string) (os_idx, client_id
 	if len(userAgent) == 0 {
 		return 0, 0, ""
 	}
-	// 首个命中即生效，iOS 必须早于 android/macOS，macOS 的 darwin 兜底必须在最后。
+	// 首个命中即生效，iOS 必须早于 android/macOS，macOS 的 darwin 兜底必须在最后
 	switch {
 	case strings.Contains(userAgent, "windows"):
 		os_idx = 1
 	case strings.Contains(userAgent, "iphone") || strings.Contains(userAgent, "ipad") ||
 		strings.Contains(userAgent, "applesslvpn") || strings.Contains(userAgent, "ios"):
-		// iOS：仅用精准子串判定。禁止使用 "apple"（会误匹配 AppleWebKit）或 "darwin_arm"（会误匹配 macOS Apple 芯片）。
+		// iOS：仅用精准子串判定。禁止使用 "apple"（会误匹配 AppleWebKit）或 "darwin_arm"（会误匹配 macOS Apple 芯片）
 		os_idx = 5
 	case strings.Contains(userAgent, "android"):
 		os_idx = 4

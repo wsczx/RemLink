@@ -180,7 +180,7 @@ func CheckAndRenewCert() {
 	renewSingleCert("WebVPN 泛域名证书", true, config, ParseCertWild)
 }
 
-// 距过期不足 7 天则自动续期；slot 决定写回主证书还是泛域名证书，parse 注入对应证书的解析函数。
+// 距过期不足 7 天则自动续期；slot 决定写回主证书还是泛域名证书，parse 注入对应证书的解析函数
 func renewSingleCert(name string, slot bool, config *SettingLetsEncrypt, parse func() (*tls.Certificate, *time.Time, error)) {
 	cert, expireAt, err := parse()
 	if err != nil {
@@ -277,7 +277,7 @@ func (c *LeGoClient) GetCert(domain string, wild bool) error {
 	return nil
 }
 
-// wild=false 续期主证书（vpn 主域），wild=true 续期 WebVPN 泛域名证书（*.WebVpnDomain）。
+// wild=false 续期主证书（vpn 主域），wild=true 续期 WebVPN 泛域名证书（*.WebVpnDomain）
 func (c *LeGoClient) RenewCert(wild bool) error {
 	cert, key, err := loadStoredCert(wild)
 	if err != nil {
@@ -318,7 +318,7 @@ func loadStoredCert(wild bool) (cert, key string, err error) {
 	return tlsData.CertContent, string(tlsData.CertKeyContent), nil
 }
 
-// wild=false 存主证书，wild=true 存泛域名证书（WebVPN）。
+// wild=false 存主证书，wild=true 存泛域名证书（WebVPN）
 // 主证书通过 LoadCertificate 清旧映射并设为 default；泛域名证书只追加到 SAN 表（LoadCertificates 不清旧映射），
 // 两者并存，不能互相覆盖
 func (c *LeGoClient) SaveCert(wild bool) error {
@@ -376,7 +376,7 @@ func tryLoadCert() (*tls.Certificate, error) {
 	return &cert, nil
 }
 
-// 加载 WebVPN 泛域名证书，不存在时返回 nil, nil, nil（不影响主证书）。
+// 加载 WebVPN 泛域名证书，不存在时返回 nil, nil, nil（不影响主证书）
 func ParseCertWild() (*tls.Certificate, *time.Time, error) {
 	cert, err := tryLoadCertWild()
 	if err != nil {
@@ -477,7 +477,7 @@ func GetCertificateBySNI(commonName string) (*tls.Certificate, error) {
 			return cert, nil
 		}
 	}
-	// TODO 默认证书 兼容不支持 SNI 的客户端
+	// 默认证书 兼容不支持 SNI 的客户端
 	if cert, ok := nameToCertificate["default"]; ok {
 		return cert, nil
 	}
@@ -489,8 +489,8 @@ func LoadCertificate(cert *tls.Certificate) {
 	buildNameToCertificate(cert, true)
 }
 
-// 注入多张证书到 SNI 表（不清旧映射，实现多证书并存）。
-// 用于 WebVPN 泛域名证书与主证书同时生效。
+// 注入多张证书到 SNI 表（不清旧映射，实现多证书并存）
+// 用于 WebVPN 泛域名证书与主证书同时生效
 func LoadCertificates(certs []*tls.Certificate) {
 	for _, c := range certs {
 		if c != nil {

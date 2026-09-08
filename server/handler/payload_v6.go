@@ -20,8 +20,8 @@ type v6HeaderInfo struct {
 	IsFragment     bool
 }
 
-// 解析 IPv6 包，跳过扩展头链，定位上层协议与端口。
-// 返回 ok=false 表示报文长度非法、版本非 v6 或扩展头链无法收敛（畸形报文），调用方应安全拒绝。
+// 解析 IPv6 包，跳过扩展头链，定位上层协议与端口
+// 返回 ok=false 表示报文长度非法、版本非 v6 或扩展头链无法收敛（畸形报文），调用方应安全拒绝
 func parseV6Header(data []byte) (v6HeaderInfo, bool) {
 	var info v6HeaderInfo
 	if len(data) < 40 {
