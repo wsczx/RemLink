@@ -10,7 +10,7 @@ import (
 	"github.com/wsczx/remlink/pkg/security"
 )
 
-// 返回加密状态。
+// 返回加密状态
 func SecretStatus(w http.ResponseWriter, r *http.Request) {
 	enabled := security.IsEnabled()
 	dbEncrypted := dbdata.HasEncryptedData()
@@ -21,8 +21,8 @@ func SecretStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// SecretEnable 生成密钥并加密全库敏感数据。
-// 密钥目录通过 REMLINK_ENCRYPTION_KEY_DIR 环境变量配置，默认保存在工作目录。
+// 生成密钥并加密全库敏感数据
+// 密钥目录通过 REMLINK_ENCRYPTION_KEY_DIR 环境变量配置，默认保存在工作目录
 func SecretEnable(w http.ResponseWriter, r *http.Request) {
 	if security.IsEnabled() {
 		RespError(w, RespParamErr, "加密已启用")
@@ -48,7 +48,7 @@ func SecretEnable(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// 上传密钥并加密全库敏感数据。
+// 上传密钥并加密全库敏感数据
 func SecretUpload(w http.ResponseWriter, r *http.Request) {
 	if security.IsEnabled() {
 		RespError(w, RespParamErr, "加密已启用")
@@ -90,7 +90,7 @@ func SecretUpload(w http.ResponseWriter, r *http.Request) {
 	RespSucess(w, stats)
 }
 
-// 解密全库敏感数据并删除密钥。
+// 解密全库敏感数据并删除密钥
 func SecretDisable(w http.ResponseWriter, r *http.Request) {
 	if !security.IsEnabled() {
 		RespError(w, RespParamErr, "加密未启用")

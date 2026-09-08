@@ -266,14 +266,14 @@ func SetGroup(g *Group) error {
 		err = Add(g)
 	}
 	if err == nil {
-		// 组配置/状态/名称变更后，组内成员重新签发 WebVPN 会话。异步执行避免阻塞保存响应返回。
+		// 组配置/状态/名称变更后，组内成员重新签发 WebVPN 会话。异步执行避免阻塞保存响应返回
 		go WebVpnRevokeGroupMembers([]string{oldName})
 	}
 
 	return err
 }
 
-// 判断两个 CIDR 是否重叠（任一网段网络地址落在另一网段内即视为重叠）。
+// 判断两个 CIDR 是否重叠（任一网段网络地址落在另一网段内即视为重叠）
 func cidrOverlaps(a, b *net.IPNet) bool {
 	return a.Contains(b.IP) || b.Contains(a.IP)
 }
@@ -483,7 +483,7 @@ func GroupUsesProvider(g *Group, providerName string) bool {
 	return false
 }
 
-// 组配置了外部认证 + OTP 时自动同步用户到本地。
+// 组配置了外部认证 + OTP 时自动同步用户到本地
 func SyncExternalUsersForOTP(g *Group) {
 	if !HasAuthType(g.AuthProfile, "otp") {
 		return

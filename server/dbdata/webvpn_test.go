@@ -7,7 +7,7 @@ import (
 	"github.com/wsczx/remlink/base"
 )
 
-// 覆盖吊销阈值持久化后跨内存重置仍能使旧会话失效。
+// 覆盖吊销阈值持久化后跨内存重置仍能使旧会话失效
 func TestWebVpnCorsAllowedOrigins(t *testing.T) {
 	app := &WebVpnApp{AllowCrossSite: true, CorsAllowedOrigins: []string{"https://erp-dev.wg.maizuo.com"}}
 	cases := []struct {
@@ -52,7 +52,7 @@ func TestWebVpnRevokePersistAcrossMemoryReset(t *testing.T) {
 	ast.Equal(int64(0), WebVpnRevokeBeforeOf("bob"), "未吊销用户阈值应保持 0")
 }
 
-// 覆盖数据库回查后的内存缓存行为。
+// 覆盖数据库回查后的内存缓存行为
 func TestWebVpnRevokeBeforeOfCacheFill(t *testing.T) {
 	ast := assert.New(t)
 	preIpData(t)
@@ -68,7 +68,7 @@ func TestWebVpnRevokeBeforeOfCacheFill(t *testing.T) {
 	ast.Greater(first, int64(0))
 }
 
-// 覆盖批量吊销及其持久化结果。
+// 覆盖批量吊销及其持久化结果
 func TestWebVpnRevokeUsersBatch(t *testing.T) {
 	ast := assert.New(t)
 	preIpData(t)
@@ -85,7 +85,7 @@ func TestWebVpnRevokeUsersBatch(t *testing.T) {
 	}
 }
 
-// 覆盖未吊销用户与其他用户记录的隔离。
+// 覆盖未吊销用户与其他用户记录的隔离
 func TestWebVpnRevokeUserRemoveUnset(t *testing.T) {
 	ast := assert.New(t)
 	preIpData(t)
@@ -99,7 +99,7 @@ func TestWebVpnRevokeUserRemoveUnset(t *testing.T) {
 	ast.Equal(int64(0), WebVpnRevokeBeforeOf(""))
 }
 
-// 覆盖应用名的字符限制。
+// 覆盖应用名的字符限制
 func TestWebVpnAppNameValid(t *testing.T) {
 	ast := assert.New(t)
 	ast.True(webVpnAppNameValid("app1"))

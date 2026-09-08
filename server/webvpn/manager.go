@@ -7,7 +7,7 @@ import (
 	"github.com/wsczx/remlink/dbdata"
 )
 
-// WebVPN 子系统中心对象，聚合所有子组件。进程启动 Start、退出 Stop。
+// WebVPN 子系统中心对象，聚合所有子组件。进程启动 Start、退出 Stop
 type manager struct {
 	apps    *AppStore
 	session *AuthSessionManager
@@ -33,14 +33,14 @@ func GetManager() *manager {
 	return mgr
 }
 
-// 启动子系统：加载整用户踢出阈值并启动审计批处理。
+// 启动子系统：加载整用户踢出阈值并启动审计批处理
 func (m *manager) Start() {
 	dbdata.LoadWebVpnRevoke()
 	m.audit.Start()
 	base.Debug("WebVPN 子系统已启动")
 }
 
-// 停止子系统后台任务，等待在途审计落库。
+// 停止子系统后台任务，等待在途审计落库
 func (m *manager) Stop() {
 	m.audit.Stop()
 	base.Debug("WebVPN 子系统已停止")

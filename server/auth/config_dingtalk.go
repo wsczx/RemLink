@@ -57,7 +57,7 @@ func (c *DingtalkConfig) ParseBlockedUserIDs() []string {
 	return out
 }
 
-// 命中拒绝名单时返回 error。
+// 命中拒绝名单时返回 error
 func (c *DingtalkConfig) CheckUserID(userID string, list []string) error {
 	userID = strings.TrimSpace(userID)
 	for _, v := range list {
@@ -76,7 +76,7 @@ type dingtalkTokenResp struct {
 	Message     string `json:"message"`
 }
 
-// sns 用户信息响应（/v1.0/contact/users/me）
+// sns 用户信息响应
 type dingtalkSnsResp struct {
 	UserId  string `json:"userId"`
 	UnionID string `json:"unionId"`
@@ -268,7 +268,7 @@ func (c *DingtalkConfig) GetUserIdByUnionId(contactToken, unionId string) (strin
 	return dr.Result.Userid, nil
 }
 
-// 校验用户是否在某允许部门内（通过通讯录接口查询用户部门）。
+// 校验用户是否在某允许部门内（通过通讯录接口查询用户部门）
 func (c *DingtalkConfig) CheckUserDepartment(accessToken, userID string, allowed []string) (bool, error) {
 	if len(allowed) == 0 {
 		return true, nil
@@ -303,7 +303,7 @@ func (c *DingtalkConfig) CheckUserDepartment(accessToken, userID string, allowed
 	return false, nil
 }
 
-// 获取通讯录访问令牌（用于用户同步）。
+// 获取通讯录访问令牌（用于用户同步）
 func (c *DingtalkConfig) GetContactToken() (string, error) {
 	body, err := json.Marshal(map[string]string{
 		"appKey":    c.ClientID,
@@ -348,8 +348,9 @@ type DingtalkDeptUser struct {
 	Email  string `json:"email"`
 }
 
-// 拉取钉钉部门成员。recursive=true 时以该部门为根向下遍历所有子部门（含自身），
-// recursive=false 时仅拉取该部门直属成员。
+// 拉取钉钉部门成员
+// recursive=true 时以该部门为根向下遍历所有子部门（含自身）
+// recursive=false 时仅拉取该部门直属成员
 func (c *DingtalkConfig) GetDepartmentUsers(contactToken string, deptID string, recursive bool) ([]DingtalkDeptUser, error) {
 	return c.getDepartmentUsers(contactToken, deptID, recursive)
 }
@@ -412,10 +413,10 @@ func (c *DingtalkConfig) collectDepartmentTree(contactToken, rootID string, dept
 	return nil
 }
 
-// 探针：校验通讯录读权限与部门可见范围。
+// 探针：校验通讯录读权限与部门可见范围
 // 钉钉在「无通讯录读权限 / 部门不在应用可见范围」时，user/list 会静默返回空列表（errcode=0），
-// 难以定位原因；而 department/get 接口会明确返回 errcode（如 60011 无权限）。
-// 探针失败直接返回钉钉原生错误，便于排错。
+// 难以定位原因；而 department/get 接口会明确返回 errcode（如 60011 无权限）
+// 探针失败直接返回钉钉原生错误，便于排错
 func (c *DingtalkConfig) probeContactPermission(contactToken, deptID string) error {
 	url := "https://oapi.dingtalk.com/topapi/v2/department/get?access_token=" + contactToken +
 		"&dept_id=" + deptID
@@ -451,12 +452,12 @@ func (c *DingtalkConfig) probeContactPermission(contactToken, deptID string) err
 
 func (c *DingtalkConfig) getDepartmentUsers(contactToken, deptID string, recursive bool) ([]DingtalkDeptUser, error) {
 	// 权限探针仅对本次同步的入口部门跑一次（无论递归与否），便于在缺通讯录权限时透传原生错误码；
-	// 递归遍历到的子部门不再逐个探针，其权限不足会由 user/list 的 errcode 直接暴露。
+	// 递归遍历到的子部门不再逐个探针，其权限不足会由 user/list 的 errcode 直接暴露
 	if err := c.probeContactPermission(contactToken, deptID); err != nil {
 		return nil, err
 	}
 
-	// 递归模式：先收集部门树（含自身及所有子部门），再逐个部门拉取直属成员。
+	// 递归模式：先收集部门树（含自身及所有子部门），再逐个部门拉取直属成员
 	if recursive {
 		deptIDs := make([]string, 0)
 		if err := c.collectDepartmentTree(contactToken, deptID, &deptIDs, make(map[string]bool)); err != nil {

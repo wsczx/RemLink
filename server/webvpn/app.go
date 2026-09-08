@@ -6,24 +6,24 @@ import (
 	"github.com/wsczx/remlink/dbdata"
 )
 
-// 应用配置存储。缓存委托 dbdata 层维护，避免双层 TTL 叠加导致配置变更不生效。
+// 应用配置存储。缓存委托 dbdata 层维护，避免双层 TTL 叠加导致配置变更不生效
 type AppStore struct{}
 
 func NewAppStore() *AppStore {
 	return &AppStore{}
 }
 
-// 按子域名前缀（Name）查找应用。
+// 按子域名前缀（Name）查找应用
 func (s *AppStore) GetByName(name string) (*dbdata.WebVpnApp, error) {
 	return dbdata.GetWebVpnAppByName(name)
 }
 
-// 主动失效缓存（配置变更后调用）。
+// 主动失效缓存（配置变更后调用）
 func (s *AppStore) Invalidate() {
 	dbdata.InvalidateWebVpnAppCache()
 }
 
-// 返回用户有权访问的启用中应用（用户维度授权）。
+// 返回用户有权访问的启用中应用（用户维度授权）
 func (s *AppStore) AppsForUser(user *dbdata.User) ([]dbdata.WebVpnApp, error) {
 	var apps []dbdata.WebVpnApp
 	if err := dbdata.FindWhere(&apps, 0, 0, "status=1", nil); err != nil {
@@ -69,7 +69,7 @@ func (s *AppStore) AppsForUser(user *dbdata.User) ([]dbdata.WebVpnApp, error) {
 	return result, nil
 }
 
-// 用户维度授权兜底；IP/路径校验由 proxy 阶段执行。
+// 用户维度授权兜底；IP/路径校验由 proxy 阶段执行
 func (s *AppStore) Authorized(app *dbdata.WebVpnApp, user *dbdata.User) bool {
 	return dbdata.WebVpnUserAllowed(app, user)
 }

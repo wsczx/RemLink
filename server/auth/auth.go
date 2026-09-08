@@ -163,7 +163,7 @@ func (c *Context) AddPassedStep(name string) {
 }
 
 func (c *Context) LogInfo() string {
-	// 多步认证优先展示完整流程。
+	// 多步认证优先展示完整流程
 	if len(c.passedSteps) > 1 {
 		return buildInfoFromSteps(c.passedSteps)
 	}
@@ -173,7 +173,7 @@ func (c *Context) LogInfo() string {
 	return buildInfoFromSteps(c.passedSteps)
 }
 
-// 认证步骤的展示名称。
+// 认证步骤的展示名称
 var stepNameMap = map[string]string{
 	"local":    "本地密码",
 	"ldap":     "LDAP",
@@ -238,7 +238,7 @@ func (c *Context) GetSSO() *SSOState {
 	return c.SSO
 }
 
-// 回填已通过的步骤列表，供 Resume 从断点恢复。
+// 回填已通过的步骤列表，供 Resume 从断点恢复
 func (c *Context) SetPassedSteps(steps []string) {
 	c.passedSteps = steps
 }
@@ -261,7 +261,7 @@ type PipelineState struct {
 	PassedSteps []string
 }
 
-// 管道执行结果。
+// 管道执行结果
 type PipelineResult struct {
 	Result    StepResult
 	Err       error
@@ -273,11 +273,11 @@ type PipelineResult struct {
 
 	Challenge   *ChallengeInfo
 	State       PipelineState
-	PrevStepIdx int // 执行前的管道步号，首次认证为 -1。用于判断挑战是否原地踏步。
+	PrevStepIdx int // 执行前的管道步号，首次认证为 -1。用于判断挑战是否原地踏步
 }
 
-// IsChallengeRetry 判断管道是否在挑战步骤原地踏步（即挑战码错误，未推进到下一步）。
-// PrevStepIdx < 0 表示首次认证
+// 判断管道是否在挑战步骤原地踏步（即挑战码错误，未推进到下一步）
+// < 0 表示首次认证
 func (r *PipelineResult) IsChallengeRetry() bool {
 	if r.PrevStepIdx < 0 {
 		return false
@@ -285,7 +285,7 @@ func (r *PipelineResult) IsChallengeRetry() bool {
 	return r.Result == StepPending && r.State.StepIdx == r.PrevStepIdx
 }
 
-// 认证服务需要的组基本信息。
+// 认证服务需要的组基本信息
 type GroupInfo struct {
 	Name        string
 	AuthProfile json.RawMessage

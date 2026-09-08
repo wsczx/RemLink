@@ -45,7 +45,7 @@ func newTCPStreamCache() *tcpStreamCache {
 	return &tcpStreamCache{streams: make(map[tcpStreamKey]*tcpStream)}
 }
 
-// add 收集 TCP 应用层数据，并在已有连续数据可识别时返回应用协议。
+// 收集 TCP 应用层数据，并在已有连续数据可识别时返回应用协议
 func (c *tcpStreamCache) add(key tcpStreamKey, tcpSeg []byte, now time.Time) (uint8, string, bool) {
 	if len(tcpSeg) < 20 {
 		return acc_proto_tcp, "", false

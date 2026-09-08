@@ -1,4 +1,4 @@
-// OTP 验证入口，通过 Cookie 恢复认证管道并执行 OTP 挑战。
+// 验证入口，通过 Cookie 恢复认证管道并执行 OTP 挑战
 
 package handler
 
@@ -75,7 +75,7 @@ func init() {
 	authsrv.SendOtpFunc = SendOtpToUser
 }
 
-// 生成 OTP 验证码并发送给用户（邮件/短信）。
+// 生成 OTP 验证码并发送给用户（邮件/短信）
 func SendOtpToUser(info *auth.UserInfo) error {
 	if info == nil {
 		return fmt.Errorf("用户信息为空")

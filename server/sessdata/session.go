@@ -456,8 +456,8 @@ func (cs *ConnSession) SetMtu(mtu string) {
 	enforceMtuFloorV6(cs)
 }
 
-// enforceMtuFloorV6 在双栈开启时保证链路 MTU 不低于 IPv6 要求的 1280。
-// 纯 v4 时返回 0 下限，保持字节级不变（客户端可请求更低 MTU）。
+// 在双栈开启时保证链路 MTU 不低于 IPv6 要求的 1280
+// 纯 v4 时返回 0 下限，保持字节级不变（客户端可请求更低 MTU）
 func enforceMtuFloorV6(cs *ConnSession) {
 	if base.GetCfg().Ipv6CIDR == "" {
 		return

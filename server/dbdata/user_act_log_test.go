@@ -29,7 +29,6 @@ func TestUserActLogSessionSearchesByNickname(t *testing.T) {
 	}
 }
 
-
 func TestParseBrowserUA(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -134,7 +133,7 @@ func TestParseUserAgent(t *testing.T) {
 			want: res{os_idx: 3, client_idx: 1, ver: "7.08"},
 		},
 		{
-			// 安卓 Chrome 门户 UA 含 AppleWebKit，曾因 "apple" 关键字被误判为 iOS。
+			// 安卓 Chrome 门户 UA 含 AppleWebKit，曾因 "apple" 关键字被误判为 iOS
 			name: "android chrome with AppleWebKit",
 			args: args{userAgent: "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"},
 			want: res{os_idx: 4, client_idx: 0, ver: ""},
@@ -150,13 +149,13 @@ func TestParseUserAgent(t *testing.T) {
 			want: res{os_idx: 2, client_idx: 1, ver: ""},
 		},
 		{
-			// 全空格 UA 不能触发 ver[0] 越界 Panic。
+			// 全空格 UA 不能触发 ver[0] 越界 Panic
 			name: "whitespace only",
 			args: args{userAgent: "   "},
 			want: res{os_idx: 0, client_idx: 0, ver: ""},
 		},
 		{
-			// 空 UA 同样不能 Panic。
+			// 空 UA 同样不能 Panic
 			name: "empty",
 			args: args{userAgent: ""},
 			want: res{os_idx: 0, client_idx: 0, ver: ""},

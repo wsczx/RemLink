@@ -177,7 +177,7 @@ func interceptDNS(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 
 	// IPv6 优先：仅当该域名上游 AAAA 已确认可达（异步解析成功后写入的正缓存）才抑制 A 回 NODATA，
 	// 首次/未知域名不抑制，回 v4 fakeIP，由客户端 Happy Eyeballs 竞争 v6，
-	// 避免「抑制 A 但 v6 映射建不起来」导致的全黑洞（转发失效）。
+	// 避免「抑制 A 但 v6 映射建不起来」导致的全黑洞（转发失效）
 	if cSess.Policy.PreferIPv6 && cSess.FakeDNS.IsV6Enabled() {
 		upstream := sessdata.FormatUpstream(cSess.Policy.GetUpstreamDNS())
 		if cSess.FakeDNS.IsAAAAPositive(domain, upstream) {
@@ -207,11 +207,11 @@ func interceptDNS(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 	}
 
 	base.Debug("Allocated FakeIP:", domain, "->", fakeIP.String())
-	// 先完成真实地址解析和 DNAT，再把 FakeIP 返回给客户端，避免首个连接落入未就绪黑洞。
+	// 先完成真实地址解析和 DNAT，再把 FakeIP 返回给客户端，避免首个连接落入未就绪黑洞
 	upstream := sessdata.FormatUpstream(cSess.Policy.GetUpstreamDNS())
 	if err := cSess.FakeDNS.ResolveAndMappingSync(fakeIP.String(), domain, upstream); err != nil {
 		base.Debug("Failed to synchronously map FakeIP:", domain, "error:", err)
-		// 不向客户端返回永远无法转发的 FakeIP；交由普通 DNS 转发。
+		// 不向客户端返回永远无法转发的 FakeIP；交由普通 DNS 转发
 		return false
 	}
 
@@ -400,8 +400,8 @@ func buildDNSResponsePacket(queryPacket []byte, dnsResp []byte) []byte {
 	return respPacket
 }
 
-// 构建 IPv6 DNS 响应包：全新 40 字节基础头（不携带查询包的扩展头）+ UDP + DNS 载荷。
-// IPv6 的 UDP 校验和为强制项，必须按含伪头计算，否则客户端内核直接丢包。
+// 构建 IPv6 DNS 响应包：全新 40 字节基础头（不携带查询包的扩展头）+ UDP + DNS 载荷
+// IPv6 的 UDP 校验和为强制项，必须按含伪头计算，否则客户端内核直接丢包
 func buildDNSResponsePacket6(info v6HeaderInfo, dnsResp []byte) []byte {
 	udpLen := 8 + len(dnsResp)
 	respPacket := make([]byte, 40+udpLen)

@@ -75,7 +75,7 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	issueLoginJWT(w, r, adminUser)
 }
 
-// OTP 第二步验证
+// 第二步验证
 func LoginOTP(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
 	body, err := io.ReadAll(r.Body)
@@ -185,7 +185,7 @@ func ChangeAdminPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// DB 保存成功后，再原子切换到新配置
+	// 保存成功后，再原子切换到新配置
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.AdminPass = hashed
 		c.AdminTemp = false
@@ -196,7 +196,7 @@ func ChangeAdminPassword(w http.ResponseWriter, r *http.Request) {
 	RespSucess(w, map[string]string{"message": "密码修改成功"})
 }
 
-// AdminOtpQr 查看管理员 OTP 密钥二维码
+// 查看管理员 OTP 密钥二维码
 // GET：仅返回启用状态（供前端检查 OTP 是否已启用）
 // POST：需提交密码+当前动态验证码，验证通过后返回密钥和二维码
 func AdminOtpQr(w http.ResponseWriter, r *http.Request) {
@@ -279,9 +279,9 @@ func AdminOtpGenerate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// AdminOtpConfirm 验证 OTP 动态码并启用两步验证。
-// 首次绑定：仅需验证新密钥的动态码。
-// 重新绑定（已启用 OTP 时）：额外要求输入管理员密码 + 当前 OTP 动态码。
+// 验证 OTP 动态码并启用两步验证
+// 首次绑定：仅需验证新密钥的动态码
+// 重新绑定（已启用 OTP 时）：额外要求输入管理员密码 + 当前 OTP 动态码
 func AdminOtpConfirm(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
 	body, err := io.ReadAll(r.Body)
@@ -353,7 +353,7 @@ func AdminOtpConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// DB 保存成功后，原子切换到新配置
+	// 保存成功后，原子切换到新配置
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.AdminOtp = secret
 	})
@@ -414,7 +414,7 @@ func AdminOtpDisable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// DB 保存成功后，原子切换到新配置
+	// 保存成功后，原子切换到新配置
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.AdminOtp = ""
 	})
@@ -450,7 +450,7 @@ func issueLoginJWT(w http.ResponseWriter, r *http.Request, adminUser string) {
 		return
 	}
 
-	// JWT token 签发成功，返回数据（不暴露前端）
+	// token 签发成功，返回数据（不暴露前端）
 	data := make(map[string]any)
 	data["admin_user"] = adminUser
 	data["expires_at"] = expiresAt

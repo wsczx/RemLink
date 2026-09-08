@@ -12,7 +12,7 @@ import (
 	"github.com/wsczx/remlink/sessdata"
 )
 
-// 构造一个最小 TLS ClientHello（仅含 SNI 扩展）。
+// 构造一个最小 TLS ClientHello（仅含 SNI 扩展）
 func buildTLSClientHello(host string) []byte {
 	name := []byte(host)
 	// ServerName（host_name 类型）
@@ -35,16 +35,16 @@ func buildTLSClientHello(host string) []byte {
 	return rec
 }
 
-// 构造一段 TCP 段（20 字节 TCP 头 + 负载）。
+// 构造一段 TCP 段（20 字节 TCP 头 + 负载）
 func buildTCPSegment(payload []byte) []byte {
 	seg := make([]byte, 20+len(payload))
-	seg[12] = 0x50 // Data Offset=5 -> 20 字节头
+	seg[12] = 0x50 // Offset=5 -> 20 字节头
 	seg[13] = 0x18 // PSH+ACK
 	copy(seg[20:], payload)
 	return seg
 }
 
-// 构造 DNS 查询报文（仅第一个 Question）。
+// 构造 DNS 查询报文（仅第一个 Question）
 func buildDNSQuery(host string) []byte {
 	dns := []byte{0x12, 0x34, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 	for l := range strings.SplitSeq(host, ".") {
@@ -56,7 +56,7 @@ func buildDNSQuery(host string) []byte {
 	return dns
 }
 
-// 构造 IPv4 包：20 字节头 + 上层负载。
+// 构造 IPv4 包：20 字节头 + 上层负载
 func buildV4Raw(proto uint8, src, dst net.IP, payload []byte) []byte {
 	pkt := make([]byte, 20+len(payload))
 	pkt[0] = 0x45 // version=4, ihl=5

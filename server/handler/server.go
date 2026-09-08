@@ -132,7 +132,7 @@ func initRoute() http.Handler {
 	r.HandleFunc("/portal", PortalHome).Methods(http.MethodGet)
 	r.HandleFunc("/portal/", PortalHome).Methods(http.MethodGet)
 	// 子域名登录可放行的门户接口：与 WebVpnHandler 的放行判断共用 portalLoginEndpoints 单一来源，
-	// 新增子域名登录必需的门户接口只需改 portalLoginEndpoints（webvpn.go）。
+	// 新增子域名登录必需的门户接口只需改 portalLoginEndpoints（webvpn.go）
 	for _, ep := range portalLoginEndpoints {
 		r.HandleFunc(ep.path, ep.handler).Methods(ep.method)
 	}

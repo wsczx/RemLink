@@ -8,7 +8,7 @@ import (
 	"github.com/wsczx/remlink/base"
 )
 
-// 返回指定 Provider 类型配置中的敏感字段 key。
+// 返回指定 Provider 类型配置中的敏感字段 key
 func ProvSecretKeys(typ string) []string {
 	switch typ {
 	case "ldap":
@@ -25,7 +25,7 @@ func ProvSecretKeys(typ string) []string {
 	return nil
 }
 
-// 根据名称和类型查找 Provider 并返回其配置 JSON 的 map 形式。
+// 根据名称和类型查找 Provider 并返回其配置 JSON 的 map 形式
 func ResolveProviderConfig(name, typ string) (map[string]any, error) {
 	p := &Provider{}
 	if err := One("Name", name, p); err != nil {
@@ -52,7 +52,7 @@ func ProviderList(pageSize, page int) ([]Provider, int, error) {
 	return datas, count, err
 }
 
-// 返回指定类型且启用状态的 Provider 名称列表。typ 为空时返回全部。
+// 返回指定类型且启用状态的 Provider 名称列表。typ 为空时返回全部
 func ProviderNamesByType(typ string) []string {
 	var datas []Provider
 	where := "status=1"
@@ -103,7 +103,7 @@ func ValidateProviderConfig(p *Provider) error {
 	return cfg.ValidateConfig()
 }
 
-// 新增或更新 Provider。
+// 新增或更新 Provider
 func SetProvider(p *Provider) error {
 	if p.Name == "" {
 		return fmt.Errorf("Provider 名称不能为空")

@@ -193,7 +193,7 @@ func (i *IPT) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
 	return i.ipt.InsertUnique("filter", "FORWARD", 1, fwdRule...)
 }
 
-// 设置全局 IPv6 NAT/转发规则。
+// 设置全局 IPv6 NAT/转发规则
 func (i *IPT) SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool) error {
 	ip6, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
 	if err != nil {
@@ -244,7 +244,7 @@ func (i *IPT) AddGroupNAT6(groupCIDR6, masterDev string, inContainer bool) error
 	return ip6.InsertUnique("filter", "FORWARD", 1, fwdRule...)
 }
 
-// 删除组自定义 v4 CIDR 的 NAT/转发规则（MASQUERADE + 源段 FORWARD ACCEPT）。
+// 删除组自定义 v4 CIDR 的 NAT/转发规则（MASQUERADE + 源段 FORWARD ACCEPT）
 func (i *IPT) DelGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
 	natRule := []string{"-s", groupCIDR, "-o", masterDev, "-j", "MASQUERADE"}
 	fwdRule := []string{"-s", groupCIDR, "-j", "ACCEPT"}
@@ -551,7 +551,7 @@ func (n *NFT) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
 		Table: globalNatTable,
 	}
 
-	// POSTROUTING: MASQUERADE（组 CIDR 出站伪装）。
+	// POSTROUTING: MASQUERADE（组 CIDR 出站伪装）
 	n.conn.AddRule(&nftables.Rule{
 		Table:    globalNatTable,
 		Chain:    postroutingChain,
@@ -651,7 +651,7 @@ func (n *NFT) DelGroupNAT6(groupCIDR6, masterDev string, inContainer bool) error
 	return nil
 }
 
-// 设置全局 IPv6 NAT/转发规则。
+// 设置全局 IPv6 NAT/转发规则
 func (n *NFT) SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -1053,9 +1053,9 @@ func (n *NFT) CleanupGlobal() error {
 	return n.conn.Flush()
 }
 
-// 确保组自定义 v4/v6 网段的 NAT/转发规则已按指定出网网卡(egress)下发。
-// 若此前已按不同 egress 下发过，则先清理旧规则再下发新规则（无需重启服务即可切换出网网卡）。
-// v4CIDR / v6CIDR 可单独为空；入参 egress 应为已回退后的真实出网网卡（空=全局 master_dev）。
+// 确保组自定义 v4/v6 网段的 NAT/转发规则已按指定出网网卡(egress)下发
+// 若此前已按不同 egress 下发过，则先清理旧规则再下发新规则（无需重启服务即可切换出网网卡）
+// v4CIDR / v6CIDR 可单独为空；入参 egress 应为已回退后的真实出网网卡（空=全局 master_dev）
 func SyncGroupNAT(v4CIDR, v6CIDR, egress string) {
 	if v4CIDR == "" && v6CIDR == "" {
 		return
@@ -1077,7 +1077,7 @@ func SyncGroupNAT(v4CIDR, v6CIDR, egress string) {
 func syncGroupNAT(fw Firewall, cidr, egress string, isV6 bool) {
 	if old, loaded := groupNatCIDRs.Load(cidr); !loaded || old != egress {
 		if loaded {
-			// egress 变化：先清理旧规则，避免旧出网网卡规则残留
+			// 变化：先清理旧规则，避免旧出网网卡规则残留
 			delGroupNATRule(fw, cidr, old.(string), isV6)
 		}
 		var err error
@@ -1095,8 +1095,8 @@ func syncGroupNAT(fw Firewall, cidr, egress string, isV6 bool) {
 	}
 }
 
-// 删除组自定义网段的 NAT/转发规则（组配置变更网段或删除组时调用），并清除去重跟踪。
-// 仅删除与 oldOutDev（空则回退 master_dev）匹配的规则，避免误删其他出网网卡的规则。
+// 删除组自定义网段的 NAT/转发规则（组配置变更网段或删除组时调用），并清除去重跟踪
+// 仅删除与 oldOutDev（空则回退 master_dev）匹配的规则，避免误删其他出网网卡的规则
 func RemoveGroupNAT(oldV4, oldV6, oldOutDev string) {
 	if oldV4 == "" && oldV6 == "" {
 		return
@@ -1138,8 +1138,8 @@ func delGroupNATRule(fw Firewall, cidr, egress string, isV6 bool) {
 	}
 }
 
-// 删除指定 nftables 链中 UserData 标记等于 magic 的所有规则（按 handle 精准删除）。
-// 仅删除组规则，不影响全局规则；表/链不存在时忽略。
+// 删除指定 nftables 链中 UserData 标记等于 magic 的所有规则（按 handle 精准删除）
+// 仅删除组规则，不影响全局规则；表/链不存在时忽略
 func (n *NFT) delRulesByMagic(table *nftables.Table, chainName string, magic []byte) error {
 	chain := &nftables.Chain{Name: chainName, Table: table}
 	rules, err := n.conn.GetRules(table, chain)

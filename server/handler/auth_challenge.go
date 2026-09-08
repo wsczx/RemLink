@@ -106,7 +106,7 @@ func ssoTypeOf(ch *auth.ChallengeInfo) string {
 	return ""
 }
 
-// 脱敏手机号：前 3 + **** + 后 4。
+// 脱敏手机号：前 3 + **** + 后 4
 func maskPhone(phone string) string {
 	if len(phone) > 4 {
 		return phone[:3] + "****" + phone[len(phone)-4:]
@@ -114,7 +114,7 @@ func maskPhone(phone string) string {
 	return phone
 }
 
-// ToXML 将挑战视图序列化为原生管道 XML 渲染数据
+// 将挑战视图序列化为原生管道 XML 渲染数据
 func (v *ChallengeView) ToXML() RequestData {
 	data := RequestData{Group: v.Group, Groups: dbdata.GetGroupNamesNormal()}
 	switch v.Type {

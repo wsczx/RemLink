@@ -101,7 +101,7 @@ func TestGetGroupNames(t *testing.T) {
 	}
 }
 
-// 缓存核心语义：InvalidateCertAuthCache 后立即反映最新组配置。
+// 缓存核心语义：InvalidateCertAuthCache 后立即反映最新组配置
 func TestAnyGroupHasCertAuth(t *testing.T) {
 	t.Run("有cert组返回true", func(t *testing.T) {
 		ast := assert.New(t)
@@ -173,7 +173,7 @@ func TestHasAuthType(t *testing.T) {
 	ast.False(HasAuthType(nil, "cert"))
 }
 
-// 覆盖 IPv4/IPv6 网段的相交、包含和版本不匹配场景。
+// 覆盖 IPv4/IPv6 网段的相交、包含和版本不匹配场景
 func TestCidrOverlaps(t *testing.T) {
 	ast := assert.New(t)
 	cases := []struct {
@@ -201,7 +201,7 @@ func TestCidrOverlaps(t *testing.T) {
 	}
 }
 
-// 覆盖组网段与全局池、其他组及母网卡网段的冲突检测。
+// 覆盖组网段与全局池、其他组及母网卡网段的冲突检测
 func TestCheckCidrOverlap(t *testing.T) {
 	ast := assert.New(t)
 	preIpData(t)
@@ -261,7 +261,7 @@ func TestCheckCidrOverlap(t *testing.T) {
 	mustOK("fd00:2::/48", g6, true)          // 不重叠
 }
 
-// 覆盖未配置母网卡及 IPv4/IPv6 版本不匹配的边界。
+// 覆盖未配置母网卡及 IPv4/IPv6 版本不匹配的边界
 func TestCheckCidrOverlapMasterDev(t *testing.T) {
 	ast := assert.New(t)
 	preIpData(t)
