@@ -8,7 +8,6 @@ import (
 	_ "github.com/denisenkom/go-mssqldb"
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/wsczx/remlink/base"
 	"xorm.io/xorm"
 	"xorm.io/xorm/core"
@@ -53,6 +52,10 @@ func initDb() {
 	// SQLite 单写锁：默认加 busy_timeout 让驱动在拿不到写锁时等待而非立即报
 	// "database is locked"。否则高并发写（流控自增、审计批量写）会频繁撞锁
 	if dbType == "sqlite3" {
+		// modernc.org/sqlite 仅对 file: URI 形式解析 ? 后的查询参数，相对/绝对路径补 file: 前缀
+		if dbSource != ":memory:" && !strings.HasPrefix(dbSource, "file:") {
+			dbSource = "file:" + dbSource
+		}
 		if !strings.Contains(dbSource, "_busy_timeout=") {
 			sep := "?"
 			if strings.Contains(dbSource, "?") {

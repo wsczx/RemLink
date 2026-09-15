@@ -6,14 +6,14 @@ if [ "$CN" = "yes" ]; then
   export GOPROXY=https://goproxy.cn
 fi
 
-apk add build-base tzdata upx
+apk add tzdata upx
 
 cd /server
 go mod tidy
 
-ldflags="-s -w -X main.appVer=$appVer -X main.commitId=$commitId -X main.buildDate=$(date -Iseconds) -extldflags \"-static\" "
+ldflags="-s -w -X main.appVer=$appVer -X main.commitId=$commitId -X main.buildDate=$(date -Iseconds)"
 
-export CGO_ENABLED=1
+export CGO_ENABLED=0
 go build -v -o remlink -trimpath -ldflags "$ldflags"
 
 upx --best remlink

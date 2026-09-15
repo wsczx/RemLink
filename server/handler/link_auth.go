@@ -101,7 +101,16 @@ func LinkAuth(w http.ResponseWriter, r *http.Request) {
 	// 锁定状态判断
 	if !lockManager.Check(cr.Auth.Username, r.RemoteAddr) {
 		ua.Status = dbdata.UserAuthFail
-		ua.Info = "账号已被锁定，请稍后重试"
+		ua.IsLockedFail = true
+		if cr.Auth.Username == "" {
+			if lockManager.InBlackList(r.RemoteAddr) {
+				ua.Info = "IP在黑名单中，拒绝访问"
+			} else {
+				ua.Info = "IP已被锁定，请稍后重试"
+			}
+		} else {
+			ua.Info = "账号已被锁定，请稍后重试"
+		}
 		dbdata.UserActLogIns.Add(*ua, cr.UserAgent)
 		w.WriteHeader(http.StatusBadRequest)
 		return

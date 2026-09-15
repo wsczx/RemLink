@@ -175,6 +175,15 @@ func (m *LockManager) Check(username, ipaddr string) bool {
 	return true
 }
 
+// 客户端 IP 是否在黑名单中，供审计日志区分「IP 黑名单」与「IP 暴力锁定」
+func (m *LockManager) InBlackList(ipaddr string) bool {
+	host, _, err := net.SplitHostPort(ipaddr)
+	if err != nil {
+		host = ipaddr
+	}
+	return m.InList(host, IPBlackList)
+}
+
 // 登录成功后清除锁定计数
 func (m *LockManager) Success(username, ipaddr string) {
 	m.update(username, ipaddr, true)

@@ -8,6 +8,7 @@
 
 - 移除 NAT 出网主网卡旧配置项 `ipv4_master` 的兼容处理（含环境变量 `LINK_IPV4_MASTER`），v0.16.x 及更早的持久化配置或备份文件还原后需重新设置主网卡
 - 在线升级更新源默认值改为 GitHub，可在系统设置切换为 Gitee 镜像
+- SQLite 驱动由 mattn/go-sqlite3(CGO) 换为 modernc.org/sqlite(纯 Go)，修复 arm64 镜像在 QEMU 下 CGO 编译失败、无法产出多架构镜像的问题
 
 ### 修复
 

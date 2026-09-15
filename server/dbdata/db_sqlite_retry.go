@@ -5,10 +5,11 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
-	sqlite3 "github.com/mattn/go-sqlite3"
+	sqlite "modernc.org/sqlite"
 )
 
 // SQLite 瞬时写锁竞争的重试次数与退避步长。busy_timeout 已让驱动在拿不到写锁时
@@ -19,7 +20,7 @@ const (
 )
 
 // 判断错误是否为 SQLite 并发写锁竞争（瞬时错误，可重试）
-// 这两类文案是 go-sqlite3 驱动特有，其它数据库的错误不会被误判
+// 这两类文案是 SQLite 驱动特有，其它数据库的错误不会被误判
 func isSqliteLocked(err error) bool {
 	if err == nil {
 		return false
@@ -29,9 +30,17 @@ func isSqliteLocked(err error) bool {
 		strings.Contains(msg, "database is busy")
 }
 
-// 包装 go-sqlite3 驱动，在连接层对 SQLite 锁错误做退避重试
+// 包装 SQLite 驱动，在连接层对 SQLite 锁错误做退避重试
 type retrySqliteDriver struct {
-	d *sqlite3.SQLiteDriver
+	d *sqlite.Driver
+}
+
+// modernc.org/sqlite 默认把驱动注册为 "sqlite"，重新注册为 "sqlite3" 以保持兼容
+func init() {
+	if slices.Contains(sql.Drivers(), "sqlite3") {
+		return
+	}
+	sql.Register("sqlite3", &sqlite.Driver{})
 }
 
 func (r *retrySqliteDriver) Open(dsn string) (driver.Conn, error) {
@@ -157,7 +166,7 @@ func (c *retrySqliteConn) QueryContext(ctx context.Context, query string, args [
 // 返回注入锁重试的 *sql.DB（仅 sqlite3 使用）
 func newRetrySqliteDB(dsn string) (*sql.DB, error) {
 	connector := &retryConnector{
-		d:   &retrySqliteDriver{d: &sqlite3.SQLiteDriver{}},
+		d:   &retrySqliteDriver{d: &sqlite.Driver{}},
 		dsn: dsn,
 	}
 	return sql.OpenDB(connector), nil
