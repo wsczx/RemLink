@@ -161,7 +161,7 @@ func LinkAuth(w http.ResponseWriter, r *http.Request) {
 			// 将当前请求的密码/OTP 码及审计日志写入已保存会话
 			sess.Ctx.Conn.Password = cr.Auth.Password
 			if sp := cr.Auth.SecondaryPassword; sp != "" {
-				// OTP 和 RADIUS分别设置
+				// 和 RADIUS分别设置
 				sess.Ctx.GetOTP().Code = sp
 				sess.Ctx.GetRADIUS().ChallengeCode = sp
 			}
@@ -180,7 +180,7 @@ func LinkAuth(w http.ResponseWriter, r *http.Request) {
 	handlePipelineResult(w, r, result, sessionData)
 }
 
-// 当组配置了证书认证且 TLS 连接包含有效客户端证书时，直接从证书提取身份信息，跳过组选择表单。
+// 当组配置了证书认证且 TLS 连接包含有效客户端证书时，直接从证书提取身份信息，跳过组选择表单
 // 证书无效（过期/吊销/不匹配）时回退到 handleInit 组选择
 func handleCertAutoAuth(w http.ResponseWriter, r *http.Request, cr *ClientRequest, sessionData *AuthSession) bool {
 	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
@@ -223,7 +223,7 @@ func handleCertAutoAuth(w http.ResponseWriter, r *http.Request, cr *ClientReques
 	return true
 }
 
-// 处理 init 请求：返回组选择登录表单或 SSO 扫码模板。
+// 处理 init 请求：返回组选择登录表单或 SSO 扫码模板
 func handleInit(w http.ResponseWriter, r *http.Request, cr *ClientRequest, errMsg string) {
 	// OpenConnect 组选择优化
 	if cr.GroupSelect != "" && strings.Contains(cr.UserAgent, "openconnect") {
@@ -302,6 +302,10 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 			base.Error("[handleSsoToken] WebAuth 会话缺少用户名或组名")
 			w.WriteHeader(http.StatusUnauthorized)
 			return
+		}
+		// 将用户信息写入会话
+		if samlSession.Ctx.UserInfo != nil {
+			sessionData.Ctx.SetUserInfo(samlSession.Ctx.UserInfo)
 		}
 
 		sessionData.Ctx.Conn.Username = username

@@ -76,7 +76,7 @@ type Setting struct {
 	UpdatedAt time.Time       `json:"updated_at" xorm:"DateTime updated"`
 }
 
-// AdminOpLog 管理员操作日志
+// 管理员操作日志
 type AdminOpLog struct {
 	Id        int       `json:"id" xorm:"pk autoincr not null"`
 	AdminUser string    `json:"admin_user" xorm:"varchar(60) not null"`            // 管理员用户名
@@ -102,7 +102,7 @@ type AccessAudit struct {
 	CreatedAt   time.Time `json:"created_at" xorm:"DateTime"`
 }
 
-// Policy 策略定义 — 可被用户组和用户引用的独立策略实体
+// 策略定义 — 可被用户组和用户引用的独立策略实体
 type Policy struct {
 	Id               int            `json:"id" xorm:"pk autoincr not null"`
 	Name             string         `json:"name" xorm:"varchar(60) not null unique"`
@@ -167,15 +167,15 @@ type PasswordReset struct {
 	LastRequestTime int    `json:"last_request_time" xorm:"int default 0"`
 }
 
-// 记录每个用户最近一次「整用户会话吊销」的时间戳（unix 秒）。
-// 该时间戳之前签发的 WebVPN 会话一律视为已吊销（O(1) 整用户下线）。
+// 记录每个用户最近一次「整用户会话吊销」的时间戳（unix 秒）
+// 该时间戳之前签发的 WebVPN 会话一律视为已吊销（O(1) 整用户下线）
 // 持久化到 DB，使吊销在重启、多实例部署下依然有效
 type WebVpnRevoke struct {
 	Username  string `json:"username" xorm:"varchar(60) not null pk"`
 	RevokedAt int64  `json:"revoked_at" xorm:"BigInt not null"`
 }
 
-// Provider 第三方认证配置，Pipeline 通过 name 引用。
+// 第三方认证配置，Pipeline 通过 name 引用
 type Provider struct {
 	Id        int                                     `json:"id" xorm:"pk autoincr not null"`
 	Name      string                                  `json:"name" xorm:"varchar(60) not null unique"`

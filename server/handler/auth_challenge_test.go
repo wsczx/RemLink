@@ -22,7 +22,7 @@ func setupChallengeTestDB(t *testing.T) {
 }
 
 // 三端挑战字段对齐：同一份 ChallengeView 经 ToXML / ToWebAuthJSON / ToPortalJSON
-// 序列化后，类型语义 / 提示文案 / 脱敏手机号应保持一致，防止某一端悄悄丢字段。
+// 序列化后，类型语义 / 提示文案 / 脱敏手机号应保持一致，防止某一端悄悄丢字段
 func TestChallengeView_ThreeWayAlignment(t *testing.T) {
 	setupChallengeTestDB(t)
 	defer closeIpdata()
@@ -89,7 +89,7 @@ func TestRunForcePwdChange(t *testing.T) {
 	after := &dbdata.User{}
 	assert.Nil(t, dbdata.One("Username", username, after))
 	assert.False(t, after.ForcePwd)
-	// dbdata 读取对 pin_code 透明解密，无法直接 verify 密文，故用同一哈希算法自洽校验
+	// 读取对 pin_code 透明解密，无法直接 verify 密文，故用同一哈希算法自洽校验
 	hashed, herr := utils.PasswordHash(newPwd)
 	assert.Nil(t, herr)
 	assert.True(t, utils.IsBcryptHash(hashed))
@@ -103,7 +103,7 @@ func TestRunForcePwdChange(t *testing.T) {
 	_ = dbdata.Del(&dbdata.User{Username: username})
 }
 
-// RunForcePwdChange 拒绝不合策略的密码
+// 拒绝不合策略的密码
 func TestRunForcePwdChange_RejectWeak(t *testing.T) {
 	base.Test()
 	err := RunForcePwdChange(newChallengeCtx("nope"), "nope", "123")

@@ -353,7 +353,7 @@ func TestWebAuthComplete_Success(t *testing.T) {
 	location := w.Header().Get("Location")
 	ast.Contains(location, "saml_ac_login.html")
 	// 回归：2026-08-08 移除了 OpenConnect 专用的 ?oc=1&token= 重定向分支，
-	// 成功页应直接 302 到 saml_ac_login.html（token 在 Cookie 中），不再带 oc=1。
+	// 成功页应直接 302 到 saml_ac_login.html（token 在 Cookie 中），不再带 oc=1
 	ast.NotContains(location, "oc=1", "不应再带 OpenConnect 专用 oc=1 参数")
 
 	cookies := w.Result().Cookies()
@@ -405,7 +405,7 @@ func createWebAuthSessionWithCert(t *testing.T, groupName, certCN, certOU string
 }
 
 // 证书守卫：无 cert 组时即使会话含证书也不触发证书自动认证，
-// 且不应把证书 CN 写入响应（防用户名锁死）。
+// 且不应把证书 CN 写入响应（防用户名锁死）
 func TestWebAuthStart_CertGuardDisabled(t *testing.T) {
 	base.Test()
 	preIpData(t)
@@ -441,7 +441,7 @@ func TestWebAuthStart_CertGuardDisabled(t *testing.T) {
 }
 
 // 证书守卫开启但 auto-login 失败：应回退组选择并提示证书认证失败，
-// 且清空临时写入的证书 CN。
+// 且清空临时写入的证书 CN
 func TestWebAuthStart_CertAutoAuthFallback(t *testing.T) {
 	base.Test()
 	preIpData(t)
@@ -453,7 +453,7 @@ func TestWebAuthStart_CertAutoAuthFallback(t *testing.T) {
 	})
 
 	// 建一个纯 cert 首步组（触发 AnyGroupHasCertAuth()==true 且 CertAutoAuth 返回 true），
-	// 但测试用的自签名证书未登记到签发记录 → 证书认证失败 → 验证回退与清空逻辑。
+	// 但测试用的自签名证书未登记到签发记录 → 证书认证失败 → 验证回退与清空逻辑
 	pt := &dbdata.Policy{Name: "plcy-cfall", ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}}, Status: 1}
 	assert.New(t).Nil(dbdata.SetPolicy(pt))
 	assert.New(t).Nil(dbdata.SetGroup(&dbdata.Group{
@@ -479,7 +479,7 @@ func TestWebAuthStart_CertAutoAuthFallback(t *testing.T) {
 	ast.Nil(resp["username"], "证书 auto-login 失败后不应残留证书 CN")
 }
 
-// 组过滤开启：预填已识别用户名，避免重复输入。
+// 组过滤开启：预填已识别用户名，避免重复输入
 func TestWebAuthSelectGroup_GroupFilterPrefill(t *testing.T) {
 	base.Test()
 	preIpData(t)
@@ -516,7 +516,7 @@ func TestWebAuthSelectGroup_GroupFilterPrefill(t *testing.T) {
 	ast.Equal("alice", resp["username"], "组过滤模式应预填用户名")
 }
 
-// 组过滤关闭：即使会话残留用户名也不预填，避免输入框锁死。
+// 组过滤关闭：即使会话残留用户名也不预填，避免输入框锁死
 func TestWebAuthSelectGroup_NoPrefillWhenFilterOff(t *testing.T) {
 	base.Test()
 	preIpData(t)

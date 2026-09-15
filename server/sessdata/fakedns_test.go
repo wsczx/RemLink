@@ -559,8 +559,8 @@ func TestAcquireFakeIPv6_AddMapping(t *testing.T) {
 	assert.True(t, m.IsFakeIP(fakeIP))
 }
 
-// startTestAAAAServer 起一个本地 UDP DNS 服务器，对 example.com 的 AAAA 查询返回 aaaaIP；
-// nodata=true 时返回空 Answer（模拟上游过滤 AAAA 的负响应），用于验证回退逻辑。
+// 起一个本地 UDP DNS 服务器，对 example.com 的 AAAA 查询返回 aaaaIP；
+// nodata=true 时返回空 Answer（模拟上游过滤 AAAA 的负响应），用于验证回退逻辑
 func startTestAAAAServer(t *testing.T, aaaaIP string, nodata bool) string {
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	assert.Nil(t, err)
@@ -610,7 +610,7 @@ func TestPreferV6Optimistic(t *testing.T) {
 }
 
 // 验证上游过滤/不支持 AAAA 时，异步解析回填负缓存：
-// IsAAAANegative 为真、无映射、不黑洞。
+// IsAAAANegative 为真、无映射、不黑洞
 func TestPreferV6_AAAAFilteredNegative(t *testing.T) {
 	m := newTestManager(t)
 	assert.Nil(t, m.initV6Pool("fd00::/112"))

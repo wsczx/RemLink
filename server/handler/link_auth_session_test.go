@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// 重复启动只保留一个清理协程，且不会覆盖停止通道。
+// 重复启动只保留一个清理协程，且不会覆盖停止通道
 func TestAuthSessionManagerStartIdempotent(t *testing.T) {
 	m := NewAuthSessionManager()
 	m.cleanupInterval = 10 * time.Millisecond
@@ -27,7 +27,7 @@ func TestAuthSessionManagerStartIdempotent(t *testing.T) {
 	}
 }
 
-// 未启动时停止不会 panic。
+// 未启动时停止不会 panic
 func TestAuthSessionManagerStopBeforeStart(t *testing.T) {
 	m := NewAuthSessionManager()
 	m.Stop()
@@ -42,7 +42,7 @@ func TestAuthSessionManagerStopIdempotent(t *testing.T) {
 	m.Stop()
 }
 
-// 停止后可以重新启动清理协程。
+// 停止后可以重新启动清理协程
 func TestAuthSessionManagerRestart(t *testing.T) {
 	m := NewAuthSessionManager()
 	m.ttl = 20 * time.Millisecond

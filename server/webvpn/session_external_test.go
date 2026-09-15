@@ -9,7 +9,7 @@ import (
 )
 
 // 回归护栏：external + 非空 groups 放行，
-// local/ldap（须落库）与空 groups / 空用户名拒绝。
+// local/ldap（须落库）与空 groups / 空用户名拒绝
 func TestExternalUserFromClaims_ForcePwdFlow(t *testing.T) {
 	setupWebVpnDB(t)
 	defer dbdata.Stop()

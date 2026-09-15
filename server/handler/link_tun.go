@@ -72,7 +72,7 @@ func checkTun() {
 		}
 	}
 
-	// IPv6 NAT/转发由 GlobalNat6 独立控制。
+	// IPv6 NAT/转发由 GlobalNat6 独立控制
 	if base.GetCfg().Ipv6CIDR != "" && base.GetCfg().GlobalNat6 {
 		if err := fw.SetupGlobalNAT6(base.GetCfg().Ipv6CIDR, base.GetCfg().MasterDev, base.InContainer); err != nil {
 			if _, ok := fw.(*sessdata.IPT); ok {
@@ -108,7 +108,7 @@ func LinkTun(cSess *sessdata.ConnSession) error {
 		return err
 	}
 
-	//	设置mtu
+	// 设置mtu
 	if err = netlink.LinkSetMTU(link, cSess.Mtu); err != nil {
 		base.Error(err)
 		_ = ifce.Close()
@@ -261,7 +261,7 @@ func setGroupNAT(cSess *sessdata.ConnSession) {
 		v6cidr = cSess.IpPool.Ipv6IPNet.String()
 	}
 
-	// 按协议族开关过滤组 NAT 规则，关闭后由用户自行负责路由和转发。
+	// 按协议族开关过滤组 NAT 规则，关闭后由用户自行负责路由和转发
 	if !base.GetCfg().GlobalNat {
 		cidr = ""
 	}

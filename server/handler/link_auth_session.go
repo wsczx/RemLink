@@ -1,4 +1,4 @@
-// 认证会话管理：存储、CRUD、Cookie 操作。
+// 认证会话管理：存储、CRUD、Cookie 操作
 
 package handler
 
@@ -53,7 +53,7 @@ func GetAuthSessionManager() *authSessionManager {
 	return authSessionMgr
 }
 
-// TTL 5 分钟、清理周期 1 分钟。
+// TTL 5 分钟、清理周期 1 分钟
 func NewAuthSessionManager() *authSessionManager {
 	return &authSessionManager{
 		sessions:        make(map[string]*AuthSession),

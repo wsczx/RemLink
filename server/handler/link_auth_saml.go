@@ -1,4 +1,4 @@
-// SSO OAuth 认证端点：企业微信 / 飞书扫码登录。
+// OAuth 认证端点：企业微信 / 飞书扫码登录
 package handler
 
 import (
@@ -206,7 +206,7 @@ func wxworkVerifyFileByPath(path string) (string, bool) {
 }
 
 // 飞书 OAuth 登录入口已合并到 SAMLSPLogin（按 ssotype 参数分发），
-// 无需单独的登录端点。回调端点 FeishuAuthCallback 保持不变。
+// 无需单独的登录端点。回调端点 FeishuAuthCallback 保持不变
 
 // 飞书 OAuth2 回调
 func FeishuAuthCallback(w http.ResponseWriter, r *http.Request) {
@@ -271,8 +271,8 @@ func FeishuAuthCallback(w http.ResponseWriter, r *http.Request) {
 	finishSAMLOAuth(w, r, state, "feishu", userID, pending)
 }
 
-// DingtalkAuthCallback 钉钉 OAuth 扫码登录回调。
-// 与 WXAuthCallback / FeishuAuthCallback 对称：在回调阶段完成部门过滤与用户ID拒绝清单校验。
+// 钉钉 OAuth 扫码登录回调
+// 与 WXAuthCallback / FeishuAuthCallback 对称：在回调阶段完成部门过滤与用户ID拒绝清单校验
 func DingtalkAuthCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")

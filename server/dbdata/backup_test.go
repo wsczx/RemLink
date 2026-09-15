@@ -13,7 +13,7 @@ import (
 	"github.com/wsczx/remlink/base"
 )
 
-// 清理测试产生的备份文件和 db.json。
+// 清理测试产生的备份文件和 db.json
 func cleanupBackupFiles(t *testing.T) {
 	t.Helper()
 	_ = os.RemoveAll(filepath.Join("conf", "backup"))
@@ -74,8 +74,8 @@ func TestAllBusinessTableNames(t *testing.T) {
 func TestTableModels_MatchesBackupTables(t *testing.T) {
 	ast := assert.New(t)
 
-	// 旧校验仅比对数量，无法发现"新增模型漏注册备份表"或"备份表指向错误模型类型"。
-	// 改为按具体模型类型集合比对，确保 TableModels 与 backupTables 完全一一对应。
+	// 旧校验仅比对数量，无法发现"新增模型漏注册备份表"或"备份表指向错误模型类型"
+	// 改为按具体模型类型集合比对，确保 TableModels 与 backupTables 完全一一对应
 	models := TableModels()
 	modelTypes := make(map[reflect.Type]bool, len(models))
 	for _, m := range models {
@@ -174,7 +174,7 @@ func TestCreateBackup_Config(t *testing.T) {
 	ast.Empty(data.Config.JwtSecret) // 敏感字段已清空
 	ast.Empty(data.Config.AdminPass)
 	ast.Empty(data.Config.AdminOtp)
-	ast.Nil(data.Tables) // config 备份无表数据
+	ast.Nil(data.Tables) // 备份无表数据
 }
 
 func TestCreateBackup_Full(t *testing.T) {
@@ -208,7 +208,7 @@ func TestCreateBackup_Full(t *testing.T) {
 	for _, n := range businessNames {
 		ast.Contains(data.Tables, n, "business table %s should be in backup", n)
 	}
-	// user 表应有数据
+	// 表应有数据
 	ast.NotEmpty(data.Tables["user"])
 }
 
@@ -389,7 +389,7 @@ func TestRestoreBackup_NoTables(t *testing.T) {
 	defer closeIpdata()
 	defer cleanupBackupFiles(t)
 
-	// config 备份复原不应报错
+	// 备份复原不应报错
 	filename, err := GetBackupManager().Exporter().Create("config", nil)
 	require.NoError(t, err)
 
@@ -402,7 +402,7 @@ func TestRestoreBackup_NoTables(t *testing.T) {
 	defer sess.Close()
 	cfg, err := GetBackupManager().NewImporter(xdb).restoreToSession(sess, data)
 	ast.NoError(err)
-	// config 备份应该返回配置信息
+	// 备份应该返回配置信息
 	ast.NotNil(cfg)
 }
 

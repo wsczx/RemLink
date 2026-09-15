@@ -36,8 +36,8 @@ func webVpnAppNameValid(name string) bool {
 	return true
 }
 
-// ParseWebVpnBackendURL 校验并解析 WebVPN 反向代理目标。
-// 保留内网目标能力，但拒绝无法安全解释的 URL 形式。
+// 校验并解析 WebVPN 反向代理目标
+// 保留内网目标能力，但拒绝无法安全解释的 URL 形式
 func ParseWebVpnBackendURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u == nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.Opaque != "" || u.RawQuery != "" || u.Fragment != "" || u.Hostname() == "" {
@@ -70,8 +70,8 @@ func InvalidateWebVpnAppCache() {
 	webVpnAppCache.mu.Unlock()
 }
 
-// WebVPN 反向代理应用配置
-// 通过子域名 *.WebVpnDomain 访问：子域名 = Name，反代到 Backend。
+// 反向代理应用配置
+// 通过子域名 *.WebVpnDomain 访问：子域名 = Name，反代到 Backend
 type WebVpnApp struct {
 	Id                 int       `json:"id" xorm:"pk autoincr not null"`
 	Name               string    `json:"name" xorm:"varchar(60) not null unique"` // 子域名前缀，也是应用唯一标识
@@ -111,7 +111,7 @@ func SetWebVpnApp(a *WebVpnApp) error {
 		return errWebVpnEmptyName
 	}
 	// 应用名作为 WebVPN 子域名前缀使用（a.Name + "." + 域名），
-	// 仅允许小写字母、数字与中划线，避免拼接出非预期主机或注入。
+	// 仅允许小写字母、数字与中划线，避免拼接出非预期主机或注入
 	if !webVpnAppNameValid(a.Name) {
 		return errWebVpnInvalidName
 	}
@@ -172,7 +172,7 @@ func DelWebVpnApp(id int) error {
 }
 
 // 权限白名单（用户/组）变更后，仅吊销「被移除授权」的用户 WebVPN 会话，
-// 使已签发的会话（token 内固化的 webvpn_groups）立即失效，下次访问须重新授权。
+// 使已签发的会话（token 内固化的 webvpn_groups）立即失效，下次访问须重新授权
 func revokeAffectedWebVpnUsers(oldUsers, oldGroups, newUsers, newGroups []string) {
 	keepUsers := make(map[string]bool, len(newUsers))
 	for _, u := range newUsers {
@@ -246,7 +246,7 @@ func GetWebVpnAppByName(name string) (*WebVpnApp, error) {
 	return a, nil
 }
 
-// 空白名单=全部放行；用户维度判断与 handler 层 webVpnAuthorized 保持一致。
+// 空白名单=全部放行；用户维度判断与 handler 层 webVpnAuthorized 保持一致
 func WebVpnUserAllowed(a *WebVpnApp, user *User) bool {
 	if len(a.Users) > 0 {
 		if !contains(a.Users, user.Username) {
@@ -315,7 +315,7 @@ func WebVpnCorsOriginAllowed(a *WebVpnApp, origin string) bool {
 	return false
 }
 
-// WebVPN 访问审计记录（每次代理请求落一条，异步批量写入）。
+// 访问审计记录（每次代理请求落一条，异步批量写入）
 type WebVpnAudit struct {
 	Id         int64     `json:"id" xorm:"pk autoincr not null"`
 	Username   string    `json:"username" xorm:"varchar(60) not null"`
@@ -377,7 +377,7 @@ type WebVpnAuditSearch struct {
 	Date     []string `json:"date"`
 }
 
-// 导出查询：按条件返回审计记录。
+// 导出查询：按条件返回审计记录
 // 审计表可能极大，导出设硬上限防止一次性拉爆内存（命中条数超过上限时截断）
 const webVpnAuditExportLimit = 100000
 
@@ -432,8 +432,8 @@ func AddBatchWebVpnAudit(datas []WebVpnAudit) error {
 	return err
 }
 
-// WebVPN 会话整用户踢出阈值：username -> 吊销时间戳（unix 秒）。
-// 该时间戳之前签发的 WebVPN 会话一律视为已吊销，实现 O(1) 整用户下线。
+// 会话整用户踢出阈值：username -> 吊销时间戳（unix 秒）
+// 该时间戳之前签发的 WebVPN 会话一律视为已吊销，实现 O(1) 整用户下线
 var (
 	webVpnRevokeBeforeMu sync.Mutex
 	webVpnRevokeBefore   = map[string]int64{}
@@ -453,15 +453,15 @@ func LoadWebVpnRevoke() {
 	webVpnRevokeBeforeMu.Unlock()
 }
 
-// 吊销指定用户的全部 WebVPN 会话（整用户下线）。
-// 通过抬高吊销阈值实现：此后该用户签名时间早于阈值的会话都将被拒绝。
+// 吊销指定用户的全部 WebVPN 会话（整用户下线）
+// 通过抬高吊销阈值实现：此后该用户签名时间早于阈值的会话都将被拒绝
 func WebVpnRevokeUser(username string) error {
 	if username == "" {
 		return nil
 	}
 	ts := time.Now().Unix()
 
-	// 写内存缓存并保留旧值，以便持久化失败时恢复。
+	// 写内存缓存并保留旧值，以便持久化失败时恢复
 	webVpnRevokeBeforeMu.Lock()
 	oldTs, hadOld := webVpnRevokeBefore[username]
 	webVpnRevokeBefore[username] = ts
@@ -492,8 +492,8 @@ func WebVpnRevokeUser(username string) error {
 	return nil
 }
 
-// 返回指定用户的吊销阈值（0 表示未吊销）。
-// 优先读内存缓存；未命中时回查 DB 并回填缓存。
+// 返回指定用户的吊销阈值（0 表示未吊销）
+// 优先读内存缓存；未命中时回查 DB 并回填缓存
 func WebVpnRevokeBeforeOf(username string) int64 {
 	webVpnRevokeBeforeMu.Lock()
 	ts, ok := webVpnRevokeBefore[username]
@@ -512,16 +512,16 @@ func WebVpnRevokeBeforeOf(username string) int64 {
 	return rec.RevokedAt
 }
 
-// 清空全部吊销阈值（取消整用户下线状态）。
-// 主要用于测试隔离与运维排障，生产环境应谨慎使用。
+// 清空全部吊销阈值（取消整用户下线状态）
+// 主要用于测试隔离与运维排障，生产环境应谨慎使用
 func WebVpnRevokeReset() {
 	webVpnRevokeBeforeMu.Lock()
 	webVpnRevokeBefore = map[string]int64{}
 	webVpnRevokeBeforeMu.Unlock()
 }
 
-// 批量吊销一批用户的 WebVPN 会话（权限变更后让已签发会话立即失效）。
-// WebVPN 未启用（WebVpnDomain 为空）时直接跳过，避免无意义地逐用户写库。
+// 批量吊销一批用户的 WebVPN 会话（权限变更后让已签发会话立即失效）
+// 未启用（WebVpnDomain 为空）时直接跳过，避免无意义地逐用户写库
 func WebVpnRevokeUsers(usernames []string) {
 	if len(usernames) == 0 || base.GetCfg().WebVpnDomain == "" {
 		return
@@ -533,13 +533,13 @@ func WebVpnRevokeUsers(usernames []string) {
 	}
 }
 
-// 吊销指定用户组全部成员的 WebVPN 会话。
-// 改/删用户组后，成员 token 内固化的 webvpn_groups 已过期，须令其重新签发。
+// 吊销指定用户组全部成员的 WebVPN 会话
+// 改/删用户组后，成员 token 内固化的 webvpn_groups 已过期，须令其重新签发
 func WebVpnRevokeGroupMembers(groupNames []string) {
 	if len(groupNames) == 0 {
 		return
 	}
-	// WebVPN 未启用时无需吊销，直接返回。
+	// 未启用时无需吊销，直接返回
 	if base.GetCfg().WebVpnDomain == "" {
 		return
 	}
@@ -561,7 +561,7 @@ func WebVpnRevokeGroupMembers(groupNames []string) {
 	}
 }
 
-// 返回某用户组下的全部用户名（内存过滤，因 Groups 以 Text 序列化存储）。
+// 返回某用户组下的全部用户名（内存过滤，因 Groups 以 Text 序列化存储）
 func UsernamesOfGroup(groupName string) []string {
 	if groupName == "" {
 		return nil

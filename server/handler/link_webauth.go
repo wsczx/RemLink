@@ -98,7 +98,7 @@ func handlerWebAuth(w http.ResponseWriter, r *http.Request, cr *ClientRequest, u
 	w.Write([]byte(xml))
 }
 
-// SAML SP 登录入口，302 到 SPA 前端。
+// SAML SP 登录入口，302 到 SPA 前端
 func WebAuthSPLogin(w http.ResponseWriter, r *http.Request) {
 	state := r.URL.Query().Get("state")
 	if state == "" {
@@ -117,7 +117,7 @@ func WebAuthSPLogin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
-// Web 认证入口：检查证书自动识别组，或返回可选组列表。
+// Web 认证入口：检查证书自动识别组，或返回可选组列表
 func WebAuthStart(w http.ResponseWriter, r *http.Request) {
 	if !base.GetCfg().EnableWebAuth {
 		http.NotFound(w, r)
@@ -145,7 +145,7 @@ func WebAuthStart(w http.ResponseWriter, r *http.Request) {
 		certCN, certOU, certTLS = webAuthRecoverCert(pending)
 	}
 
-	// 回退到组选择流程，让用户可切换组或重试。
+	// 回退到组选择流程，让用户可切换组或重试
 	attemptCertAuto := certCN != "" && certOU != "" && certTLS != nil &&
 		authsrv.CertAutoAuth(certOU)
 
@@ -184,7 +184,7 @@ func WebAuthStart(w http.ResponseWriter, r *http.Request) {
 	webAuthJSON(w, http.StatusOK, resp)
 }
 
-// 选定组并执行认证管道。首步非 SSO 时返回凭据输入界面。
+// 选定组并执行认证管道。首步非 SSO 时返回凭据输入界面
 func WebAuthSelectGroup(w http.ResponseWriter, r *http.Request) {
 	state := r.URL.Query().Get("state")
 	if state == "" {
@@ -300,8 +300,8 @@ func WebAuthSelectGroup(w http.ResponseWriter, r *http.Request) {
 	webAuthJSON(w, http.StatusOK, resp)
 }
 
-// 返回该用户可见的启用组（status=1）：以用户所属组与全部启用组求交集。
-// 调用方需先确认用户存在、已启用（Status==1）且已分配组（否则在 WebAuthIdentify 中已拦截）。
+// 返回该用户可见的启用组（status=1）：以用户所属组与全部启用组求交集
+// 调用方需先确认用户存在、已启用（Status==1）且已分配组（否则在 WebAuthIdentify 中已拦截）
 func filterGroupsByUser(rawGroups []string, user *dbdata.User) []string {
 	allowed := make(map[string]struct{}, len(user.Groups))
 	for _, g := range user.Groups {
@@ -348,10 +348,10 @@ func WebAuthIdentify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 任何「已拿到有效用户名」的 identify 请求都累加 IP 计数
-	// decode 失败 / session 过期等前置错误不累加。
+	// decode 失败 / session 过期等前置错误不累加
 	defer lockManager.Fail(req.Username, r.RemoteAddr)
 
-	// 仅支持本地用户认证：用户名必须存在于本地 User 表，否则直接报错、不返回任何组。
+	// 仅支持本地用户认证：用户名必须存在于本地 User 表，否则直接报错、不返回任何组
 	user := &dbdata.User{}
 	if err := dbdata.One("Username", req.Username, user); err != nil {
 		webAuthError(w, "用户不存在")
@@ -366,7 +366,7 @@ func WebAuthIdentify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 记住用户名到会话：后续选组/凭据步骤据此预填，避免用户重复输入。
+	// 记住用户名到会话：后续选组/凭据步骤据此预填，避免用户重复输入
 	pending.Ctx.Conn.Username = req.Username
 	pending.UserActLog.Username = req.Username
 	AuthSessionManager.Save(state, pending)
@@ -378,8 +378,8 @@ func WebAuthIdentify(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// WebAuthStep 提交认证凭据或验证码，推进管道。
-// 根据管道状态自动选择首次执行（Authenticate）或恢复执行（Resume）。
+// 提交认证凭据或验证码，推进管道
+// 根据管道状态自动选择首次执行（Authenticate）或恢复执行（Resume）
 func WebAuthStep(w http.ResponseWriter, r *http.Request) {
 	state := r.URL.Query().Get("state")
 	if state == "" {
@@ -570,7 +570,7 @@ func webAuthChallenge(w http.ResponseWriter, r *http.Request,
 	webAuthJSON(w, http.StatusOK, view.ToWebAuthJSON())
 }
 
-// 认证通过：保存完成标记并签发门户 Cookie。VPN 会话由 handleSsoToken 创建。
+// 认证通过：保存完成标记并签发门户 Cookie。VPN 会话由 handleSsoToken 创建
 func webAuthOnPass(w http.ResponseWriter, r *http.Request,
 	state string, pending *AuthSession, result *auth.PipelineResult) {
 
@@ -643,7 +643,7 @@ func webAuthExternalGroups(groupName string) []string {
 }
 
 // 为 WebAuth 流程构建 SSO OAuth 跳转 URL
-// 生成子会话（ssoState）关联回当前 WebAuth 会话，回调到 /web-auth/sso-callback。
+// 生成子会话（ssoState）关联回当前 WebAuth 会话，回调到 /web-auth/sso-callback
 func webAuthBuildSSOURL(r *http.Request, ssoType, groupName, webAuthState string) string {
 	// 生成 SSO 子状态，关联回当前 WebAuth 会话
 	ssoState := GenerateSessionID()
@@ -671,7 +671,7 @@ func webAuthBuildSSOURL(r *http.Request, ssoType, groupName, webAuthState string
 }
 
 // SSO OAuth 回调端点：企微/飞书扫码授权后回调到此
-// 将认证结果写入 WebAuth 会话 SSO 状态，然后 302 回到 SPA 继续管道。
+// 将认证结果写入 WebAuth 会话 SSO 状态，然后 302 回到 SPA 继续管道
 func WebAuthSSOCallback(w http.ResponseWriter, r *http.Request) {
 	webState := r.URL.Query().Get("web_state")
 	ssoState := r.URL.Query().Get("sso_state")
@@ -766,7 +766,7 @@ func WebAuthSSOCallback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
-// SSO 回调后恢复管道。
+// SSO 回调后恢复管道
 func WebAuthContinue(w http.ResponseWriter, r *http.Request) {
 	state := r.URL.Query().Get("state")
 	if state == "" {
@@ -805,7 +805,7 @@ func WebAuthContinue(w http.ResponseWriter, r *http.Request) {
 	webAuthResumeDispatch(w, r, state, pending, username)
 }
 
-// 设置 acSamlv2Token Cookie，302 到 SAML 完成端点。
+// 设置 acSamlv2Token Cookie，302 到 SAML 完成端点
 func WebAuthComplete(w http.ResponseWriter, r *http.Request) {
 	state := r.URL.Query().Get("state")
 	if state == "" {
@@ -835,8 +835,8 @@ func WebAuthComplete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/+CSCOE+/saml_ac_login.html", http.StatusFound)
 }
 
-// webAuthRecoverCert 从 pending 会话恢复 AnyConnect 客户端证书信息。
-// handlerWebAuth 在初始化时将 TLS 状态（含 PeerCertificates）存入 Ctx.Conn.TLS。
+// 从 pending 会话恢复 AnyConnect 客户端证书信息
+// handlerWebAuth 在初始化时将 TLS 状态（含 PeerCertificates）存入 Ctx.Conn.TLS
 func webAuthRecoverCert(pending *AuthSession) (cn, ou string, tlsState *tls.ConnectionState) {
 	if pending.Ctx == nil || pending.Ctx.Conn.TLS == nil || len(pending.Ctx.Conn.TLS.PeerCertificates) == 0 {
 		return "", "", nil
@@ -906,7 +906,7 @@ func webAuthError(w http.ResponseWriter, msg string) {
 	})
 }
 
-// 返回 SAML XML 中 sso-v2-browser-mode 的值。
+// 返回 SAML XML 中 sso-v2-browser-mode 的值
 // 手机端强制使用内置浏览器（外部浏览器的 localhost:29786 回调在手机上不可用）
 func webAuthBrowserMode(r *http.Request) string {
 	if isMobileDevice(r) {
@@ -919,8 +919,8 @@ func webAuthBrowserMode(r *http.Request) string {
 	return "external"
 }
 
-// 处理 WebAuth 强制改密提交（POST /web-auth/change_password）。
-// 校验强度并更新密码、清除 ForcePwd 后续跑管道（forcepwd 步直接通过，继续后续 otp 等步骤）。
+// 处理 WebAuth 强制改密提交（POST /web-auth/change_password）
+// 校验强度并更新密码、清除 ForcePwd 后续跑管道（forcepwd 步直接通过，继续后续 otp 等步骤）
 func WebAuthChangePassword(w http.ResponseWriter, r *http.Request) {
 	state := r.URL.Query().Get("state")
 	if state == "" {

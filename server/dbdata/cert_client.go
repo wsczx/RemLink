@@ -712,8 +712,8 @@ func LoadClientCA() error {
 	return caLoadErr
 }
 
-// 重置 CA 加载状态，允许重新加载。
-// 在 GenerateClientCA() 或 SettingLoadClientCA() 更新证书后调用。
+// 重置 CA 加载状态，允许重新加载
+// 在 GenerateClientCA() 或 SettingLoadClientCA() 更新证书后调用
 func resetClientCA() {
 	caMu.Lock()
 	defer caMu.Unlock()

@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// 执行 HTTP 请求并将 JSON 响应解析到 out。timeout=0 默认 10s。
+// 执行 HTTP 请求并将 JSON 响应解析到 out
 func fetchJSON(apiName, method, url string, body io.Reader, headers map[string]string, out any, timeout time.Duration) error {
 	if timeout <= 0 {
 		timeout = 10 * time.Second

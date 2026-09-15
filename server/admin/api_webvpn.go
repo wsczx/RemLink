@@ -12,7 +12,7 @@ import (
 	"github.com/wsczx/remlink/dbdata"
 )
 
-// 返回 WebVPN 泛域名后缀（如 wv.example.com），供前端拼接访问地址。
+// 返回 WebVPN 泛域名后缀（如 wv.example.com），供前端拼接访问地址
 func WebVpnDomain(w http.ResponseWriter, r *http.Request) {
 	RespSucess(w, map[string]any{
 		"domain": base.GetCfg().WebVpnDomain,

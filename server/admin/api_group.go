@@ -444,7 +444,7 @@ func ProviderSyncUsers(w http.ResponseWriter, r *http.Request) {
 	RespSucess(w, "正在后台同步飞书用户，请查看后台日志确认同步结果")
 }
 
-// GroupCertCheck 检查指定组是否有已签发的客户端证书
+// 检查指定组是否有已签发的客户端证书
 // 返回证书数量，前端根据数量提示管理员是否适合配置证书认证
 func GroupCertCheck(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
@@ -466,7 +466,7 @@ func GroupCertCheck(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GroupCertAuthCheck 检查指定组是否配置了证书认证步骤
+// 检查指定组是否配置了证书认证步骤
 // 用于生成客户端证书时提示管理员该组尚未启用证书认证
 func GroupCertAuthCheck(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
@@ -495,7 +495,7 @@ func GroupCertAuthCheck(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// 返回本机物理网卡列表，供前端组出网网卡(out_dev)下拉选择。
+// 返回本机物理网卡列表，供前端组出网网卡(out_dev)下拉选择
 func GroupIfaces(w http.ResponseWriter, r *http.Request) {
 	ifaces := utils.GetPhysicalInterfaces()
 	if ifaces == nil {

@@ -18,8 +18,7 @@ import (
 
 // 管理 FakeDNS 和 FakeIP 功能
 type FakeDNSManager struct {
-	// FakeIP 池配置
-	pool         *fakeIPPool
+	pool         *fakeIPPool             // FakeIP 池配置
 	poolV6       *fakeIPPoolV6           // IPv6 假地址池
 	active       map[string]*fakeIPEntry // fakeIP(v4) -> entry
 	activeV6     map[string]*fakeIPEntry // fakeIP(v6) -> entry
@@ -72,7 +71,6 @@ type fakeIPPool struct {
 	counter   atomic.Uint32
 }
 
-// fakeIPPoolV6 用 big.Int 表示 128 位地址空间，支持 /64+ 的 v6 假地址段
 type fakeIPPoolV6 struct {
 	IPNet      *net.IPNet
 	networkInt *big.Int // 网络地址（128 位）
@@ -121,7 +119,7 @@ var globalFakeDNSOnce sync.Once
 
 const (
 	DefaultFakeIPRange = "100.64.0.0/10"
-	// DefaultFakeIPv6Range 固定 v6 FakeIP 假地址段：RFC3849 文档前缀，全球永不分配/路由，与 v4 的 100.64.0.0/10（CGNAT 保留段）等价
+	// 固定 v6 FakeIP 假地址段：RFC3849 文档前缀，全球永不分配/路由，与 v4 的 100.64.0.0/10（CGNAT 保留段）等价
 	DefaultFakeIPv6Range = "2001:db8::/32"
 )
 
@@ -288,10 +286,10 @@ func (m *FakeDNSManager) AcquireFakeIPv6(domain string) net.IP {
 	return ip
 }
 
-//  1. 查 fakeIP 对应的 realIP 和 domain
-//  2. 刷新访问时间 LastAccess
-//  3. 判断映射是否到期需要重新解析; 若需要, 立即把 RefreshAt 顺延一个
-//     最小周期, 避免刷新完成前同一窗口内每个包都触发 RenewMapping
+// 1. 查 fakeIP 对应的 realIP 和 domain
+// 2. 刷新访问时间 LastAccess
+// 3. 判断映射是否到期需要重新解析; 若需要, 立即把 RefreshAt 顺延一个
+// 最小周期, 避免刷新完成前同一窗口内每个包都触发 RenewMapping
 //
 // 返回 realIP(空表示尚无映射)、domain(空表示 fakeIP 不在映射表)、needRefresh
 func (m *FakeDNSManager) LookupAndTouch(fakeIP string) (realIP, domain string, needRefresh bool) {
@@ -403,7 +401,7 @@ func (m *FakeDNSManager) ResolveAndMapping(fakeIP, domain, upstreamDNS string) {
 	}()
 }
 
-// 映射到期时异步重新解析并替换 DNAT。
+// 映射到期时异步重新解析并替换 DNAT
 func (m *FakeDNSManager) RenewMapping(fakeIP, domain, upstreamDNS string) {
 	isV6 := strings.Contains(fakeIP, ":")
 	mappingTasksKey := domain

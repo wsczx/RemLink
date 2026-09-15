@@ -11,7 +11,7 @@ import (
 	"github.com/wsczx/remlink/sessdata"
 )
 
-// 需最小化初始化审计全局状态（否则 nil panic / channel 阻塞）。
+// 需最小化初始化审计全局状态（否则 nil panic / channel 阻塞）
 func TestLogAudit_v6_UDP(t *testing.T) {
 	auditPayload = &AuditPayload{
 		Pool:       utils.NewWorkerPool(1, 16),

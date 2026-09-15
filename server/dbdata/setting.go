@@ -20,7 +20,7 @@ type SettingServerConfig struct {
 	Config base.ServerConfig `json:"config"`
 }
 
-// 加密启用时对 JwtSecret/AdminOtp 加密。
+// 加密启用时对 JwtSecret/AdminOtp 加密
 func (s SettingServerConfig) MarshalJSON() ([]byte, error) {
 	if security.IsEnabled() {
 		s.Config.JwtSecret = security.EncryptIfNeeded(s.Config.JwtSecret)
@@ -30,7 +30,7 @@ func (s SettingServerConfig) MarshalJSON() ([]byte, error) {
 	return json.Marshal(alias(s))
 }
 
-// 加密启用时自动解密 JwtSecret/AdminOtp。
+// 加密启用时自动解密 JwtSecret/AdminOtp
 func (s *SettingServerConfig) UnmarshalJSON(data []byte) error {
 	type alias SettingServerConfig
 	var a alias
@@ -91,8 +91,8 @@ type SettingOther struct {
 	CertMail     string `json:"cert_mail"`
 }
 
-// 用户门户、WebAuth 与管理后台登录页共用的品牌展示配置。
-// 字段为空时各前端回退到默认展示（RemLink 图标/名称/页脚）。
+// 用户门户、WebAuth 与管理后台登录页共用的品牌展示配置
+// 字段为空时各前端回退到默认展示（RemLink 图标/名称/页脚）
 type SettingPortalBrand struct {
 	Title           string `json:"title"`            // 品牌名称，为空时前端回退默认
 	Logo            string `json:"logo"`             // 品牌 Logo 图片地址（URL 或 data URI），为空时前端回退默认图标
@@ -124,7 +124,7 @@ type SettingTLSCert struct {
 	CertKeyContent security.EncryptedString `json:"cert_key_content"`
 }
 
-// WebVPN 泛域名证书，用于 *.WebVpnDomain 子域。
+// 泛域名证书，用于 *.WebVpnDomain 子域
 type SettingTLSCertWild struct {
 	CertContent    string                   `json:"cert_content"`
 	CertKeyContent security.EncryptedString `json:"cert_key_content"`
@@ -135,9 +135,9 @@ type SettingClientCA struct {
 	KeyContent  security.EncryptedString `json:"key_content"`
 }
 
-// 记录已使用的密码重置 token，防止重复使用。
+// 记录已使用的密码重置 token，防止重复使用
 type SettingPortalResetTokens struct {
-	Tokens map[string]int64 `json:"tokens"` // jti -> used_at unix timestamp
+	Tokens map[string]int64 `json:"tokens"` // -> used_at unix timestamp
 }
 
 func StructName(data any) string {
@@ -233,7 +233,7 @@ func SettingLoadServerConfig() error {
 	if !CheckErrNotFound(err) {
 		return err
 	}
-	// DB 中无记录，写入默认值（首次全新安装）
+	// 中无记录，写入默认值（首次全新安装）
 	data.Config = *base.GetCfg()
 	base.CompleteConfig(&data.Config)
 

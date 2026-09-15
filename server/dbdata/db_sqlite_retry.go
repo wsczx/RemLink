@@ -82,7 +82,7 @@ func queryWithRetry(fn func() (driver.Rows, error)) (driver.Rows, error) {
 	return nil, lastErr
 }
 
-// 对 Exec/Query 加锁重试；其余方法（含底层实现的可选接口）如有则透传，避免功能降级。
+// 对 Exec/Query 加锁重试；其余方法（含底层实现的可选接口）如有则透传，避免功能降级
 type retrySqliteConn struct {
 	conn driver.Conn
 }

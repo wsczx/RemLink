@@ -240,7 +240,7 @@ sudo systemctl enable --now remlink
 原理：客户端 IP 配在 tun 接口上；当 `ipv4_cidr` 与主网卡（如 `eth0`）同网段、且主网卡开启 `proxy_arp` 时，内网机器对客户端 IP 的 ARP 请求会由内核代答（内核知道该 IP 的路由走 tun 接口），从而把流量经 tun 转发给客户端。
 
 - 适用场景：需要客户端使用内网真实 IP，但不想配置网桥 / 混杂模式的场景。
-- 配置要点：手动开启内核 `proxy_arp`（`sysctl -w net.ipv4.conf.all.proxy_arp=1`，并写入 `/etc/sysctl.conf` 持久化）；关闭 NAT（`global_nat=false`）；`ipv4_cidr` 必须与 `ipv4_master` 网卡现有网段一致，`ipv4_gateway` 填主网卡自身 IP；无需混杂模式。
+- 配置要点：手动开启内核 `proxy_arp`（`sysctl -w net.ipv4.conf.all.proxy_arp=1`，并写入 `/etc/sysctl.conf` 持久化）；关闭 NAT（`global_nat=false`）；`ipv4_cidr` 必须与 `master_dev` 网卡现有网段一致，`ipv4_gateway` 填主网卡自身 IP；无需混杂模式。
 - 限制：与 tap / macvtap 相同，云环境通常不支持（网卡 MAC 加白、802.1x 认证网络受限）。
 
 ### tap 模式（桥接 / 用户态 ARP 代答）
@@ -248,7 +248,7 @@ sudo systemctl enable --now remlink
 服务端在用户态用 `arpdis` 对客户端做 ARP 代答，使客户端获得与内网同段的真实 IP。客户端传输二层帧，服务端需做链路层到 IP 层的转换，性能略低于 tun。注意：此处的用户态 ARP 代答**不同于**上文的 `proxy_arp`（后者是 tun 模式下由 Linux 内核完成的 ARP 代理）。
 
 - 适用场景：需要客户端真正接入二层广播域（广播 / 多播 / 非 IP 协议穿透），或环境不支持 `macvtap` 内核模块时作为兼容 / 兜底。基于标准 Linux 网桥（`remlink0`），成熟可控，不依赖 `macvtap` 模块。
-- 配置要点：主网卡开启混杂模式（`ip link set dev eth0 promisc on`）；关闭 NAT（`global_nat=false`）；正确设置 `ipv4_master` / `ipv4_cidr` / `ipv4_gateway`。
+- 配置要点：主网卡开启混杂模式（`ip link set dev eth0 promisc on`）；关闭 NAT（`global_nat=false`）；正确设置 `master_dev` / `ipv4_cidr` / `ipv4_gateway`。
 
 ### macvtap 模式（桥接 / 内核态）
 

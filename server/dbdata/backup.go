@@ -35,7 +35,7 @@ func (t backupTable) newPtr() any {
 }
 
 // 注册所有需要备份/还原的业务表（元数据驱动）
-// 新增数据表时务必在此登记，否则不会被备份也不会被建表。
+// 新增数据表时务必在此登记，否则不会被备份也不会被建表
 var backupTables = []backupTable{
 	{"user", "用户", "business", User{}},
 	{"group", "用户组", "business", Group{}},
@@ -65,7 +65,7 @@ func backupTableByNameMap() map[string]backupTable {
 	return m
 }
 
-// 备份/还原子系统的中心对象（单例）。
+// 备份/还原子系统的中心对象（单例）
 // 聚合 Exporter（导出）与 Importer（导入）两个子组件
 // 各子组件通过构造函数持有 *xorm.Engine，避免 *xorm.Session 在调用链中层层透传
 type BackupManager struct {
@@ -215,7 +215,7 @@ func (m *BackupManager) SaveDbConfig(dbType, dbSource string) error {
 	return os.WriteFile(filepath.Join("conf", "db.json"), b, 0600)
 }
 
-// Exporter 负责把数据库内容序列化为备份文件。
+// 负责把数据库内容序列化为备份文件
 // 通过 NewExporter 显式持有 *xorm.Engine
 type Exporter struct {
 	engine *xorm.Engine
@@ -227,8 +227,8 @@ func NewExporter(engine *xorm.Engine) *Exporter {
 }
 
 // 创建一个备份文件并返回文件名
-// backupType 为 "config"（仅配置/证书）或 "full"（含业务表数据）
-// includeTables 仅对 "full" 生效，为空时导出全部 business 表
+// 为 "config"（仅配置/证书）或 "full"（含业务表数据）
+// 仅对 "full" 生效，为空时导出全部 business 表
 func (e *Exporter) Create(backupType string, includeTables []string) (string, error) {
 	cfg := base.GetCfg()
 	cfgCopy := *cfg
@@ -312,7 +312,7 @@ func (e *Exporter) exportTable(name string) (json.RawMessage, error) {
 	return json.Marshal(rows)
 }
 
-// Importer 负责把备份文件还原到指定引擎
+// 负责把备份文件还原到指定引擎
 // 通过 NewImporter 显式持有 *xorm.Engine
 type Importer struct {
 	engine *xorm.Engine

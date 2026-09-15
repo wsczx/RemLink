@@ -111,7 +111,7 @@ func SetSystem(w http.ResponseWriter, r *http.Request) {
 
 func SetSoft(w http.ResponseWriter, r *http.Request) {
 	data := base.GetConfigMeta()
-	// 为 ipv4_master 注入动态物理网卡选项
+	// 为 master_dev 注入动态物理网卡选项
 	for i, item := range data {
 		if item["name"] == "master_dev" {
 			ifaces := utils.GetPhysicalInterfaces()

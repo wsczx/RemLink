@@ -1,6 +1,5 @@
-// 新增配置项只需改 config.go：在 ServerConfig 结构体加字段，并在 configMetas 加对应元数据。
-// 本文件的加载/校验/读写逻辑通过反射 + init() 断言自动适配，无需改动。
-// ServerConfig 仅允许 string/int/bool 等值类型（见 init 断言），否则启动即 panic。
+// 新增配置项只需在 config.go 的 ServerConfig 加字段并在 configMetas 加元数据，本文件通过反射自动适配
+// ServerConfig 仅允许 string/int/bool 等值类型（见 init 断言），否则启动即 panic
 package base
 
 import (
@@ -54,7 +53,7 @@ func (m *ConfigManager) mutate(fn func(c *ServerConfig) error) error {
 	}
 }
 
-// 仅用于绝不会失败的纯字段赋值；若 fn 可能失败，必须改用 mutate（func(cfg) error），
+// 仅用于绝不会失败的纯字段赋值；若 fn 可能失败，必须改用 mutate（func(cfg) error）
 func (m *ConfigManager) Update(fn func(cfg *ServerConfig)) {
 	m.mutate(func(c *ServerConfig) error { fn(c); return nil })
 }
@@ -186,7 +185,6 @@ func (m *ConfigManager) loadDbConfig(cfg *ServerConfig) {
 	}
 }
 
-// 解析 db.json 内容并写入 cfg
 func (m *ConfigManager) applyDbConfig(cfg *ServerConfig, b []byte) bool {
 	var d struct {
 		DbType   string `json:"db_type"`
@@ -236,10 +234,6 @@ func (m *ConfigManager) initCfg() {
 		name := typ.Field(i).Tag.Get("json")
 		value := ref.Field(i)
 		raw, explicit := readConfigRaw(name)
-		// 兼容旧配置键 ipv4_master（重命名为 master_dev 前的环境变量/命令行覆盖）
-		if raw == "" && name == "master_dev" {
-			raw, explicit = readConfigRaw("ipv4_master")
-		}
 		switch value.Kind() {
 		case reflect.String:
 			value.SetString(raw)
@@ -369,7 +363,7 @@ func FormatListenAddr(addr string) string {
 	return ":" + addr
 }
 
-// 将绑定地址的 v4 通配写法 0.0.0.0:port 修复成:port，双栈监听（同时接受 v4/v6 客户端）。
+// 将绑定地址的 v4 通配写法 0.0.0.0:port 修复成:port，双栈监听（同时接受 v4/v6 客户端）
 func fixListenAddr(addr string) string {
 	if addr == "" {
 		return addr
@@ -405,9 +399,7 @@ func copyFieldByName(dst, src *ServerConfig, name string) reflect.Value {
 	return reflect.Value{}
 }
 
-// 用数据库持久化配置覆盖当前配置，并叠加命令行/环境变量优先级。
-//
-//	db.json > 命令行/环境变量(explicitSet) > DB 持久化(incoming) > 启动期 flag 值(敏感字段, DB 为空时回退)
+// 优先级：db.json > 命令行/环境变量(explicitSet) > DB 持久化(incoming) > 启动期 flag 值(敏感字段, DB 为空时回退)
 func (m *ConfigManager) LoadPersisted(incoming ServerConfig) {
 	m.Update(func(c *ServerConfig) {
 		// 含 db.json 值与命令行/环境变量/默认值
@@ -416,7 +408,6 @@ func (m *ConfigManager) LoadPersisted(incoming ServerConfig) {
 
 		*c = incoming // 先整体采用数据库持久化配置
 
-		// 命令行/环境变量显式设置的字段优先于数据库持久化配置
 		for name := range m.explicitSet {
 			v := copyFieldByName(c, &startup, name)
 			if !v.IsValid() {
@@ -554,16 +545,13 @@ func init() {
 		}
 	}
 
-	// ServerConfig 必须仅含可比较的值类型（string/int/bool 等）。
-	// mutate 通过浅值拷贝 newCfg := *old 实现无锁并发安全；
-	// 若引入 slice/map/指针等引用类型字段，浅拷贝会让 fn 直接修改共享的 old 对象，破坏并发安全。
+	// 靠浅拷贝 newCfg := *old 保证无锁并发安全，故 ServerConfig 不能引入 slice/map/指针等引用类型字段
 	for field := range typ.Fields() {
 		switch field.Type.Kind() {
 		case reflect.String, reflect.Bool,
 			reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
 			reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
-			// 值类型，允许
 		default:
 			panic("ServerConfig 含非值类型字段 " + field.Name +
 				" (" + field.Type.Kind().String() + ")，会破坏 mutate 的无锁并发安全：请改用值类型或实现深拷贝")
@@ -590,7 +578,6 @@ func buildFieldMeta(field reflect.StructField, index int) configFieldMeta {
 	}
 }
 
-// 将 data 按字段类型转换为对应值并写入 value。
 func setFieldValue(value reflect.Value, data any) error {
 	switch value.Kind() {
 	case reflect.String:
@@ -624,36 +611,29 @@ func UpdateCfg(fn func(cfg *ServerConfig)) { defaultConfigManager.Update(fn) }
 
 func CompleteConfig(cfg *ServerConfig) { defaultConfigManager.Complete(cfg) }
 
-// 重置管理员密码，返回明文密码。
 func ResetAdminPassword() string { return defaultConfigManager.ResetAdminPassword() }
 
-// 清空管理员 OTP 密钥。
 func DisableAdminOtp() { defaultConfigManager.DisableAdminOtp() }
 
-// 开启 FakeDNS 功能可见性。
 func EnableFakeDNS() { defaultConfigManager.EnableFakeDNS() }
 
-// 返回前端设置页所需的配置元数据（含当前值）。
+// 设置页展示用的配置元数据（含当前值）
 func GetConfigMeta() []map[string]any { return defaultConfigManager.Meta() }
 
-// 修改单个配置项，返回是否需要重启。
 func SetConfigField(name string, data any) (restart bool, err error) {
 	return defaultConfigManager.SetField(name, data)
 }
 
-// 判断配置项是否敏感。
 func IsFieldSensitive(name string) bool { return defaultConfigManager.IsSensitive(name) }
 
-// 用数据库配置覆盖当前配置。
 func LoadPersistedConfig(incoming ServerConfig) { defaultConfigManager.LoadPersisted(incoming) }
 
-// 返回当前配置触发的系统警告。
 func GetSystemWarnings() []SystemWarning { return defaultConfigManager.Warnings() }
 
-// 替换全局配置，仅用于测试。
+// 仅用于测试
 func SetCfgForTest(cfg *ServerConfig) { defaultConfigManager.SetForTest(cfg) }
 
-// 使用系统随机源生成密码。
+// 使用系统随机源生成密码
 func GenerateRandomPassword(length int) (string, error) {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, length)

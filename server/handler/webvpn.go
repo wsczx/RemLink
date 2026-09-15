@@ -28,7 +28,7 @@ func WebVpnHandler(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	// 门户相关路径一律禁止在 WebVPN 子域下访问（防止跨子域携带通配 portal_session cookie 越权调用门户接口）：
-	// 仅放行 GET /portal（登录页）与白名单内的登录前置接口（见 portalLoginEndpoints）。
+	// 仅放行 GET /portal（登录页）与白名单内的登录前置接口（见 portalLoginEndpoints）
 	if r.URL.Path == "/portal" && r.Method == http.MethodGet {
 		return false
 	}
@@ -42,10 +42,10 @@ func WebVpnHandler(w http.ResponseWriter, r *http.Request) bool {
 
 	mgr := webvpn.GetManager()
 	app, err := dbdata.GetWebVpnAppByName(prefix)
-	// 仅对明确开启跨站访问且配置了来源白名单的应用放宽会话 Cookie。
+	// 仅对明确开启跨站访问且配置了来源白名单的应用放宽会话 Cookie
 	r = webvpn.WithCrossSiteCookie(r, err == nil && app != nil && app.Status == 1 && app.AllowCrossSite && len(app.CorsAllowedOrigins) > 0)
 
-	// 跨域预检（OPTIONS）由网关直接回应 CORS 头，不走认证、不反代后端。
+	// 跨域预检（OPTIONS）由网关直接回应 CORS 头，不走认证、不反代后端
 	if r.Method == http.MethodOptions {
 		if err != nil || app == nil || app.Status != 1 {
 			w.WriteHeader(http.StatusNotFound)
@@ -55,14 +55,14 @@ func WebVpnHandler(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 
-	// 认证优先：已登录 WebVPN 会话用户直接放行。
+	// 认证优先：已登录 WebVPN 会话用户直接放行
 	user, ok := mgr.Session().CurrentUser(r)
 	grantRedirect := r.URL.Query().Get(webvpnGrantQuery) != ""
 	if !ok || user == nil {
 		// 门户登录后下发的 webvpn_grant 一次性换取正式会话（并写入会话 cookie）
 		if token, gu, exchanged := mgr.Session().ExchangeGrant(w, r); exchanged {
 			// 注入请求 cookie，使同一次请求内后续 webVpnProxy 的 CurrentUser 能读到，
-			// 避免兑换成功却又误判未登录而跳登录页。
+			// 避免兑换成功却又误判未登录而跳登录页
 			r.AddCookie(&http.Cookie{Name: webVpnSessionCookie, Value: token})
 			user = gu
 			ok = true
@@ -84,7 +84,7 @@ func WebVpnHandler(w http.ResponseWriter, r *http.Request) bool {
 	if !ok || user == nil {
 		// 门户会话有效但免登兑换失败（权限中途被取消 / grant 过期 / 会话已被吊销）：
 		// 直接渲染无权限提示页，而非跳登录页。否则门户已登录的前端会自动回跳、
-		// 后端又判定未登录再次跳转，形成高频率刷新死循环。
+		// 后端又判定未登录再次跳转，形成高频率刷新死循环
 		if puser, pok := portalCurrentUser(r); pok && puser != nil {
 			if webVpnWriteCrossOriginStatus(w, r, app, http.StatusForbidden) {
 				return true
@@ -92,25 +92,25 @@ func WebVpnHandler(w http.ResponseWriter, r *http.Request) bool {
 			webVpnForbiddenPage(w, r, puser.Username, "")
 			return true
 		}
-		// 跨站接口未登录时返回可识别的 401，避免把接口请求重定向为登录 HTML。
-		// 普通浏览器直接打开 WebVPN 页面仍跳转到当前子域的登录页。
+		// 跨站接口未登录时返回可识别的 401，避免把接口请求重定向为登录 HTML
+		// 普通浏览器直接打开 WebVPN 页面仍跳转到当前子域的登录页
 		if webVpnWriteCrossOriginStatus(w, r, app, http.StatusUnauthorized) {
 			return true
 		}
 		// 完全未登录：跳转到当前 WebVPN 子域自身的登录页（/ui/#/portal，
 		// 由门户登录卡片前端承载），登录成功后门户下发一次性 webvpn_grant，
-		// 回域后由 ExchangeGrant 自动兑换正式会话，无需重复登录。
+		// 回域后由 ExchangeGrant 自动兑换正式会话，无需重复登录
 		http.Redirect(w, r, webVpnLoginURL(r), http.StatusFound)
 		return true
 	}
 
-	// 认证与免登兑换已完成，后续查应用/续期/授权/反代/审计统一交给 webVpnProxy.
+	// 认证与免登兑换已完成，后续查应用/续期/授权/反代/审计统一交给 webVpnProxy
 	webVpnProxy(w, r, prefix)
 	return true
 }
 
-// 判断 host 是否属于 WebVPN 子域，返回 (子域前缀, 是否匹配)。
-// DNS 主机名大小写不敏感，统一转小写比较，且前缀以小写返回，避免大写 Host 绕过 WebVPN 分支。
+// 判断 host 是否属于 WebVPN 子域，返回 (子域前缀, 是否匹配)
+// DNS 主机名大小写不敏感，统一转小写比较，且前缀以小写返回，避免大写 Host 绕过 WebVPN 分支
 func webVpnHostPrefix(host string) (string, bool) {
 	domain := base.GetCfg().WebVpnDomain
 	if domain == "" {
@@ -172,7 +172,7 @@ func writeWebVpnCORSHeaders(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Vary", "Origin")
 }
 
-// 处理跨域预检（OPTIONS）：直接回应 204 + CORS 头，不反代到后端。
+// 处理跨域预检（OPTIONS）：直接回应 204 + CORS 头，不反代到后端
 func webVpnAllowedMethod(method string) bool {
 	switch method {
 	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodOptions:
@@ -203,7 +203,7 @@ func webVpnValidHeaderName(name string) bool {
 	return true
 }
 
-// 处理跨域预检（OPTIONS）：直接回应 204 + CORS 头，不反代到后端。
+// 处理跨域预检（OPTIONS）：直接回应 204 + CORS 头，不反代到后端
 func webVpnHandlePreflight(w http.ResponseWriter, r *http.Request, app *dbdata.WebVpnApp) {
 	if r.Header.Get("Origin") == "" || (!webVpnSameOrigin(r) && !dbdata.WebVpnCorsOriginAllowed(app, r.Header.Get("Origin"))) {
 		w.WriteHeader(http.StatusForbidden)
@@ -245,8 +245,8 @@ func webVpnMe(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// 单点登出：清除 WebVPN 会话 cookie 并吊销当前 jti。仅影响 WebVPN，门户登录态不受影响。
-// GET 返回一个最小退出确认页（同源表单 POST 到自身），方便用户在子域名下直接退出；
+// 单点登出：清除 WebVPN 会话 cookie 并吊销当前 jti。仅影响 WebVPN，门户登录态不受影响
+// GET 返回一个最小退出确认页（同源表单 POST 到自身），方便用户在子域名下直接退出
 func webVpnLogout(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -333,7 +333,7 @@ func webVpnLoginConfig(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// 在 WebVPN 子域本地渲染「无权限」错误页。
+// 在 WebVPN 子域本地渲染「无权限」错误页
 func webVpnForbiddenPage(w http.ResponseWriter, r *http.Request, username, appName string) {
 	msg := "您当前没有访问该应用的权限，如需开通请联系系统管理员。"
 	if username != "" {
@@ -348,7 +348,7 @@ func webVpnForbiddenPage(w http.ResponseWriter, r *http.Request, username, appNa
 }
 
 // 应用不存在/已禁用时,同样在 WebVPN 子域本地渲染错误页
-// reason 取值：notfound（不存在，返回 404）/ disabled（已禁用，返回 403）。
+// reason 取值：notfound（不存在，返回 404）/ disabled（已禁用，返回 403）
 func webVpnAppErrorPage(w http.ResponseWriter, r *http.Request, appName, reason, msg string) {
 	title := "应用不存在"
 	status := http.StatusNotFound
@@ -365,7 +365,7 @@ func webVpnAppErrorPage(w http.ResponseWriter, r *http.Request, appName, reason,
 	})
 }
 
-// 错误页模板数据。
+// 错误页模板数据
 type webVpnErrorData struct {
 	Reason     string
 	Title      string
@@ -483,7 +483,7 @@ func newAuditRecord(user *dbdata.User, app *dbdata.WebVpnApp, host string) *webV
 	return &webVpnAuditRecord{user: user, app: app, host: host, start: time.Now(), group: group}
 }
 
-// 包装 ModifyResponse，在响应返回后投递审计记录。
+// 包装 ModifyResponse，在响应返回后投递审计记录
 func withAudit(next func(*http.Response) error, rec *webVpnAuditRecord, audit *webvpn.AuditBatcher, rw *webVpnRespWriter) func(*http.Response) error {
 	return func(resp *http.Response) error {
 		if next != nil {
@@ -508,7 +508,7 @@ func withAudit(next func(*http.Response) error, rec *webVpnAuditRecord, audit *w
 	}
 }
 
-// 给反代响应补 CORS 头：仅当入站带 Origin（浏览器跨域实际请求）时补，与预检一致。
+// 给反代响应补 CORS 头：仅当入站带 Origin（浏览器跨域实际请求）时补，与预检一致
 func withCORS(next func(*http.Response) error, r *http.Request, app *dbdata.WebVpnApp) func(*http.Response) error {
 	origin := r.Header.Get("Origin")
 	if origin == "" || (!webVpnSameOrigin(r) && !dbdata.WebVpnCorsOriginAllowed(app, origin)) {
@@ -527,7 +527,7 @@ func withCORS(next func(*http.Response) error, r *http.Request, app *dbdata.WebV
 	}
 }
 
-// 透出底层 writer 并记录状态码与写出字节数，供访问审计使用。
+// 透出底层 writer 并记录状态码与写出字节数，供访问审计使用
 type webVpnRespWriter struct {
 	http.ResponseWriter
 	req          *http.Request
@@ -556,7 +556,7 @@ func (rw *webVpnRespWriter) Unwrap() http.ResponseWriter { return rw.ResponseWri
 // 子域名可放行的门户登录前置接口
 // 仅在未登录状态下登录流程必需、不依赖已登录 portal_session，放行它们保证
 // WebVPN 子域名登录页正常加载配置、完成登录并检测登录态；其余门户写接口仍由
-// WebVpnHandler 403 拦截，杜绝跨子域携带门户 cookie 越权调用。
+// WebVpnHandler 403 拦截，杜绝跨子域携带门户 cookie 越权调用
 type portalLoginEndpoint struct {
 	path    string
 	method  string
@@ -565,7 +565,7 @@ type portalLoginEndpoint struct {
 
 // WebVPN 子域名登录所放行的门户接口唯一来源：
 // initRoute 据此注册路由（见 server.go），WebVpnHandler 据此判断放行。新增子域名登录
-// 必需的门户接口只需改此处。
+// 必需的门户接口只需改此处
 var portalLoginEndpoints = []portalLoginEndpoint{
 	{"/portal/api/login", http.MethodPost, PortalLogin},
 	{"/portal/api/verify", http.MethodPost, PortalVerify},
@@ -577,7 +577,7 @@ var portalLoginEndpoints = []portalLoginEndpoint{
 	{"/portal/api/sso", http.MethodGet, PortalSSO},
 }
 
-// 判断子域名下是否放行某门户登录接口（以 portalLoginEndpoints 为唯一来源）。
+// 判断子域名下是否放行某门户登录接口（以 portalLoginEndpoints 为唯一来源）
 func webVpnPortalLoginEndpoint(path, method string) bool {
 	for _, ep := range portalLoginEndpoints {
 		if ep.path == path && ep.method == method {
@@ -587,7 +587,7 @@ func webVpnPortalLoginEndpoint(path, method string) bool {
 	return false
 }
 
-// 去掉 host:port 中的端口部分，仅保留主机名。
+// 去掉 host:port 中的端口部分，仅保留主机名
 func stripPort(host string) string {
 	if i := strings.LastIndexByte(host, ':'); i >= 0 {
 		if strings.Contains(host, "]") {
@@ -598,7 +598,7 @@ func stripPort(host string) string {
 	return host
 }
 
-// 提取 host:port 或 scheme://host:port 中的端口部分（不含冒号），无端口返回空。
+// 提取 host:port 或 scheme://host:port 中的端口部分（不含冒号），无端口返回空
 func portOf(host string) string {
 	if i := strings.LastIndexByte(host, ':'); i >= 0 {
 		if strings.Contains(host, "]") {
@@ -609,7 +609,7 @@ func portOf(host string) string {
 	return ""
 }
 
-// 是 WebVPN 会话 cookie 的规范名称。
+// WebVPN 会话 cookie 的规范名称
 const (
 	webVpnSessionCookie = "webvpn_session"
 	webvpnGrantQuery    = "webvpn_grant"
@@ -617,13 +617,13 @@ const (
 
 // WebVPN 反向代理的内部执行体。负责：认证取用户 → 查应用配置
 // → 滑动续期 → 请求级授权 → 构造反代 → 投递审计 → 转发。WebVpnHandler 完成
-// 免登兑换后调用本函数，测试亦直接调用以覆盖授权/审计逻辑，二者共用同一实现。
+// 免登兑换后调用本函数，测试亦直接调用以覆盖授权/审计逻辑，二者共用同一实现
 func webVpnProxy(w http.ResponseWriter, r *http.Request, prefix string) {
 	mgr := webvpn.GetManager()
 	user, _ := mgr.Session().CurrentUser(r)
 	if user == nil {
 		// 未登录：跳转到当前 WebVPN 子域自身的登录页，与 WebVpnHandler 入口一致，
-		// 避免跳错父域/丢失端口。登录成功后由 ExchangeGrant 自动兑换会话。
+		// 避免跳错父域/丢失端口。登录成功后由 ExchangeGrant 自动兑换会话
 		http.Redirect(w, r, webVpnLoginURL(r), http.StatusFound)
 		return
 	}
@@ -632,11 +632,11 @@ func webVpnProxy(w http.ResponseWriter, r *http.Request, prefix string) {
 		webVpnAppErrorPage(w, r, prefix, "notfound", "应用不存在或已删除")
 		return
 	}
-	// 滑动续期（距签发超过 TTL-1h 时重签）。
+	// 滑动续期（距签发超过 TTL-1h 时重签）
 	if _, err := mgr.Session().Renew(w, r); err != nil {
 		base.Error("WebVPN 会话续期失败:", err)
 	}
-	// 请求级完整授权（用户/组/IP/路径白名单）。
+	// 请求级完整授权（用户/组/IP/路径白名单）
 	if !webvpn.Authorized(app, user, r) {
 		webVpnForbiddenPage(w, r, user.Username, app.Name)
 		return

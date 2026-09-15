@@ -2,7 +2,6 @@ package authsrv
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
@@ -46,14 +45,14 @@ func (a *LocalAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 	ctx.SetUserInfo(v.ToAuthInfo())
 	ctx.Conn.Nickname = v.Nickname
 
-	// 实时检查过期时间
-	if v.LimitTime != nil && time.Now().After(*v.LimitTime) {
-		return auth.StepFail, fmt.Errorf("用户已过期")
-	}
-
 	// 先校验密码，再校验组/类型等配置项：避免在校验密码前按组归属泄露用户名是否存在
 	if !verifyLocalPassword(ctx, v) {
 		return auth.StepFail, fmt.Errorf("用户名或密码错误")
+	}
+
+	// 实时检查过期时间
+	if v.IsExpired() {
+		return auth.StepFail, fmt.Errorf("用户已过期")
 	}
 
 	if v.Type == "ldap" {

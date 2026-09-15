@@ -241,7 +241,7 @@ func SetOtherSmsTest(w http.ResponseWriter, r *http.Request) {
 	RespSucess(w, "短信发送成功")
 }
 
-// 返回品牌展示配置，供管理后台侧边栏与登录页在 8800 端口直接加载。
+// 返回品牌展示配置，供管理后台侧边栏与登录页在 8800 端口直接加载
 func AdminPortalLoginConfig(w http.ResponseWriter, r *http.Request) {
 	brand := dbdata.SettingPortalBrand{}
 	_ = dbdata.SettingGet(&brand)

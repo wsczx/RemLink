@@ -218,6 +218,10 @@ func UserSet(w http.ResponseWriter, r *http.Request) {
 	}
 	// 修改用户资料刷新在线会话缓存的过期时间使其即时生效
 	sessdata.UpdateUserLimitTime(data.Username, data.LimitTime)
+	// 停用用户时立即断开其在线 VPN 会话
+	if data.Status != 1 {
+		sessdata.CloseUserSessions(data.Username, dbdata.UserLogoutAdmin)
+	}
 	RespSucess(w, nil)
 }
 
@@ -247,6 +251,8 @@ func UserDel(w http.ResponseWriter, r *http.Request) {
 	if err := dbdata.WebVpnRevokeUser(user.Username); err != nil {
 		base.Error("用户删除成功但 WebVPN 会话吊销持久化失败:", user.Username, err)
 	}
+	// 断开该用户在线的 VPN 会话
+	sessdata.CloseUserSessions(user.Username, dbdata.UserLogoutAdmin)
 	dbdata.AdminLog("用户管理", user.Username, "删除了用户", r.RemoteAddr)
 	RespSucess(w, nil)
 }

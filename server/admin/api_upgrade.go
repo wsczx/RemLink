@@ -23,11 +23,11 @@ type UpgradeState struct {
 	Info     *base.ReleaseInfo `json:"info,omitempty"`
 }
 
-// 读取用户配置的更新源（gitee / github）
+// 读取用户配置的更新源（github / gitee）
 func getUpgradeSource() string {
 	sc := &dbdata.SettingServerConfig{}
 	if err := dbdata.SettingGet(sc); err != nil {
-		return "gitee"
+		return "github"
 	}
 	return sc.Config.UpgradeSource
 }

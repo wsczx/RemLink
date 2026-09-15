@@ -90,7 +90,7 @@ func NewReverseProxy(app *dbdata.WebVpnApp, originalHost string) (*httputil.Reve
 	return proxy, nil
 }
 
-// 校验用户/组/IP/路径白名单（请求级完整授权）。
+// 校验用户/组/IP/路径白名单（请求级完整授权）
 func pathAllowed(path, prefix string) bool {
 	path = strings.TrimSpace(path)
 	prefix = strings.TrimSpace(prefix)
@@ -234,7 +234,7 @@ func HostMatchesBackend(locHost, backendHost string) bool {
 	return strings.HasSuffix(lh, "."+bh)
 }
 
-// 后端 Transport 按 skipVerify 复用两个共享实例，避免每请求新建连接池导致 FD 耗尽。
+// 后端 Transport 按 skipVerify 复用两个共享实例，避免每请求新建连接池导致 FD 耗尽
 var (
 	transportMu       sync.Mutex
 	transportNormal   *http.Transport
