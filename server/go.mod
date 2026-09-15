@@ -19,7 +19,6 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/lanrenwo/lzsgo v0.0.2
 	github.com/lib/pq v1.10.9
-	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/miekg/dns v1.1.72
 	github.com/pion/dtls/v3 v3.1.5
 	github.com/pion/logging v0.2.4
@@ -39,6 +38,7 @@ require (
 	golang.org/x/text v0.39.0
 	golang.org/x/time v0.15.0
 	layeh.com/radius v0.0.0-20231213012653-1006025d24f8
+	modernc.org/sqlite v1.20.4
 	xorm.io/xorm v1.3.9
 )
 
@@ -52,6 +52,7 @@ require (
 	github.com/aliyun/credentials-go v1.4.7 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/clbanning/mxj/v2 v2.7.0 // indirect
+	github.com/dustin/go-humanize v1.0.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-acme/alidns-20150109/v4 v4.7.0 // indirect
 	github.com/go-acme/tencentclouddnspod v1.3.24 // indirect
@@ -62,10 +63,13 @@ require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
+	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
+	github.com/mattn/go-isatty v0.0.21 // indirect
 	github.com/mdlayher/netlink v1.7.3-0.20250113171957-fbb4dce95f42 // indirect
 	github.com/mdlayher/socket v0.5.0 // indirect
 	github.com/pion/transport/v4 v4.0.2 // indirect
+	github.com/remyoudompheng/bigfft v0.0.0-20200410134404-eec4a21b6bb0 // indirect
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common v1.3.77 // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
 	github.com/tjfoc/gmsm v1.4.1 // indirect
@@ -75,6 +79,15 @@ require (
 	golang.org/x/mod v0.37.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/tools v0.47.0 // indirect
+	lukechampine.com/uint128 v1.2.0 // indirect
+	modernc.org/cc/v3 v3.40.0 // indirect
+	modernc.org/ccgo/v3 v3.16.13 // indirect
+	modernc.org/libc v1.22.2 // indirect
+	modernc.org/mathutil v1.5.0 // indirect
+	modernc.org/memory v1.4.0 // indirect
+	modernc.org/opt v0.1.3 // indirect
+	modernc.org/strutil v1.1.3 // indirect
+	modernc.org/token v1.0.1 // indirect
 )
 
 require (

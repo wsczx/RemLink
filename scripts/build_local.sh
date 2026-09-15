@@ -18,38 +18,17 @@ echo "  日期:   $buildDate"
 
 echo "=============================="
 
-# 链接器: 用 musl-gcc
-if command -v musl-gcc &>/dev/null; then
-    export CC=musl-gcc
-    echo "链接器: musl-gcc ✅"
-else
-    echo "⚠ 未安装 musl-gcc，正在尝试安装 musl-tools..."
-    if sudo -n true 2>/dev/null; then
-        sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
-        export CC=musl-gcc
-        echo "链接器: musl-gcc ✅"
-    else
-        echo "⚠ 无 sudo 权限，无法安装 musl-tools"
-        echo "   → 手动执行: sudo apt install musl-tools"
-        echo "   → 当前使用 gcc (glibc)"
-        echo ""
-        export CC=gcc
-        echo "链接器: gcc (glibc)"
-    fi
-fi
-
 go mod tidy
 
 echo ""
 echo "开始编译..."
 
-export CGO_ENABLED=1
+export CGO_ENABLED=0
 
 ldflags="-s -w \
   -X main.appVer=$ver \
   -X main.commitId=$commitId \
-  -X main.buildDate=$buildDate \
-  -extldflags '-static'"
+  -X main.buildDate=$buildDate"
 
 go build -v -o remlink -trimpath -ldflags "$ldflags"
 
