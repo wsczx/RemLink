@@ -7,7 +7,7 @@ import (
 	"github.com/wsczx/remlink/dbdata"
 )
 
-// 提供前端静态资源；未知子路径回退 index.html，由前端展示 404 页面。
+// 提供前端静态资源；未知子路径回退 index.html，由前端展示 404 页面
 func ServeUI() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := strings.TrimPrefix(r.URL.Path, "/ui/")
@@ -27,7 +27,7 @@ const (
 	defaultBrandFavicon = ""
 )
 
-// 写入前端 index.html；读取失败则返回 404。
+// 写入前端 index.html；读取失败则返回 404
 func ServeIndex(w http.ResponseWriter, r *http.Request) {
 	data, err := UiData.ReadFile("ui/index.html")
 	if err != nil {

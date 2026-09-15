@@ -99,6 +99,13 @@ type Session struct {
 	CSess *ConnSession
 }
 
+// 判定该会话所属用户是否已过期（在线期间到期，或断线后到期）
+func (s *Session) IsExpired() bool {
+	s.mux.RLock()
+	defer s.mux.RUnlock()
+	return dbdata.IsExpired(s.LimitTime)
+}
+
 func checkSession() {
 	// 检测过期的session
 	go func() {
@@ -113,13 +120,11 @@ func checkSession() {
 			t := time.Now()
 			for k, v := range sessions {
 				v.mux.RLock()
-				if !v.IsActive {
-					if timeoutSeconds != 0 && t.Sub(v.LastLogin) > timeout {
-						timeoutToken = append(timeoutToken, k)
-					}
-				} else if v.LimitTime != nil && t.After(*v.LimitTime) {
-					// 活跃会话：用户在线期间到期，踢下线
+				// 活跃/非活跃会话：用户在线期间到期，踢下线
+				if dbdata.IsExpired(v.LimitTime) {
 					expiredToken = append(expiredToken, k)
+				} else if !v.IsActive && timeoutSeconds != 0 && t.Sub(v.LastLogin) > timeout {
+					timeoutToken = append(timeoutToken, k)
 				}
 				v.mux.RUnlock()
 			}
@@ -138,12 +143,11 @@ func checkSession() {
 func UpdateUserLimitTime(username string, limitTime *time.Time) {
 	expiredToken := []string{}
 	sessMux.RLock()
-	now := time.Now()
 	for k, v := range sessions {
 		v.mux.Lock()
 		if v.Username == username {
 			v.LimitTime = limitTime
-			if v.IsActive && limitTime != nil && now.After(*limitTime) {
+			if dbdata.IsExpired(limitTime) {
 				expiredToken = append(expiredToken, k)
 			}
 		}
@@ -241,8 +245,8 @@ func (s *Session) NewConn() *ConnSession {
 		PayloadOutDtls: make(chan *Payload, 256),
 		dSess:          &atomic.Value{},
 	}
-	// IPv6 要求链路 MTU ≥ 1280，否则触发 v6 PMTU 黑洞（见 ipv6-dual-stack-design.md §4）。
-	// 用户级 Mtu 覆盖（非 0）会绕过下方 link_tunnel 的 SetMtu，故此处单独强制下限。
+	// IPv6 要求链路 MTU ≥ 1280，否则触发 v6 PMTU 黑洞
+	// 用户级 Mtu 覆盖（非 0）会绕过下方 link_tunnel 的 SetMtu，此处单独强制下限
 	if base.GetCfg().Ipv6CIDR != "" && cSess.Mtu != 0 && cSess.Mtu < 1280 {
 		base.Warn("用户级 Mtu=", cSess.Mtu, " 低于 IPv6 要求下限 1280，已自动上调到 1280 (user=", username, ")")
 		cSess.Mtu = 1280
@@ -293,14 +297,13 @@ func (s *Session) NewConn() *ConnSession {
 	return cSess
 }
 
-// SetLogoutCode 记录登出原因。只有首次设置生效：具体原因（主动断开、配额超限等）
-// 总是先于 defer 里的兜底原因写入，后到的兜底不应覆盖它。
+// 记录登出原因。只有首次设置生效
 func (cs *ConnSession) SetLogoutCode(code uint8) {
 	// code+1 存储，使零值可区分「未设置」与 UserLogoutLose(0)
 	cs.userLogoutCode.CompareAndSwap(0, uint32(code)+1)
 }
 
-// LogoutCode 返回登出原因码，未设置过则返回 UserLogoutLose。
+// 返回登出原因码，未设置过则返回 UserLogoutLose
 func (cs *ConnSession) LogoutCode() uint8 {
 	v := cs.userLogoutCode.Load()
 	if v == 0 {
@@ -453,8 +456,8 @@ func (cs *ConnSession) SetMtu(mtu string) {
 	enforceMtuFloorV6(cs)
 }
 
-// enforceMtuFloorV6 在双栈开启时保证链路 MTU 不低于 IPv6 要求的 1280。
-// 纯 v4 时返回 0 下限，保持字节级不变（客户端可请求更低 MTU）。
+// 在双栈开启时保证链路 MTU 不低于 IPv6 要求的 1280
+// 纯 v4 时返回 0 下限，保持字节级不变（客户端可请求更低 MTU）
 func enforceMtuFloorV6(cs *ConnSession) {
 	if base.GetCfg().Ipv6CIDR == "" {
 		return
@@ -606,6 +609,30 @@ func DelSessByStoken(stoken string) {
 		return
 	}
 	CloseSess(sarr[1], dbdata.UserLogoutBanner)
+}
+
+// 关闭指定用户的全部会话
+func CloseUserSessions(username string, code ...uint8) {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return
+	}
+
+	tokens := []string{}
+	sessMux.RLock()
+	for k, v := range sessions {
+		v.mux.RLock()
+		matched := v.Username == username
+		v.mux.RUnlock()
+		if matched {
+			tokens = append(tokens, k)
+		}
+	}
+	sessMux.RUnlock()
+
+	for _, token := range tokens {
+		CloseSess(token, code...)
+	}
 }
 
 // 记录用户下线日志，包含登出原因、上下行流量和在线时长

@@ -10,12 +10,12 @@ import (
 	"github.com/xlzd/gotp"
 )
 
-// AuthLdap LDAP 认证配置（嵌入共享 LDAPConfig，Connect/SearchFilter/SearchUsers 等方法由嵌入体提供）
+// LDAP 认证配置（嵌入共享 LDAPConfig，Connect/SearchFilter/SearchUsers 等方法由嵌入体提供）
 type AuthLdap struct {
 	auth.LDAPConfig
 }
 
-// 从 Group 的 AuthProfile 中通过 Provider 名称解析 LDAP 配置。
+// 从 Group 的 AuthProfile 中通过 Provider 名称解析 LDAP 配置
 func ResolveLdapConfig(g *Group) (*AuthLdap, error) {
 	profile, err := auth.ParseAuthProfile(g.AuthProfile)
 	if err != nil {
@@ -65,7 +65,7 @@ func (a *AuthLdap) SaveUsers(g *Group) error {
 		"mobile",             // 兼容装了 Exchange / 加了 schema 扩展的 AD、以及 OpenLDAP inetOrgPerson
 		"userAccountControl", // AD用户状态
 		"accountExpires",     // AD账号过期时间
-		"shadowExpire",       // Linux LDAP用户状态
+		"shadowExpire",       // LDAP用户状态
 		a.SearchAttr,
 	})
 	if err != nil {

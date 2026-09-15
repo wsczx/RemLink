@@ -56,6 +56,15 @@ func (a *CertAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 	// 加载用户信息（含过期时间），供后续步骤与会话创建后 checkSession 检测在线期间到期
 	u := &dbdata.User{}
 	if dbdata.One("Username", username, u) == nil {
+		// 状态/过期校验
+		if u.Status != 1 {
+			base.Info("用户已被禁用，拒绝证书认证:", dbdata.UserLabel(username, u.Nickname))
+			return auth.StepFail, fmt.Errorf("用户已被禁用")
+		}
+		if u.IsExpired() {
+			base.Info("用户已过期，拒绝证书认证:", dbdata.UserLabel(username, u.Nickname))
+			return auth.StepFail, fmt.Errorf("用户已过期")
+		}
 		ctx.SetUserInfo(u.ToAuthInfo())
 		ctx.Conn.Nickname = u.Nickname
 	}

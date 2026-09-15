@@ -324,7 +324,7 @@ const certMail = `<p>您好:</p>
 </div>
 <p>如有疑问请联系管理员。</p>`
 
-// 返回默认证书邮件模板，供管理后台获取初始值。
+// 返回默认证书邮件模板，供管理后台获取初始值
 func CertMailTemplate() string {
 	return certMail
 }

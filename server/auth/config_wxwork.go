@@ -161,8 +161,8 @@ func (c *WXWorkConfig) CheckUserDepartment(userID string, allowedDepts []int) (b
 	return false, nil
 }
 
-// GetUserDetail 获取企微用户详情（手机号、邮箱）。复用 user/get 接口逐个查询，
-// 返回 (mobile, email)。企微手机/邮箱默认不返回，需后台开放通讯录敏感信息权限。
+// 获取企微用户详情（手机号、邮箱）。复用 user/get 接口逐个查询，
+// 返回 (mobile, email)。企微手机/邮箱默认不返回，需后台开放通讯录敏感信息权限
 func (c *WXWorkConfig) GetUserDetail(accessToken, userID string) (string, string) {
 	url := fmt.Sprintf("https://qyapi.weixin.qq.com/cgi-bin/user/get?access_token=%s&userid=%s", accessToken, userID)
 	userInfo := &WXWorkUserResponse{}

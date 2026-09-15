@@ -54,7 +54,7 @@ func CustomCert(w http.ResponseWriter, r *http.Request) {
 	RespSucess(w, "上传成功")
 }
 
-// 保存上传证书并重载到 SNI 表。wild=true 写 WebVPN 泛域名证书，false 写主证书。
+// 保存上传证书并重载到 SNI 表。wild=true 写 WebVPN 泛域名证书，false 写主证书
 func applyUploadedCert(w http.ResponseWriter, wild bool, certBytes, keyBytes []byte, r *http.Request) error {
 	certStr, keyStr := string(certBytes), string(keyBytes)
 	if wild {
@@ -402,8 +402,8 @@ func DownloadClientP12(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// if password == "" {
-	// 	password = "123456" // 默认密码
+	// password == "" {
+	// = "123456" // 默认密码
 	// }
 
 	// 下载CSR模式的证书

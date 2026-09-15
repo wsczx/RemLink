@@ -12,8 +12,8 @@ import (
 	"github.com/wsczx/remlink/pkg/utils"
 )
 
-// 已吊销的 JWT jti => 过期时间(unix)，登出/改密时写入，GetJwtData 校验时查询。
-// 条目在原 JWT 过期后即无保留意义，吊销时顺带懒清理，避免集合无限增长。
+// 已吊销的 JWT jti => 过期时间(unix)，登出/改密时写入，GetJwtData 校验时查询
+// 条目在原 JWT 过期后即无保留意义，吊销时顺带懒清理，避免集合无限增长
 var (
 	jwtMu      sync.Mutex
 	jwtRevoked = make(map[string]int64)
@@ -56,18 +56,18 @@ func RevokeJwtToken(tokenString string) {
 }
 
 func SetJwtData(data map[string]any, expiresAt int64) (string, error) {
-	// jti 用于支持单条 JWT 吊销
+	// 用于支持单条 JWT 吊销
 	jti := utils.RandomRunes(16)
 	jwtData := jwt.MapClaims{"exp": expiresAt, "jti": jti, "iat": time.Now().Unix()}
 	maps.Copy(jwtData, data)
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwtData)
 
-	// Sign and get the complete encoded token as a string using the secret
+	// 使用密钥获取完整的编码令牌字符串
 	tokenString, err := token.SignedString([]byte(base.GetCfg().JwtSecret))
 	return tokenString, err
 }
 
-// 从 JWT 字符串解析 jti（用于单条/全量吊销），解析失败返回空串。
+// 从 JWT 字符串解析 jti（用于单条/全量吊销），解析失败返回空串
 func JtiOf(tokenString string) (string, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
 		return []byte(base.GetCfg().JwtSecret), nil
@@ -83,7 +83,7 @@ func JtiOf(tokenString string) (string, error) {
 	return "", errors.New("JWT 无 jti")
 }
 
-// 从 WebVPN 会话 JWT 解析 webvpn_user（全量登出时定位索引）。
+// 从 WebVPN 会话 JWT 解析 webvpn_user（全量登出时定位索引）
 func UsernameOf(tokenString string) (string, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
 		return []byte(base.GetCfg().JwtSecret), nil

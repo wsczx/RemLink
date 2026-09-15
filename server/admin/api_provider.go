@@ -12,7 +12,7 @@ import (
 	"github.com/wsczx/remlink/pkg/mask"
 )
 
-// 脱敏 Provider 配置中的敏感字段。
+// 脱敏 Provider 配置中的敏感字段
 func maskProviderSecrets(p *dbdata.Provider) {
 	keys := dbdata.ProvSecretKeys(p.Type)
 	if len(keys) == 0 || len(p.Config.Data) == 0 {
@@ -32,7 +32,7 @@ func maskProviderSecrets(p *dbdata.Provider) {
 	}
 }
 
-// 前端回传占位符时保留数据库中的旧值。
+// 前端回传占位符时保留数据库中的旧值
 func keepProviderSecrets(newP, oldP *dbdata.Provider) {
 	keys := dbdata.ProvSecretKeys(newP.Type)
 	if len(keys) == 0 {

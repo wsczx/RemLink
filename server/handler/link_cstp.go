@@ -21,7 +21,7 @@ func LinkCstp(conn net.Conn, bufRW *bufio.ReadWriter, cSess *sessdata.ConnSessio
 		}
 		base.Debug("LinkCstp return", cSess.Username, cSess.IpAddr)
 		// 兜底原因码：读超时/读错误等链路异常。若上面已设置过更具体的原因
-		// （如客户端 DISCONNECT），SetLogoutCode 不会覆盖。
+		// （如客户端 DISCONNECT），SetLogoutCode 不会覆盖
 		cSess.SetLogoutCode(dbdata.UserLogoutLink)
 		_ = conn.Close()
 		cSess.Close()

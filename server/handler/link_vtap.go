@@ -151,8 +151,8 @@ func LinkMacvtap(cSess *sessdata.ConnSession) error {
 		if err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.forwarding", ifName), "1"); err != nil {
 			base.Warn(err)
 		}
-		// 将 v6 网关地址赋到 macvtap 接口，供客户端解析网关 MAC 与服务器侧路由。
-		// macvtap 与主网卡同处二层广播域，内核在本接口应答 NDP；每个 lvtapN 独立接口可各自持有 /128 网关地址。
+		// 将 v6 网关地址赋到 macvtap 接口，供客户端解析网关 MAC 与服务器侧路由
+		// macvtap 与主网卡同处二层广播域，内核在本接口应答 NDP；每个 lvtapN 独立接口可各自持有 /128 网关地址
 		v6GwAddr := &netlink.Addr{
 			IPNet: &net.IPNet{
 				IP:   cSess.IpPool.V6Gateway(),
@@ -170,9 +170,9 @@ func LinkMacvtap(cSess *sessdata.ConnSession) error {
 	return createVtap(cSess, ifName)
 }
 
-// 创建 Ipvtap 网卡。
+// 创建 Ipvtap 网卡
 // 基于 ipvlan 子系统，工作在三层路由模式：子设备共享母网卡 MAC，
-// 内核按 IP 分发流量（而非二层桥接）。适合客户端规模大、母网卡所在网络对 MAC 数量敏感的场景。
+// 内核按 IP 分发流量（而非二层桥接）。适合客户端规模大、母网卡所在网络对 MAC 数量敏感的场景
 func LinkIpvtap(cSess *sessdata.ConnSession) error {
 	capL := sessdata.IpPool.IpLongMax - sessdata.IpPool.IpLongMin
 	if capL <= 0 {
@@ -235,7 +235,7 @@ func LinkIpvtap(cSess *sessdata.ConnSession) error {
 			base.Warn(err)
 		}
 		// 将 v6 网关地址赋到 ipvtap 接口。ipvtap 为三层路由，v6 流量按 IP 分发，
-		// 不受共享 MAC 影响；每个 lvtapN 独立接口可各自持有 /128 网关地址。
+		// 不受共享 MAC 影响；每个 lvtapN 独立接口可各自持有 /128 网关地址
 		v6GwAddr := &netlink.Addr{
 			IPNet: &net.IPNet{
 				IP:   cSess.IpPool.V6Gateway(),

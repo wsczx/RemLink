@@ -19,8 +19,8 @@ import (
 	"github.com/wsczx/remlink/sessdata"
 )
 
-// 每个客户端 IP 允许的最大并发 DTLS 握手数。
-// 用于防御 DTLS 不可用环境下客户端的重连风暴：避免同一 IP 瞬间打满握手协程 / 耗尽 FD。
+// 每个客户端 IP 允许的最大并发 DTLS 握手数
+// 用于防御 DTLS 不可用环境下客户端的重连风暴：避免同一 IP 瞬间打满握手协程 / 耗尽 FD
 const maxDtlsHandshakePerIP = 16
 
 var (
@@ -28,7 +28,7 @@ var (
 	dtlsHsPerIP = make(map[string]int)
 )
 
-// 为某客户端 IP 占一个并发握手，成功返回 true。
+// 为某客户端 IP 占一个并发握手，成功返回 true
 func dtlsHandshakeBegin(ip string) bool {
 	dtlsHsMux.Lock()
 	defer dtlsHsMux.Unlock()
@@ -39,7 +39,7 @@ func dtlsHandshakeBegin(ip string) bool {
 	return true
 }
 
-// 释放一个并发握手，计数归零时清理 map 条目。
+// 释放一个并发握手，计数归零时清理 map 条目
 func dtlsHandshakeEnd(ip string) {
 	dtlsHsMux.Lock()
 	defer dtlsHsMux.Unlock()
@@ -129,7 +129,6 @@ func startDtls() {
 				}
 			}()
 			cc := c.(*dtls.Conn)
-			// v3 的 Accept 不阻塞握手（握手惰性，由首个 Handshake/Read/Write 触发），
 			// 必须显式驱动握手完成后再取 ConnectionState，否则拿到空 SessionID 会误关连接
 			hctx, hcancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer hcancel()

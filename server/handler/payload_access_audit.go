@@ -85,8 +85,8 @@ func accessAuditDedupKey(username, groupName string, key []byte) string {
 	return utils.BytesToString(result)
 }
 
-// 合并同一批次内先产生的 TCP/UDP 占位记录。
-// 应用协议识别出来后，用 HTTP/HTTPS/DNS 记录替换占位记录；不同域名的应用记录不合并。
+// 合并同一批次内先产生的 TCP/UDP 占位记录
+// 应用协议识别出来后，用 HTTP/HTTPS/DNS 记录替换占位记录；不同域名的应用记录不合并
 func (l *LogBatch) appendAudit(incoming dbdata.AccessAudit) {
 	key := accessAuditKey(incoming)
 	for i := range l.Logs {
@@ -257,7 +257,7 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 				if info.FragmentOffset != 0 {
 					return // 非首片没有端口信息，保守跳过应用层审计
 				}
-				// 首片可能只包含分片后的部分上层数据，仍仅做有限识别。
+				// 首片可能只包含分片后的部分上层数据，仍仅做有限识别
 			}
 			switch info.Proto {
 			case 6:
@@ -296,7 +296,7 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 	nu := now.Unix()
 	interval := int64(base.GetCfg().AuditInterval)
 
-	// 域名提取：TCP 走 SNI/HTTP；目的端口 53 的 UDP 走 DNS Question。
+	// 域名提取：TCP 走 SNI/HTTP；目的端口 53 的 UDP 走 DNS Question
 	if accessProto == acc_proto_tcp && len(tcpSeg) >= 20 {
 		if auditPayload.TCPStreams != nil {
 			streamKey := tcpStreamKey{
@@ -317,15 +317,15 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 		}
 	}
 
-	// FakeDNS 兜底：报文本身没有携带域名，但目的地址是 FakeIP 时，通过映射反查域名。
-	// 直接访问全局单例，避免在测试或未初始化场景触发懒加载。
+	// FakeDNS 兜底：报文本身没有携带域名，但目的地址是 FakeIP 时，通过映射反查域名
+	// 直接访问全局单例，避免在测试或未初始化场景触发懒加载
 	if info == "" && sessdata.GlobalFakeDNSManager != nil {
 		if domain := sessdata.GlobalFakeDNSManager.GetDomain(ipDst.String()); domain != "" {
 			info = domain
 		}
 	}
 
-	// 任何命中域名的记录：把"仅 IP"的去重键提前占位，避免既记域名又记一笔裸 IP。
+	// 任何命中域名的记录：把"仅 IP"的去重键提前占位，避免既记域名又记一笔裸 IP
 	if info != "" && interval > 0 {
 		ipKey := make([]byte, 53)
 		copy(ipKey, key)
@@ -348,7 +348,7 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 	}
 	s := accessAuditDedupKey(userName, groupName, key)
 
-	// audit_interval=0 表示不去重，也不维护去重 Map。
+	// audit_interval=0 表示不去重，也不维护去重 Map
 	if interval > 0 {
 		v, ok := auditPayload.IpAuditMap.Get(s)
 		if ok && nu-v.(int64) < interval {
@@ -378,7 +378,7 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 	}
 }
 
-// 定期清理闲置 TCP 流，避免依赖后续数据包触发回收。
+// 定期清理闲置 TCP 流，避免依赖后续数据包触发回收
 func tcpStreamCleanupLoop() {
 	ticker := time.NewTicker(tcpStreamIdleExpiry / 2)
 	defer ticker.Stop()

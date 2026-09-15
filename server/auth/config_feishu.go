@@ -187,7 +187,6 @@ func (c *FeishuConfig) GetFeishuUser(code string) (string, string, error) {
 
 // 获取飞书用户详细信息（含部门、邮箱、手机号）
 // 飞书 contact/v3/users 接口默认只返回基础字段，email/mobile 等需显式通过
-// user_field_mask 请求，否则永远返回空串（这正是之前同步不到邮箱的原因）。
 func (c *FeishuConfig) GetFeishuUserDetail(tenantAccessToken, userID string) (*FeishuUserResponse, error) {
 	url := fmt.Sprintf("https://open.feishu.cn/open-apis/contact/v3/users/%s?user_id_type=user_id&user_field_mask=email,mobile,name,department_ids,open_id,union_id", userID)
 	userInfo := &FeishuUserResponse{}

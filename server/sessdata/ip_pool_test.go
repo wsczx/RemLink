@@ -367,7 +367,7 @@ func TestLoopFarIpReusePersistsAndKeepsV6(t *testing.T) {
 	assert.True(ip2.Equal(net.ParseIP("10.0.7.101")))
 
 	// 之后把两行的 LastLogin 设为「租期内(未过期)、但有序」的确定值：mac1 更早、mac2 稍晚，
-	// 这样才能稳定走到 loopFarIp 的「最早登录」复用分支（若落在租期外会走过期复用、先碰谁用谁）。
+	// 这样才能稳定走到 loopFarIp 的「最早登录」复用分支（若落在租期外会走过期复用、先碰谁用谁）
 	ReleaseIp(ip1, nil, mac1)
 	ReleaseIp(ip2, nil, mac2)
 	row1 := rowByIP(t, ip1)
@@ -534,7 +534,7 @@ func getTestMacAddr(i int) string {
 	return fmt.Sprintf("%s:%x", macAddr, i)
 }
 
-// testAuthStub 无状态认证桩，避免循环依赖 auth/authsrv
+// 无状态认证桩，避免循环依赖 auth/authsrv
 type testAuthStub struct {
 	name string
 }

@@ -51,6 +51,14 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 用户已过期：立即关闭会话并拒绝建隧道
+	if sess.IsExpired() {
+		base.Info("用户已过期，拒绝重建隧道:", sess.Username)
+		sessdata.CloseSess(sess.Token, dbdata.UserLogoutExpire)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
 	// 开启link
 	cSess := sess.NewConn()
 	if cSess == nil {
@@ -68,7 +76,7 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 	exportIp4 := r.Header.Get("X-Cstp-Remote-Address-Ip4")
 	mobile := r.Header.Get("X-Cstp-License")
 
-	//设置 mtu
+	// 设置 mtu
 	if cSess.Mtu == 0 {
 		cSess.SetMtu(cstpMtu)
 	}
@@ -208,8 +216,8 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 		if exportIp4 != "" {
 			HttpAddHeader(w, "X-CSTP-Split-Exclude", exportIp4+"/255.255.255.255")
 		}
-		// IPv6 出口地址：优先取客户端上报头 X-Cstp-Remote-Address-Ip6，
-		// 取不到则回退到实际 TCP 连接源地址（客户端经 IPv6 连入时为 v6）。
+		// IPv6 出口地址：优先取客户端上报头 X-Cstp-Remote-Address-Ip6
+		// 取不到则回退到实际 TCP 连接源地址（客户端经 IPv6 连入时为 v6）
 		exportIp6 := r.Header.Get("X-Cstp-Remote-Address-Ip6")
 		if exportIp6 == "" {
 			if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {

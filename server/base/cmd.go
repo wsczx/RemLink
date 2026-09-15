@@ -15,16 +15,12 @@ import (
 )
 
 var (
-	// pass明文
 	passwd string
-	// 生成otp
-	otp bool
-	// 生成密钥
+	otp    bool
 	secret bool
-	// 显示版本信息
-	rev bool
-	// 输出debug信息
-	debug bool
+	rev    bool
+	debug  bool
+
 	// 重置管理员密码
 	ResetAdminPassFlag bool
 	// 强制禁用管理员两步验证
@@ -32,13 +28,11 @@ var (
 	// 切换 FakeDNS 可见性
 	EnableFakeDNSFlag bool
 
-	// Used for flags.
 	runSrv bool
 
 	rootCmd *cobra.Command
 )
 
-// Execute executes the root command.
 func execute() {
 	initCmd()
 
@@ -59,8 +53,6 @@ func execute() {
 		}
 		os.Exit(0)
 	}
-
-	// 配置文件已移除，服务启动使用默认值、命令行/环境变量和数据库配置。
 }
 
 func initCmd() {
@@ -89,7 +81,6 @@ func initCmd() {
 	rootCmd.AddCommand(initToolCmd())
 }
 
-// 遍历 ServerConfig 字段，结合 configMetas 元数据注册 cobra flags
 func registerFlagsFromConfig() {
 	typ := reflect.TypeFor[ServerConfig]()
 	for field := range typ.Fields() {
@@ -101,7 +92,7 @@ func registerFlagsFromConfig() {
 		switch field.Type.Kind() {
 		case reflect.String:
 			dv := meta.defaultVal
-			// AdminPass 默认值由 CompleteConfig 随机生成，不暴露在命令行
+			// 默认值由 CompleteConfig 随机生成，不暴露在命令行
 			if dv == "defaultPwd" {
 				dv = ""
 			}

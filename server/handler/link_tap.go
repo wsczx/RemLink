@@ -126,8 +126,8 @@ func LinkTap(cSess *sessdata.ConnSession) error {
 		}
 	}
 
-	// IPv6 双栈：将 v6 网关地址赋到桥，供客户端解析网关 MAC 与服务器侧路由。
-	// 桥为持久设备，每次建链用 AddrReplace 幂等（避免重复建链时地址已存在报错）。
+	// IPv6 双栈：将 v6 网关地址赋到桥，供客户端解析网关 MAC 与服务器侧路由
+	// 桥为持久设备，每次建链用 AddrReplace 幂等（避免重复建链时地址已存在报错）
 	if cSess.IpAddr6 != nil {
 		// 部分环境新接口继承 disable_ipv6=1，必须先启用桥与 tap 接口的 IPv6，
 		// 否则 AddrReplace v6 网关地址会返回 EACCES（permission denied）
