@@ -115,9 +115,13 @@ func SetSoft(w http.ResponseWriter, r *http.Request) {
 	for i, item := range data {
 		if item["name"] == "master_dev" {
 			ifaces := utils.GetPhysicalInterfaces()
-			options := make(map[string]string, len(ifaces))
+			options := make(map[string]string, len(ifaces)+1)
 			for _, iface := range ifaces {
 				options[iface] = iface
+			}
+			// 支持LINK_MASTER_DEV 环境变量
+			if cur, ok := item["data"].(string); ok && cur != "" {
+				options[cur] = cur
 			}
 			if len(options) > 0 {
 				item["options"] = options

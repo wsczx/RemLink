@@ -23,7 +23,7 @@ func (a *LDAPAuth) Name() string { return "ldap" }
 
 func (a *LDAPAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 	if ctx.Conn.Username == "" || len(ctx.Conn.Password) < 1 {
-		return auth.StepPending, nil
+		return auth.StepFail, fmt.Errorf("LDAP 用户名或密码为空")
 	}
 
 	a.Defaults()
