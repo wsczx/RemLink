@@ -72,7 +72,8 @@ func GetGroupNames() []string {
 	return names
 }
 
-// 返回所有启用状态的用户组名称
+// 返回所有启用状态且对客户端可见的用户组名称
+// 用户客户端证书登录场景，hidden=1 的组不返回
 func GetGroupNamesNormal() []string {
 	var datas []Group
 	err := FindWhere(&datas, 0, 0, "status=1")
@@ -85,7 +86,13 @@ func GetGroupNamesNormal() []string {
 	}
 	var names []string
 	for _, v := range datas {
+		if v.Hidden != 0 {
+			continue
+		}
 		names = append(names, v.Name)
+	}
+	if len(names) == 0 {
+		return []string{}
 	}
 	return names
 }
