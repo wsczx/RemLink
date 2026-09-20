@@ -59,6 +59,8 @@
             <template slot-scope="scope">
               <span class="group-name">{{ scope.row.name }}</span>
               <span v-if="scope.row.note" class="group-note">{{ scope.row.note }}</span>
+              <el-tag v-if="scope.row.hidden" size="mini" type="info" effect="plain"
+                class="group-hidden-tag">隐藏</el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="policy_name" label="策略" min-width="150" show-overflow-tooltip align="center">
@@ -136,6 +138,10 @@
               <el-radio-button :label="1">启用</el-radio-button>
               <el-radio-button :label="0">停用</el-radio-button>
             </el-radio-group>
+          </el-form-item>
+          <el-form-item label="隐藏" prop="hidden" class="form-item-compact">
+            <el-switch v-model="ruleForm.hidden" :active-value="1" :inactive-value="0"></el-switch>
+            <span class="form-tip">开启后该组不出现在客户端的组选择下拉中</span>
           </el-form-item>
         </div>
 
@@ -492,6 +498,7 @@ export default {
       ruleForm: {
         policy_id: 0,
         status: 1,
+        hidden: 0,
         split_dns: [],
         auth_profile: { step: [] },
         client_cidr: '',
@@ -754,7 +761,7 @@ export default {
       if (!row) {
         this.ruleForm = {
           id: undefined, name: '', note: '',
-          policy_id: 0, status: 1, split_dns: [],
+          policy_id: 0, status: 1, hidden: 0, split_dns: [],
           auth_profile: { step: [] },
           client_cidr: '', client_start: '', client_end: '', client_gateway: '',
           client_cidr6: '',
@@ -768,7 +775,7 @@ export default {
         const d = resp.data.data;
         this.ruleForm = {
           id: d.id, name: d.name, note: d.note,
-          policy_id: d.policy_id || 0, status: d.status,
+          policy_id: d.policy_id || 0, status: d.status, hidden: d.hidden || 0,
           split_dns: d.split_dns || [],
           auth_profile: { step: [] },
           client_cidr: d.client_cidr || '',
@@ -949,12 +956,17 @@ export default {
   font-weight: 600;
   color: var(--text-primary);
   font-size: 13px;
-  display: block;
+  display: inline;
 }
 
 .group-note {
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+.group-hidden-tag {
+  margin-left: 6px;
+  vertical-align: middle;
 }
 
 .text-muted {

@@ -101,6 +101,28 @@ func TestGetGroupNames(t *testing.T) {
 	}
 }
 
+// 隐藏组(hidden=1)不应出现在客户端下拉列表 GetGroupNamesNormal，但仍可被 GetGroupNames 列出(后台可用)
+func TestGetGroupNamesNormal_Hidden(t *testing.T) {
+	ast := assert.New(t)
+	preIpData(t)
+	defer closeIpdata()
+
+	pt := &Policy{Name: "hidden-test-policy", ClientDns: []ValData{{Val: "114.114.114.114"}}, Status: 1}
+	ast.Nil(SetPolicy(pt))
+
+	vis := &Group{Name: "hidden-vis", Status: 1, PolicyId: pt.Id}
+	ast.Nil(SetGroup(vis))
+	hid := &Group{Name: "hidden-hid", Status: 1, PolicyId: pt.Id, Hidden: 1}
+	ast.Nil(SetGroup(hid))
+
+	normal := GetGroupNamesNormal()
+	ast.True(utils.InArrStr(normal, "hidden-vis"), "可见组应出现在 GetGroupNamesNormal")
+	ast.False(utils.InArrStr(normal, "hidden-hid"), "隐藏组不应出现在 GetGroupNamesNormal")
+
+	all := GetGroupNames()
+	ast.True(utils.InArrStr(all, "hidden-hid"), "隐藏组仍应被 GetGroupNames 列出(后台可用)")
+}
+
 // 缓存核心语义：InvalidateCertAuthCache 后立即反映最新组配置
 func TestAnyGroupHasCertAuth(t *testing.T) {
 	t.Run("有cert组返回true", func(t *testing.T) {
