@@ -3,6 +3,7 @@ package handler
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/wsczx/remlink/auth"
 )
 
@@ -58,4 +59,35 @@ func TestSavePendingState_WritesBack(t *testing.T) {
 	if len(ctx.PassedSteps()) != 2 {
 		t.Fatalf("PassedSteps 未写回，实际 %v", ctx.PassedSteps())
 	}
+}
+
+// 验证挑战阶段锁定计数决策的三个分支：
+// ① 挑战码错误（原地踏步）→ 失败；② 非重试但无活动挑战（异常态）→ 失败；③ 正常进入挑战（带 Challenge）→ 成功清计数
+func TestFlow_pendingLockDecision(t *testing.T) {
+	ast := assert.New(t)
+	f := &Flow{Username: "u", RemoteAddr: "1.2.3.4:5678"}
+
+	retry := &auth.PipelineResult{
+		Result:      auth.StepPending,
+		PrevStepIdx: 1,
+		State:       auth.PipelineState{StepIdx: 1},
+		Challenge:   &auth.ChallengeInfo{},
+	}
+	ast.False(f.pendingLockDecision(retry), "挑战码错误应计失败")
+
+	noChallenge := &auth.PipelineResult{
+		Result:      auth.StepPending,
+		PrevStepIdx: -1,
+		State:       auth.PipelineState{StepIdx: 0},
+		Challenge:   nil,
+	}
+	ast.False(f.pendingLockDecision(noChallenge), "非重试且无活动挑战应计失败")
+
+	ok := &auth.PipelineResult{
+		Result:      auth.StepPending,
+		PrevStepIdx: -1,
+		State:       auth.PipelineState{StepIdx: 0},
+		Challenge:   &auth.ChallengeInfo{},
+	}
+	ast.True(f.pendingLockDecision(ok), "正常进入挑战应清计数")
 }
