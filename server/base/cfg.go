@@ -321,6 +321,10 @@ func (m *ConfigManager) SetField(name string, data any) (restart bool, err error
 		return false, fmt.Errorf("敏感配置 %s 未修改, 不能使用占位符", name)
 	}
 	restart = field.restart
+	if restart {
+		// 标记本节点待重启，供节点总览显示「需重启」徽标（进程启动即清除）
+		SetNeedsRestart(true)
+	}
 
 	if err = m.mutate(func(c *ServerConfig) error {
 		value := reflect.ValueOf(c).Elem().Field(field.index)

@@ -80,6 +80,12 @@
         </el-menu-item>
       </el-submenu>
 
+      <!-- 节点管理：仅当发现到多于 1 个节点(含本机)时显示，单机用户无节点管理入口 -->
+      <el-menu-item index="/admin/set/cluster" v-if="clusterMenuVisible">
+        <i class="el-icon-s-platform"></i>
+        <span slot="title">节点管理</span>
+      </el-menu-item>
+
     </el-menu>
   </div>
 
@@ -94,11 +100,13 @@ export default {
   data() {
     return {
       brand: { title: "", logo: "" },
+      clusterMenuVisible: false,
     }
   },
   props: ['is_active'],
   mounted() {
     this.loadBrand();
+    this.loadClusterMenuVisible();
     // 监听品牌更新事件：管理后台保存品牌配置后，立即重新加载并应用（无需刷新页面）
     this._brandHandler = () => { this.loadBrand() };
     window.addEventListener('remlink:brand-updated', this._brandHandler);
@@ -116,6 +124,13 @@ export default {
           applyBrandToDocument(this.brand)
         }
       }).catch(() => { })
+    },
+    // 节点管理菜单仅在发现到多于 1 个节点(含本机)时显示；单机 SQLite 用户无节点管理入口
+    loadClusterMenuVisible() {
+      axios.get('/cluster/nodes').then(resp => {
+        const d = resp.data && resp.data.data
+        this.clusterMenuVisible = Array.isArray(d) && d.length > 1
+      }).catch(() => { this.clusterMenuVisible = false })
     },
     // 打开诊断工具：未启用时在当前页报错，而不是跳转新页面显示 403
     openDebugTool(url) {

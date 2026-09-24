@@ -55,6 +55,8 @@ var backupTables = []backupTable{
 	{"webvpn_app", "WebVPN应用", "business", WebVpnApp{}},
 	{"webvpn_audit", "WebVPN审计", "log", WebVpnAudit{}},
 	{"webvpn_revoke", "WebVPN会话吊销", "business", WebVpnRevoke{}},
+	// 节点注册表：心跳维护的临时注册数据，不属于业务数据，仅登记以满足 TableModels 与备份表 1:1 契约；默认全量备份只取 business 组，故不会被实际备份
+	{"cluster_node", "节点", "system", ClusterNode{}},
 }
 
 func backupTableByNameMap() map[string]backupTable {

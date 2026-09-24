@@ -114,6 +114,12 @@ func getMemPercent() float64 {
 	return decimal(m.UsedPercent)
 }
 
+// 导出 CPU 使用率，供节点总览
+func GetCpuPercent() float64 { return getCpuPercent() }
+
+// 导出内存使用率，供节点总览
+func GetMemPercent() float64 { return getMemPercent() }
+
 func decimal(f float64) float64 {
 	i := int(f * 100)
 	return float64(i) / 100

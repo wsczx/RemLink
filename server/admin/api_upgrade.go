@@ -2,9 +2,11 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
@@ -49,34 +51,23 @@ func CheckUpgrade(w http.ResponseWriter, r *http.Request) {
 	RespSucess(w, data)
 }
 
-func StartUpgrade(w http.ResponseWriter, r *http.Request) {
-	upgradeMux.Lock()
-	if upgradeState != nil && upgradeState.Running {
-		upgradeMux.Unlock()
-		RespError(w, RespInternalErr, "已有升级任务在运行")
-		return
-	}
-
-	info, needUpgrade, err := base.CheckUpdate(getUpgradeSource())
-	if err != nil {
-		upgradeMux.Unlock()
-		RespError(w, RespInternalErr, "获取更新信息失败: ", err)
-		return
-	}
-	if !needUpgrade {
-		upgradeMux.Unlock()
-		RespError(w, RespParamErr, "当前已是最新版本")
-		return
-	}
-
-	upgradeState = &UpgradeState{
-		Running: true,
-		Stage:   "downloading",
-		Info:    info,
-	}
-	upgradeMux.Unlock()
-
-	defer func() {
+// 后台执行升级：下载/替换/重启，并同步进度到全局 upgradeState（非阻塞）
+func runUpgrade(info *base.ReleaseInfo) {
+	progressCh := make(chan base.UpgradeProgress, 10)
+	go func() {
+		defer close(progressCh)
+		base.DoUpgrade(info, progressCh)
+	}()
+	go func() {
+		for p := range progressCh {
+			upgradeMux.Lock()
+			if upgradeState != nil {
+				upgradeState.Stage = p.Stage
+				upgradeState.Progress = p.Progress
+				upgradeState.Error = p.Error
+			}
+			upgradeMux.Unlock()
+		}
 		upgradeMux.Lock()
 		if upgradeState != nil {
 			upgradeState.Running = false
@@ -87,8 +78,50 @@ func StartUpgrade(w http.ResponseWriter, r *http.Request) {
 		}
 		upgradeMux.Unlock()
 	}()
+}
 
-	dbdata.AdminLog("系统设置", "在线升级", fmt.Sprintf("从 %s 升级到 %s", base.APP_VER, info.Version), r.RemoteAddr)
+// 触发本机在线升级（非阻塞）：检查更新后立即后台执行，进度见 UpgradeStatusHandler
+func beginUpgrade() (string, error) {
+	upgradeMux.Lock()
+	if upgradeState != nil && upgradeState.Running {
+		upgradeMux.Unlock()
+		return "", errors.New("已有升级任务在运行")
+	}
+	info, needUpgrade, err := base.CheckUpdate(getUpgradeSource())
+	if err != nil {
+		upgradeMux.Unlock()
+		return "", fmt.Errorf("获取更新信息失败: %w", err)
+	}
+	if !needUpgrade {
+		upgradeMux.Unlock()
+		return "", errors.New("当前已是最新版本")
+	}
+	upgradeState = &UpgradeState{Running: true, Stage: "downloading", Info: info}
+	upgradeMux.Unlock()
+
+	runUpgrade(info)
+	return info.Version, nil
+}
+
+// 本机升级触发端点：供系统设置页以外的场景调用（节点管理经 /cluster/upgrade 转发，
+// 对端节点经节点间令牌调用），非阻塞、立即返回，进度见 UpgradeStatusHandler
+func handleUpgradeStart(w http.ResponseWriter, r *http.Request) {
+	version, err := beginUpgrade()
+	if err != nil {
+		RespError(w, RespInternalErr, err.Error())
+		return
+	}
+	RespSucess(w, map[string]any{"message": "upgrade scheduled", "version": version})
+}
+
+// 本机升级（SSE 流式）：复用 triggerUpgrade 触发后台升级，再轮询全局状态推流
+func StartUpgrade(w http.ResponseWriter, r *http.Request) {
+	version, err := beginUpgrade()
+	if err != nil {
+		RespError(w, RespInternalErr, err.Error())
+		return
+	}
+	dbdata.AdminLog("系统设置", "在线升级", fmt.Sprintf("从 %s 升级到 %s", base.APP_VER, version), r.RemoteAddr)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -101,26 +134,20 @@ func StartUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	progressCh := make(chan base.UpgradeProgress, 10)
-
-	go base.DoUpgrade(info, progressCh)
-
-	for p := range progressCh {
+	for {
 		upgradeMux.Lock()
-		if upgradeState != nil {
-			upgradeState.Stage = p.Stage
-			upgradeState.Progress = p.Progress
-			upgradeState.Error = p.Error
-		}
+		st := upgradeState
 		upgradeMux.Unlock()
-
-		data, _ := json.Marshal(p)
-		fmt.Fprintf(w, "data: %s\n\n", data)
-		flusher.Flush()
-
-		if p.Stage == "done" || p.Stage == "error" {
+		if st == nil {
 			break
 		}
+		data, _ := json.Marshal(base.UpgradeProgress{Stage: st.Stage, Progress: st.Progress, Error: st.Error})
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+		if st.Stage == "done" || st.Stage == "error" {
+			break
+		}
+		time.Sleep(300 * time.Millisecond)
 	}
 }
 

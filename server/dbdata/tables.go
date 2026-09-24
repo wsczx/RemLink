@@ -15,7 +15,6 @@ type Group struct {
 	PolicyId    int             `json:"policy_id" xorm:"Int"`     // 引用策略 ID
 	AuthProfile json.RawMessage `json:"auth_profile" xorm:"Text"` // 认证方式（Pipeline 格式 JSON）
 	Status      int8            `json:"status" xorm:"Int"`        // 1正常
-	Hidden      int8            `json:"hidden" xorm:"Int"`        // 1=对客户端隐藏(不出现在组选择列表)
 
 	ClientCidr    string `json:"client_cidr" xorm:"varchar(32)"`    // IP 网段
 	ClientStart   string `json:"client_start" xorm:"varchar(32)"`   // 起始IP
