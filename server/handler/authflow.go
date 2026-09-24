@@ -105,12 +105,24 @@ func (f *Flow) dispatch(w http.ResponseWriter, r *http.Request, result *auth.Pip
 	}
 }
 
-// 维护挑战阶段的锁定计数：首次进入重置，挑战码错误则累加
-func (f *Flow) handlePendingLock(result *auth.PipelineResult) {
+// 挑战阶段锁定计数决策：返回 true 表示按成功清计数，false 表示按失败累加
+// 规则：① 挑战码错误（原地踏步，IsChallengeRetry）计失败；② 非挑战重试但无活动挑战（异常态）也计失败；③ 其余（正常进入挑战）清计数
+func (f *Flow) pendingLockDecision(result *auth.PipelineResult) bool {
 	if result.IsChallengeRetry() {
-		lockManager.Fail(f.Username, f.RemoteAddr)
-	} else {
+		return false
+	}
+	if result.Challenge == nil {
+		return false
+	}
+	return true
+}
+
+// 维护挑战阶段的锁定计数：挑战码错误则累加；首次进入挑战（带 Challenge）按成功清计数
+func (f *Flow) handlePendingLock(result *auth.PipelineResult) {
+	if f.pendingLockDecision(result) {
 		lockManager.Success(f.Username, f.RemoteAddr)
+	} else {
+		lockManager.Fail(f.Username, f.RemoteAddr)
 	}
 }
 
