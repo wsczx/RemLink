@@ -40,7 +40,7 @@
       </div>
     </div>
 
-    <!-- 在线用户表格 -->
+    <!-- 在线用户：多节点按节点分块（首块本机，其余各一块）；单节点直接扁平展示 -->
     <el-card class="table-card" shadow="never" v-loading="loading">
       <div slot="header" class="card-header">
         <span class="card-title"><i class="el-icon-user-solid"></i> 在线用户列表</span>
@@ -60,92 +60,109 @@
         </div>
       </div>
 
-      <div class="online-table-wrap">
-        <el-table ref="multipleTable" :data="tableData" stripe highlight-current-row border style="width:100%"
-          :header-cell-style="{ background: '#fafafa', color: '#303133', fontWeight: '600', fontSize: '13px' }">
-          <el-table-column sortable type="index" label="#" width="50" align="center"></el-table-column>
-          <el-table-column prop="username" label="用户名" min-width="120" show-overflow-tooltip sortable>
-            <template slot-scope="scope">
-              <span class="online-username">{{ userLabel(scope.row.username, scope.row.nickname) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="group" label="登录组" width="100" align="center" sortable>
-            <template slot-scope="scope">
-              <el-tag v-if="scope.row.group" size="mini" effect="plain">{{ scope.row.group }}</el-tag>
-              <span v-else class="text-muted">-</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="mac_addr" label="MAC地址" width="150" show-overflow-tooltip sortable></el-table-column>
-          <el-table-column prop="unique_mac" label="唯一MAC" width="85" align="center" sortable>
-            <template slot-scope="scope">
-              <el-tag v-if="scope.row.unique_mac" type="success" size="mini" effect="plain">是</el-tag>
-              <el-tag v-else type="info" size="mini" effect="plain">否</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="ip" label="IP地址" width="180" show-overflow-tooltip sortable></el-table-column>
-          <el-table-column prop="remote_addr" label="远端地址" width="180" show-overflow-tooltip sortable></el-table-column>
-          <el-table-column prop="transport_protocol" label="传输协议" width="90" align="center" sortable>
-            <template slot-scope="scope">
-              <el-tag size="mini" effect="plain" type="info">{{ scope.row.transport_protocol || '-' }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="客户端" width="80" align="center">
-            <template slot-scope="scope">
-              <i v-if="scope.row.client === 'mobile'" class="el-icon-mobile-phone client-mobile"
-                :title="clientLabel(scope.row)"></i>
-              <i v-else class="el-icon-s-platform client-desktop" :title="clientLabel(scope.row)"></i>
-            </template>
-          </el-table-column>
-          <el-table-column label="状态" width="90" align="center">
-            <template slot-scope="scope">
-              <el-tag v-if="scope.row.is_active" type="success" size="mini" effect="dark">在线</el-tag>
-              <el-tag v-else type="info" size="mini" effect="plain">休眠</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="实时上行/下行" width="180" align="center">
-            <template slot-scope="scope">
-              <span class="bw-up">{{ scope.row.bandwidth_up }}</span>
-              <span class="bw-divider">/</span>
-              <span class="bw-down">{{ scope.row.bandwidth_down }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="总量上行/下行" width="190" align="center">
-            <template slot-scope="scope">
-              <span class="bw-total-up">{{ scope.row.bandwidth_up_all }}</span>
-              <span class="bw-divider">/</span>
-              <span class="bw-total-down">{{ scope.row.bandwidth_down_all }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="流量配额" width="160" align="center">
-            <template slot-scope="scope">
-              <span v-if="scope.row.traffic_quota" class="quota-cell">
-                <span class="quota-used">{{ scope.row.traffic_used }}</span>
-                <span class="quota-divider">/</span>
-                <span class="quota-total">{{ scope.row.traffic_quota }}</span>
-                <span class="quota-reset" v-if="scope.row.traffic_reset">{{ resetLabel(scope.row.traffic_reset)
-                  }}</span>
-              </span>
-              <span v-else class="text-muted">不限</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="last_login" label="登录时间" :formatter="tableDateFormat" width="165"
-            sortable></el-table-column>
-          <el-table-column label="操作" width="120" class-name="col-ops" min-width="120" align="center">
-            <template slot-scope="scope">
-              <el-dropdown trigger="click" @command="(cmd) => handleRowCmd(scope.row, cmd)">
-                <el-button size="mini" class="action-more-btn">
-                  操作<i class="el-icon-arrow-down el-icon--right"></i>
-                </el-button>
-                <el-dropdown-menu slot="dropdown">
-                  <el-dropdown-item command="reline" icon="el-icon-refresh"
-                    :disabled="!scope.row.is_active">重连</el-dropdown-item>
-                  <el-dropdown-item command="offline" icon="el-icon-switch-button" divided
-                    :disabled="!scope.row.is_active" class="dropdown-danger">下线</el-dropdown-item>
-                </el-dropdown-menu>
-              </el-dropdown>
-            </template>
-          </el-table-column>
-        </el-table>
+      <div :class="isMultiNode ? 'node-blocks' : 'node-blocks node-blocks--flat'">
+        <div v-for="n in nodes" :key="n.node_id" :class="isMultiNode ? 'node-block' : 'node-block node-block--flat'">
+          <div class="node-block-head" v-if="isMultiNode">
+            <span class="node-block-title">
+              <el-tag v-if="n.is_self" type="success" size="mini" effect="plain">本机</el-tag>
+              <span class="node-block-name">{{ n.node_name || '本节点' }}</span>
+            </span>
+            <span class="node-block-count">{{ blockSessions(n).length }} 人在线</span>
+            <el-tag v-if="!n.reachable" type="danger" size="mini">不可达</el-tag>
+          </div>
+          <el-alert v-if="isMultiNode && !n.reachable" type="error" :closable="false"
+            :title="n.error || '节点不可达，无法获取在线用户'" class="node-block-alert" />
+          <div v-else class="online-table-wrap">
+            <el-table :data="blockSessions(n)" stripe highlight-current-row border
+              style="width:100%"
+              :header-cell-style="{ background: '#fafafa', color: '#303133', fontWeight: '600', fontSize: '13px' }">
+              <el-table-column sortable type="index" label="#" width="50" align="center"></el-table-column>
+              <el-table-column prop="username" label="用户名" min-width="120" show-overflow-tooltip sortable>
+                <template slot-scope="scope">
+                  <span class="online-username">{{ userLabel(scope.row.username, scope.row.nickname) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="group" label="登录组" width="100" align="center" sortable>
+                <template slot-scope="scope">
+                  <el-tag v-if="scope.row.group" size="mini" effect="plain">{{ scope.row.group }}</el-tag>
+                  <span v-else class="text-muted">-</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="mac_addr" label="MAC地址" width="150" show-overflow-tooltip
+                sortable></el-table-column>
+              <el-table-column prop="unique_mac" label="唯一MAC" width="85" align="center" sortable>
+                <template slot-scope="scope">
+                  <el-tag v-if="scope.row.unique_mac" type="success" size="mini" effect="plain">是</el-tag>
+                  <el-tag v-else type="info" size="mini" effect="plain">否</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="ip" label="IP地址" width="180" show-overflow-tooltip sortable></el-table-column>
+              <el-table-column prop="remote_addr" label="远端地址" width="180" show-overflow-tooltip
+                sortable></el-table-column>
+              <el-table-column prop="transport_protocol" label="传输协议" width="90" align="center" sortable>
+                <template slot-scope="scope">
+                  <el-tag size="mini" effect="plain" type="info">{{ scope.row.transport_protocol || '-' }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="客户端" width="80" align="center">
+                <template slot-scope="scope">
+                  <i v-if="scope.row.client === 'mobile'" class="el-icon-mobile-phone client-mobile"
+                    :title="clientLabel(scope.row)"></i>
+                  <i v-else class="el-icon-s-platform client-desktop" :title="clientLabel(scope.row)"></i>
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" width="90" align="center">
+                <template slot-scope="scope">
+                  <el-tag v-if="scope.row.is_active" type="success" size="mini" effect="dark">在线</el-tag>
+                  <el-tag v-else type="info" size="mini" effect="plain">休眠</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="实时上行/下行" width="180" align="center">
+                <template slot-scope="scope">
+                  <span class="bw-up">{{ scope.row.bandwidth_up }}</span>
+                  <span class="bw-divider">/</span>
+                  <span class="bw-down">{{ scope.row.bandwidth_down }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="总量上行/下行" width="190" align="center">
+                <template slot-scope="scope">
+                  <span class="bw-total-up">{{ scope.row.bandwidth_up_all }}</span>
+                  <span class="bw-divider">/</span>
+                  <span class="bw-total-down">{{ scope.row.bandwidth_down_all }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="流量配额" width="160" align="center">
+                <template slot-scope="scope">
+                  <span v-if="scope.row.traffic_quota" class="quota-cell">
+                    <span class="quota-used">{{ scope.row.traffic_used }}</span>
+                    <span class="quota-divider">/</span>
+                    <span class="quota-total">{{ scope.row.traffic_quota }}</span>
+                    <span class="quota-reset" v-if="scope.row.traffic_reset">{{ resetLabel(scope.row.traffic_reset)
+                    }}</span>
+                  </span>
+                  <span v-else class="text-muted">不限</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="last_login" label="登录时间" :formatter="tableDateFormat" width="165"
+                sortable></el-table-column>
+              <el-table-column label="操作" width="120" class-name="col-ops" min-width="120" align="center">
+                <template slot-scope="scope">
+                  <el-dropdown trigger="click" @command="(cmd) => handleRowCmd(scope.row, cmd)">
+                    <el-button size="mini" class="action-more-btn">
+                      操作<i class="el-icon-arrow-down el-icon--right"></i>
+                    </el-button>
+                    <el-dropdown-menu slot="dropdown">
+                      <el-dropdown-item command="reline" icon="el-icon-refresh"
+                        :disabled="!scope.row.is_active">重连</el-dropdown-item>
+                      <el-dropdown-item command="offline" icon="el-icon-switch-button" divided
+                        :disabled="!scope.row.is_active" class="dropdown-danger">下线</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </el-dropdown>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </div>
       </div>
     </el-card>
   </div>
@@ -170,27 +187,47 @@ export default {
   data() {
     return {
       loading: true,
-      tableData: [],
+      nodes: [],
       searchCate: 'username',
       searchText: '',
       showSleeper: false,
     }
   },
   computed: {
-    // 当前在线：仅统计真实在线（is_active=true）的会话
-    statOnline() { return this.tableData.filter(r => r.is_active).length },
-    // 全部展示行数（含休眠态）
-    statTotal() { return this.tableData.length },
-    statMobile() { return this.tableData.filter(r => r.is_active && r.client === 'mobile').length },
-    statDesktop() { return this.tableData.filter(r => r.is_active && r.client !== 'mobile').length },
-    // 休眠用户：已掉线但仍在等待清理/重连
-    statSleeper() { return this.tableData.filter(r => !r.is_active).length },
+    // 全部可达节点的会话（带节点标记），供顶部统计
+    allSessions() {
+      const rows = []
+      this.nodes.forEach(n => {
+        if (!n.reachable) return
+          ; (n.sessions || []).forEach(s =>
+            rows.push(Object.assign({}, s, { node_id: n.node_id, node_name: n.node_name, is_self: n.is_self })))
+      })
+      return rows
+    },
+    // 搜索 + 休眠开关过滤后的全局数据
+    filteredAll() {
+      let rows = this.allSessions
+      if (!this.showSleeper) rows = rows.filter(r => r.is_active)
+      const t = (this.searchText || '').trim().toLowerCase()
+      if (t) {
+        const cate = this.searchCate
+        rows = rows.filter(r => r[cate] != null && String(r[cate]).toLowerCase().includes(t))
+      }
+      return rows
+    },
+    statOnline() { return this.filteredAll.filter(r => r.is_active).length },
+    statTotal() { return this.filteredAll.length },
+    statMobile() { return this.filteredAll.filter(r => r.is_active && r.client === 'mobile').length },
+    statDesktop() { return this.filteredAll.filter(r => r.is_active && r.client !== 'mobile').length },
+    statSleeper() { return this.filteredAll.filter(r => !r.is_active).length },
+    // 仅多节点（>1 个）才分块展示；单节点恒为 1 个本机节点，应扁平呈现
+    isMultiNode() { return this.nodes.length > 1 },
   },
   methods: {
     handleRowCmd(row, cmd) {
       switch (cmd) {
         case 'reline':
-          axios.post('/user/reline?token=' + row.token).then(resp => {
+          axios.post('/cluster/session/reline', { node: row.node_id, token: row.token }).then(resp => {
             if (resp.data.code === 0) { this.$message.success(resp.data.msg); this.getData(); }
             else { this.$message.error(resp.data.msg); }
           }).catch(() => { this.$message.error('请求出错'); });
@@ -200,7 +237,7 @@ export default {
             confirmButtonText: '确定', cancelButtonText: '取消',
             type: 'warning', confirmButtonClass: 'el-button--danger',
           }).then(() => {
-            axios.post('/user/offline?token=' + row.token).then(resp => {
+            axios.post('/cluster/session/kick', { node: row.node_id, token: row.token }).then(resp => {
               if (resp.data.code === 0) { this.$message.success(resp.data.msg); this.getData(); }
               else { this.$message.error(resp.data.msg); }
             }).catch(() => { this.$message.error('请求出错'); });
@@ -229,12 +266,22 @@ export default {
       }
     },
     getData() {
-      axios.get('/user/online', {
-        params: { search_cate: this.searchCate, search_text: this.searchText, show_sleeper: this.showSleeper, one_offline: false }
-      }).then(resp => {
-        this.tableData = resp.data.data.datas || [];
+      axios.get('/cluster/sessions').then(resp => {
+        this.nodes = (resp.data && resp.data.data) || [];
         this.loading = false;
       }).catch(() => { this.$message.error('请求出错'); this.loading = false; });
+    },
+    // 单节点块的会话：节点内独立应用搜索/休眠过滤
+    blockSessions(n) {
+      let rows = (n.sessions || []).map(s =>
+        Object.assign({}, s, { node_id: n.node_id, node_name: n.node_name, is_self: n.is_self }));
+      if (!this.showSleeper) rows = rows.filter(r => r.is_active);
+      const t = (this.searchText || '').trim().toLowerCase();
+      if (t) {
+        const cate = this.searchCate;
+        rows = rows.filter(r => r[cate] != null && String(r[cate]).toLowerCase().includes(t));
+      }
+      return rows;
     },
   },
 }
@@ -386,6 +433,63 @@ export default {
 .online-table-wrap {
   overflow-x: auto;
   width: 100%;
+}
+
+/* ========== 节点分块 ========== */
+.node-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.node-block {
+  border: 1px solid var(--border-light, #ebeef5);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.node-block-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-header, #fafafa);
+  border-bottom: 1px solid var(--border-light, #ebeef5);
+}
+
+.node-block-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.node-block-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.node-block-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.node-block-alert {
+  margin: 0;
+  border-radius: 0;
+}
+
+/* 单节点：去掉分块外框，呈现为普通扁平表格 */
+.node-block--flat {
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+}
+
+.node-blocks--flat {
+  gap: 0;
 }
 
 /* 响应式 */

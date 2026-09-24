@@ -219,8 +219,15 @@ func SetSoftEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dbdata.AdminLog("系统设置", req.Name, "修改了系统配置: "+req.Name+"="+formatConfigValue(req.Name, req.Data), r.RemoteAddr)
+	// 多节点模式：将字段同步推送到其它在线节点
+	var failedNodes []string
+	if fn := syncConfigToPeers(req.Name, req.Data); len(fn) > 0 {
+		failedNodes = fn
+		dbdata.AdminLog("节点", "配置同步", "配置部分节点同步失败: "+strings.Join(fn, ","), r.RemoteAddr)
+	}
 	RespSucess(w, map[string]any{
-		"restart": restart,
+		"restart":      restart,
+		"failed_nodes": failedNodes,
 	})
 }
 
@@ -267,8 +274,17 @@ func SetIPv4Config(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbdata.AdminLog("系统设置", "ipv4_config", "修改了 IPv4 网络配置", r.RemoteAddr)
+	// 多节点模式：字段同步推送到其它在线节点
+	var allFailed []string
+	for name, value := range fields {
+		if fn := syncConfigToPeers(name, value); len(fn) > 0 {
+			allFailed = append(allFailed, fn...)
+			dbdata.AdminLog("节点", "配置同步", "IPv4 配置部分节点同步失败: "+strings.Join(fn, ","), r.RemoteAddr)
+		}
+	}
 	RespSucess(w, map[string]any{
-		"restart": restart,
+		"restart":      restart,
+		"failed_nodes": allFailed,
 	})
 }
 
@@ -330,19 +346,26 @@ var (
 )
 
 func SetRestart(w http.ResponseWriter, r *http.Request) {
+	if !selfRestart(r.RemoteAddr) {
+		RespError(w, RespInternalErr, "重启进行中，请稍后再试")
+		return
+	}
+	RespSucess(w, map[string]any{
+		"message": "restart scheduled",
+	})
+}
+
+// 触发本节点重启，供本地 /cluster 调用复用；返回 true 表示已发起，false 表示已在重启中
+func selfRestart(remoteAddr string) bool {
 	restartMux.Lock()
 	if restarting {
 		restartMux.Unlock()
-		RespError(w, RespInternalErr, "重启进行中，请稍后再试")
-		return
+		return false
 	}
 	restarting = true
 	restartMux.Unlock()
 
-	dbdata.AdminLog("系统设置", "系统重启", "触发了系统重启", r.RemoteAddr)
-	RespSucess(w, map[string]any{
-		"message": "restart scheduled",
-	})
+	dbdata.AdminLog("系统设置", "系统重启", "触发了系统重启", remoteAddr)
 	go func() {
 		time.Sleep(time.Second)
 		// 重启前清理所有后端防火墙规则并关闭数据库
@@ -362,6 +385,7 @@ func SetRestart(w http.ResponseWriter, r *http.Request) {
 			restartMux.Unlock()
 		}
 	}()
+	return true
 }
 
 // 返回各表行数，供前端展示并决定排除哪些大表

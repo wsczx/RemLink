@@ -7,6 +7,7 @@ export default {
     return {
       syslogWs: null,
       syslogWsLive: true,
+      syslogWsNode: '',              // 当前查看实时日志的节点（空=本机），与历史日志共用 historyNode
       syslogWsConnected: false,     // 响应式连接状态
       syslogWsReconnectTimer: null,
       syslogWsReconnectDelay: 3000,
@@ -14,11 +15,13 @@ export default {
   },
 
   methods: {
-    /** 建立 WebSocket 连接 */
-    syslogWsConnect() {
+    /** 建立 WebSocket 连接（node 为空表示本机，非空表示集群中指定节点） */
+    syslogWsConnect(node) {
       if (this.syslogWs && this.syslogWs.readyState === WebSocket.OPEN) return
+      this.syslogWsNode = node || ''
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const wsUrl = `${protocol}//${location.host}/set/syslog/ws`
+      const query = this.syslogWsNode ? '?node=' + encodeURIComponent(this.syslogWsNode) : ''
+      const wsUrl = `${protocol}//${location.host}/cluster/syslog/ws${query}`
       try {
         this.syslogWs = new WebSocket(wsUrl)
         this.syslogWs.onopen = this.onSyslogWsOpen
@@ -90,7 +93,7 @@ export default {
       this.syslogWsReconnectTimer = setTimeout(() => {
         this.syslogWsReconnectTimer = null
         if (this.syslogWsLive) {
-          this.syslogWsConnect()
+          this.syslogWsConnect(this.syslogWsNode)
         }
       }, this.syslogWsReconnectDelay)
       this.syslogWsReconnectDelay = Math.min(this.syslogWsReconnectDelay * 1.5, 30000)

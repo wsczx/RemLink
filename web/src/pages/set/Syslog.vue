@@ -4,6 +4,10 @@
       <div class="syslog-toolbar">
         <div class="toolbar-left">
           <span class="mode-badge mode-live"><span class="mode-icon"></span>实时日志</span>
+          <el-select v-if="nodeOptions.length > 1" v-model="historyNode" size="mini" placeholder="本机"
+            style="width: 160px; margin-right: 8px" @change="onNodeChange" title="选择要查看实时日志的节点（默认本机）">
+            <el-option v-for="n in nodeOptions" :key="n.value" :label="n.label" :value="n.value"></el-option>
+          </el-select>
           <el-switch v-model="syslogWsLive" active-text="实时" inactive-text="暂停" @change="onLiveToggle" size="small">
           </el-switch>
           <span class="conn-status" v-if="syslogWsLive" :class="{ connected: syslogWsConnected }">
@@ -57,6 +61,10 @@
       <div class="syslog-toolbar">
         <div class="toolbar-left">
           <span class="mode-badge mode-history"><span class="mode-icon"></span>历史日志</span>
+          <el-select v-if="nodeOptions.length > 1" v-model="historyNode" size="mini" placeholder="本机"
+            style="width: 160px; margin-left: 8px" @change="onNodeChange" title="选择要查看历史日志的节点（默认本机）">
+            <el-option v-for="n in nodeOptions" :key="n.value" :label="n.label" :value="n.value"></el-option>
+          </el-select>
           <el-date-picker v-model="historyDate" type="date" value-format="yyyy-MM-dd" size="mini" placeholder="选择日期"
             :clearable="false" @change="onHistoryFilterChange" style="margin-left: 4px">
           </el-date-picker>
@@ -117,12 +125,13 @@ export default {
   name: "Syslog",
   mixins: [syslogWsMixin],
   mounted() {
-    this.syslogWsConnect();
+    this.syslogWsConnect(this.historyNode);
   },
   created() {
     this.$emit('update:route_path', this.$route.path)
     this.$emit('update:route_name', ['日志审计', '系统日志'])
     this.checkHistoryEnabled()
+    this.loadClusterNodes()
   },
   data() {
     return {
@@ -133,6 +142,8 @@ export default {
       autoScroll: true,
       mode: 'live',
       historyEnabled: false,
+      historyNode: '',
+      nodeOptions: [],
       historyDate: '',
       historyLevel: '',
       historyKeyword: '',
@@ -187,7 +198,7 @@ export default {
 
     onLiveToggle(val) {
       if (val) {
-        this.syslogWsConnect()
+        this.syslogWsConnect(this.historyNode)
       } else {
         this.syslogWsDisconnect()
       }
@@ -284,6 +295,21 @@ export default {
       }
     },
 
+    async loadClusterNodes() {
+      try {
+        const resp = await axios.get('/cluster/nodes')
+        if (resp.data && resp.data.code === 0) {
+          const nodes = resp.data.data || []
+          this.nodeOptions = nodes.map(n => ({
+            value: n.id,
+            label: n.is_self ? (n.name || '本机') + '（本机）' : (n.name || n.id)
+          }))
+        }
+      } catch (e) {
+        this.nodeOptions = []
+      }
+    },
+
     switchToHistory() {
       if (!this.historyEnabled) return
       this.mode = 'history'
@@ -296,6 +322,17 @@ export default {
 
     onHistoryFilterChange() {
       this.loadHistoryLastPage()
+    },
+
+    // 切换实时日志节点：实时 WS 跟随所选节点重连；历史视图同步刷新
+    onNodeChange() {
+      if (this.syslogWsLive) {
+        this.syslogWsDisconnect()
+        this.syslogWsConnect(this.historyNode)
+      }
+      if (this.mode === 'history') {
+        this.loadHistoryLastPage()
+      }
     },
 
     onHistoryScroll() {
@@ -323,9 +360,11 @@ export default {
           page: this.historyPage,
           page_size: this.historyPageSize,
         }
+        if (this.historyNode) params.node = this.historyNode
         if (this.historyLevel) params.level = this.historyLevel
         if (this.historyKeyword) params.keyword = this.historyKeyword
-        const resp = await axios.get('/set/syslog/history_list', { params })
+        const url = '/cluster/syslog/history'
+        const resp = await axios.get(url, { params })
         if (resp.data && resp.data.code === 0) {
           const d = resp.data.data
           const datas = d.datas || []

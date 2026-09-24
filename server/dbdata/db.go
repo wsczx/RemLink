@@ -41,6 +41,7 @@ func TableModels() []any {
 		&WebVpnApp{},
 		&WebVpnAudit{},
 		&WebVpnRevoke{},
+		&ClusterNode{},
 	}
 }
 

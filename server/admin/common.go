@@ -132,3 +132,15 @@ func GetJwtData(jwtToken string) (map[string]any, error) {
 
 	return claims, nil
 }
+
+// 节点间专用 JWT 声明
+const ClusterJwtAud = "remlink-cluster"
+
+// 签发节点间专用 JWT（aud=remlink-cluster，iss=本节点 node_id），仅可用于 /cluster/* 与 /set/restart
+func SetClusterJwtData() (string, error) {
+	return SetJwtData(map[string]any{
+		"aud":     ClusterJwtAud,
+		"iss":     base.GetNodeId(),
+		"cluster": true,
+	}, time.Now().Add(5*time.Minute).Unix())
+}

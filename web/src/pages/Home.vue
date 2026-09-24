@@ -58,12 +58,13 @@
         <div class="chart-card">
           <div class="chart-card-header">
             <span class="chart-card-title">用户在线数</span>
-            <el-select size="small" v-model="lineChartGroup.online" @change="lineChartGroupChange('online')" class="chart-group-select">
-              <el-option v-for="(item,index) in groupNames" :key="index" :label="item.text" :value="item.value" />
+            <el-select size="small" v-model="lineChartGroup.online" @change="lineChartGroupChange('online')"
+              class="chart-group-select">
+              <el-option v-for="(item, index) in groupNames" :key="index" :label="item.text" :value="item.value" />
             </el-select>
           </div>
           <div class="chart-card-toolbar">
-            <el-radio-group v-model="lineChartScope.online" size="mini" @change="(l)=>lineChartScopeChange('online',l)">
+            <el-radio-group v-model="lineChartScope.online" size="mini" @change="(l) => lineChartScopeChange('online', l)">
               <el-radio-button label="rt">实时</el-radio-button>
               <el-radio-button label="1h">1小时</el-radio-button>
               <el-radio-button label="24h">24小时</el-radio-button>
@@ -79,12 +80,14 @@
         <div class="chart-card">
           <div class="chart-card-header">
             <span class="chart-card-title">网络吞吐量</span>
-            <el-select size="small" v-model="lineChartGroup.network" @change="lineChartGroupChange('network')" class="chart-group-select">
-              <el-option v-for="(item,index) in groupNames" :key="index" :label="item.text" :value="item.value" />
+            <el-select size="small" v-model="lineChartGroup.network" @change="lineChartGroupChange('network')"
+              class="chart-group-select">
+              <el-option v-for="(item, index) in groupNames" :key="index" :label="item.text" :value="item.value" />
             </el-select>
           </div>
           <div class="chart-card-toolbar">
-            <el-radio-group v-model="lineChartScope.network" size="mini" @change="(l)=>lineChartScopeChange('network',l)">
+            <el-radio-group v-model="lineChartScope.network" size="mini"
+              @change="(l) => lineChartScopeChange('network', l)">
               <el-radio-button label="rt">实时</el-radio-button>
               <el-radio-button label="1h">1小时</el-radio-button>
               <el-radio-button label="24h">24小时</el-radio-button>
@@ -104,7 +107,7 @@
             <span class="chart-card-title">CPU 使用率</span>
           </div>
           <div class="chart-card-toolbar">
-            <el-radio-group v-model="lineChartScope.cpu" size="mini" @change="(l)=>lineChartScopeChange('cpu',l)">
+            <el-radio-group v-model="lineChartScope.cpu" size="mini" @change="(l) => lineChartScopeChange('cpu', l)">
               <el-radio-button label="rt">实时</el-radio-button>
               <el-radio-button label="1h">1小时</el-radio-button>
               <el-radio-button label="24h">24小时</el-radio-button>
@@ -122,7 +125,7 @@
             <span class="chart-card-title">内存使用率</span>
           </div>
           <div class="chart-card-toolbar">
-            <el-radio-group v-model="lineChartScope.mem" size="mini" @change="(l)=>lineChartScopeChange('mem',l)">
+            <el-radio-group v-model="lineChartScope.mem" size="mini" @change="(l) => lineChartScopeChange('mem', l)">
               <el-radio-button label="rt">实时</el-radio-button>
               <el-radio-button label="1h">1小时</el-radio-button>
               <el-radio-button label="24h">24小时</el-radio-button>
@@ -158,7 +161,7 @@ export default {
         group: 0,
         ip_map: 0,
       },
-      groupNames:[],
+      groupNames: [],
       // 每张图各自维护最新请求序号，避免并发拉取时相互顶掉响应
       statsReqId: {
         online: 0,
@@ -168,49 +171,49 @@ export default {
       },
       lineChart: {
         online: {
-            title: '用户在线数',
-            xname: [],
-            xdata: {
-                '在线人数': [],
-            },
-            yminInterval: 1,
-            yname:"人数"
+          title: '用户在线数',
+          xname: [],
+          xdata: {
+            '在线人数': [],
+          },
+          yminInterval: 1,
+          yname: "人数"
         },
         network: {
-            title: '网络吞吐量',
-            xname: [],
-            xdata: {
-                '下行流量': [],
-                '上行流量': [],
-            },
-            yname:"Mbps"
+          title: '网络吞吐量',
+          xname: [],
+          xdata: {
+            '下行流量': [],
+            '上行流量': [],
+          },
+          yname: "Mbps"
         },
         cpu: {
-            title: 'CPU占用比例',
-            xname: [],
-            xdata: {
-                'CPU': [],
-            },
-            yname:"%"
+          title: 'CPU占用比例',
+          xname: [],
+          xdata: {
+            'CPU': [],
+          },
+          yname: "%"
         },
         mem: {
-                title: '内存占用比例',
-                xname: [],
-                xdata: {
-                    '内存': [],
-                },
-                yname:"%"
+          title: '内存占用比例',
+          xname: [],
+          xdata: {
+            '内存': [],
+          },
+          yname: "%"
         }
       },
-      lineChartScope : {
-            online: "rt",
-            network : "rt",
-            cpu : "rt",
-            mem : "rt"
+      lineChartScope: {
+        online: "rt",
+        network: "rt",
+        cpu: "rt",
+        mem: "rt"
       },
-      lineChartGroup : {
-            online: "",
-            network: "",
+      lineChartGroup: {
+        online: "",
+        network: "",
       }
     }
   },
@@ -222,8 +225,10 @@ export default {
     this.getData()
     this.getGroups()
     this.getAllStats()
+    this.getClusterOnline()
     const chartsTimer = setInterval(() => {
-        this.getAllStats()
+      this.getAllStats()
+      this.getClusterOnline()
     }, 10000);
     this.$once('hook:beforeDestroy', () => {
       clearInterval(chartsTimer);
@@ -231,157 +236,171 @@ export default {
   },
   methods: {
     getData() {
+      // 仅取共享库字段（用户/组/IP 映射本就是集群唯一数据源）；在线数由 getClusterOnline 汇总，避免被本机值覆盖
       axios.get('/set/home').then(resp => {
-        var data = resp.data.data
-        this.counts = data.counts
+        const data = resp.data.data
+        if (data && data.counts) {
+          this.counts.user = data.counts.user
+          this.counts.group = data.counts.group
+          this.counts.ip_map = data.counts.ip_map
+        }
       }).catch(() => {
         this.$message.error('请求出错');
       });
     },
+    // 当前在线：跨所有可达节点累加活跃会话（共享库不含在线态，各节点独立统计）
+    getClusterOnline() {
+      axios.get('/cluster/sessions').then(resp => {
+        const nodes = (resp.data && resp.data.data) || []
+        let online = 0
+        nodes.forEach(n => {
+          if (!n.reachable) return
+            ; (n.sessions || []).forEach(s => { if (s.is_active) online++ })
+        })
+        this.counts.online = online
+      }).catch(() => { });
+    },
     getAllStats() {
-        for (var action in this.lineChartScope){
-           if (this.lineChartScope[action] == "rt") {
-               this.getStatsData(action);
-           }
+      for (var action in this.lineChartScope) {
+        if (this.lineChartScope[action] == "rt") {
+          this.getStatsData(action);
         }
+      }
     },
     getStatsData(action, scope) {
-        if (!scope) {
-            scope = "rt"
+      if (!scope) {
+        scope = "rt"
+      }
+      const reqId = ++this.statsReqId[action]
+      let getData = { params: { "action": action, "scope": scope } }
+      axios.get('/statsinfo/list', getData).then(resp => {
+        if (reqId !== this.statsReqId[action]) return;
+        var data = resp.data.data
+        if (!data.datas) return;
+        data.action = action
+        data.scope = scope
+        switch (action) {
+          case "online": this.formatOnline(data); break;
+          case "network": this.formatNetwork(data); break;
+          case "cpu": this.formatCpu(data); break;
+          case "mem": this.formatMem(data); break;
         }
-        const reqId = ++this.statsReqId[action]
-        let getData = {params:{"action": action, "scope": scope}}
-        axios.get('/statsinfo/list', getData).then(resp => {
-            if (reqId !== this.statsReqId[action]) return;
-            var data = resp.data.data
-            if (! data.datas) return ;
-            data.action = action
-            data.scope = scope
-            switch(action) {
-                case "online": this.formatOnline(data); break;
-                case "network": this.formatNetwork(data); break;
-                case "cpu": this.formatCpu(data); break;
-                case "mem": this.formatMem(data); break;
-            }
-        }).catch((error) => {
-            if (error.response && error.response.status === 401) {
-               return ;
-            }
-            this.$message.error('请求出错');
-        });
+      }).catch((error) => {
+        if (error.response && error.response.status === 401) {
+          return;
+        }
+        this.$message.error('请求出错');
+      });
     },
     formatOnline(data) {
-        let timeFormat = this.getTimeFormat(data.scope)
-        let chartData = this.lineChart[data.action]
-        let chooseGroup = this.lineChartGroup[data.action]
-        let datas = data.datas
-        let xnum = 0
-        chartData.xname = []
-        chartData.xdata["在线人数"] = []
-        for(var i=0; i<datas.length;i++){
-            chartData.xname[i] = this.dateFormat(datas[i].created_at, timeFormat)
-            xnum = datas[i].num
-            if (chooseGroup != "" && xnum > 0) {
-                let num_groups = JSON.parse(datas[i].num_groups)
-                xnum = ! num_groups[chooseGroup] ? 0 : num_groups[chooseGroup]
-            }
-            chartData.xdata["在线人数"][i] = xnum
+      let timeFormat = this.getTimeFormat(data.scope)
+      let chartData = this.lineChart[data.action]
+      let chooseGroup = this.lineChartGroup[data.action]
+      let datas = data.datas
+      let xnum = 0
+      chartData.xname = []
+      chartData.xdata["在线人数"] = []
+      for (var i = 0; i < datas.length; i++) {
+        chartData.xname[i] = this.dateFormat(datas[i].created_at, timeFormat)
+        xnum = datas[i].num
+        if (chooseGroup != "" && xnum > 0) {
+          let num_groups = JSON.parse(datas[i].num_groups)
+          xnum = !num_groups[chooseGroup] ? 0 : num_groups[chooseGroup]
         }
-        if (data.scope == "rt" && chooseGroup == "" && datas.length > 0) {
-            this.counts.online = datas[datas.length - 1].num
-        }
-        this.lineChart[data.action] = chartData
+        chartData.xdata["在线人数"][i] = xnum
+      }
+      this.lineChart[data.action] = chartData
     },
     formatNetwork(data) {
-        let timeFormat = this.getTimeFormat(data.scope)
-        let chartData = this.lineChart[data.action]
-        let chooseGroup = this.lineChartGroup[data.action]
-        let datas = data.datas
-        let xnumUp = 0, xnumDown = 0
-        chartData.xname = []
-        chartData.xdata["上行流量"] = []
-        chartData.xdata["下行流量"] = []
-        for(var i=0; i<datas.length;i++){
-            chartData.xname[i] = this.dateFormat(datas[i].created_at, timeFormat)
-            xnumUp = datas[i].up
-            xnumDown = datas[i].down
-            if (chooseGroup != "") {
-                if (xnumUp > 0) {
-                    let upGroups = JSON.parse(datas[i].up_groups)
-                    xnumUp = ! upGroups[chooseGroup] ? 0 : upGroups[chooseGroup]
-                }
-                if (xnumDown > 0) {
-                    let downGroups = JSON.parse(datas[i].down_groups)
-                    xnumDown = ! downGroups[chooseGroup] ? 0 : downGroups[chooseGroup]
-                }
-            }
-            chartData.xdata["上行流量"][i] = this.toMbps(xnumUp)
-            chartData.xdata["下行流量"][i] = this.toMbps(xnumDown)
+      let timeFormat = this.getTimeFormat(data.scope)
+      let chartData = this.lineChart[data.action]
+      let chooseGroup = this.lineChartGroup[data.action]
+      let datas = data.datas
+      let xnumUp = 0, xnumDown = 0
+      chartData.xname = []
+      chartData.xdata["上行流量"] = []
+      chartData.xdata["下行流量"] = []
+      for (var i = 0; i < datas.length; i++) {
+        chartData.xname[i] = this.dateFormat(datas[i].created_at, timeFormat)
+        xnumUp = datas[i].up
+        xnumDown = datas[i].down
+        if (chooseGroup != "") {
+          if (xnumUp > 0) {
+            let upGroups = JSON.parse(datas[i].up_groups)
+            xnumUp = !upGroups[chooseGroup] ? 0 : upGroups[chooseGroup]
+          }
+          if (xnumDown > 0) {
+            let downGroups = JSON.parse(datas[i].down_groups)
+            xnumDown = !downGroups[chooseGroup] ? 0 : downGroups[chooseGroup]
+          }
         }
-        this.lineChart[data.action] = chartData
+        chartData.xdata["上行流量"][i] = this.toMbps(xnumUp)
+        chartData.xdata["下行流量"][i] = this.toMbps(xnumDown)
+      }
+      this.lineChart[data.action] = chartData
     },
     formatCpu(data) {
-        let timeFormat = this.getTimeFormat(data.scope)
-        let chartData = this.lineChart[data.action]
-        let datas = data.datas
-        chartData.xname = []
-        chartData.xdata["CPU"] = []
-        for(var i=0; i<datas.length;i++){
-            chartData.xname[i] = this.dateFormat(datas[i].created_at, timeFormat)
-            chartData.xdata["CPU"][i] = this.toDecimal(datas[i].percent)
-        }
-        this.lineChart[data.action] = chartData
+      let timeFormat = this.getTimeFormat(data.scope)
+      let chartData = this.lineChart[data.action]
+      let datas = data.datas
+      chartData.xname = []
+      chartData.xdata["CPU"] = []
+      for (var i = 0; i < datas.length; i++) {
+        chartData.xname[i] = this.dateFormat(datas[i].created_at, timeFormat)
+        chartData.xdata["CPU"][i] = this.toDecimal(datas[i].percent)
+      }
+      this.lineChart[data.action] = chartData
     },
     formatMem(data) {
-        let timeFormat = this.getTimeFormat(data.scope)
-        let chartData = this.lineChart[data.action]
-        let datas = data.datas
-        chartData.xname = []
-        chartData.xdata["内存"] = []
-        for(var i=0; i<datas.length;i++){
-            chartData.xname[i] = this.dateFormat(datas[i].created_at, timeFormat)
-            chartData.xdata["内存"][i] = this.toDecimal(datas[i].percent)
-        }
-        this.lineChart[data.action] = chartData
+      let timeFormat = this.getTimeFormat(data.scope)
+      let chartData = this.lineChart[data.action]
+      let datas = data.datas
+      chartData.xname = []
+      chartData.xdata["内存"] = []
+      for (var i = 0; i < datas.length; i++) {
+        chartData.xname[i] = this.dateFormat(datas[i].created_at, timeFormat)
+        chartData.xdata["内存"][i] = this.toDecimal(datas[i].percent)
+      }
+      this.lineChart[data.action] = chartData
     },
     getTimeFormat(scope) {
-        return (scope == "rt" || scope == "1h" || scope == "24h") ? "h:i:s" : "m/d h:i:s"
+      return (scope == "rt" || scope == "1h" || scope == "24h") ? "h:i:s" : "m/d h:i:s"
     },
     toMbps(bytes) {
-        if (bytes == 0) return 0
-        return (bytes / Math.pow(1024, 2) * 8).toFixed(2) * 1
+      if (bytes == 0) return 0
+      return (bytes / Math.pow(1024, 2) * 8).toFixed(2) * 1
     },
     toDecimal(f) {
-        return Math.floor(f * 100) / 100
+      return Math.floor(f * 100) / 100
     },
     lineChartScopeChange(action, label) {
-        this.lineChartScope[action] = label;
-        this.getStatsData(action, label);
+      this.lineChartScope[action] = label;
+      this.getStatsData(action, label);
     },
     dateFormat(p, format) {
-        var da = new Date(p);
-        var year = da.getFullYear();
-        var month = da.getMonth() + 1;
-        var dt = da.getDate();
-        var h = ('0'+da.getHours()).slice(-2);
-        var m = ('0'+da.getMinutes()).slice(-2)
-        var s = ('0'+da.getSeconds()).slice(-2);
-        switch (format) {
-            case "h:i:s":  return h + ':' + m + ':' + s;
-            case "m/d h:i:s":  return month + '/' + dt + ' ' + h + ':' + m + ':' + s;
-        }
-        return year + '-' + month + '-' + dt + ' ' + h + ':' + m + ':' + s;
+      var da = new Date(p);
+      var year = da.getFullYear();
+      var month = da.getMonth() + 1;
+      var dt = da.getDate();
+      var h = ('0' + da.getHours()).slice(-2);
+      var m = ('0' + da.getMinutes()).slice(-2)
+      var s = ('0' + da.getSeconds()).slice(-2);
+      switch (format) {
+        case "h:i:s": return h + ':' + m + ':' + s;
+        case "m/d h:i:s": return month + '/' + dt + ' ' + h + ':' + m + ':' + s;
+      }
+      return year + '-' + month + '-' + dt + ' ' + h + ':' + m + ':' + s;
     },
     jump(path) {
-        this.$router.push(path);
+      this.$router.push(path);
     },
     getGroups() {
       axios.get('/group/names_ids', {}).then(resp => {
         var data = resp.data.data
         var groupNames = []
-        groupNames[0] = {text:"全部", value:""}
-        for(var i=0; i<data.datas.length;i++){
-            groupNames[i+1] = {text:data.datas[i].name, value:data.datas[i].id}
+        groupNames[0] = { text: "全部", value: "" }
+        for (var i = 0; i < data.datas.length; i++) {
+          groupNames[i + 1] = { text: data.datas[i].name, value: data.datas[i].id }
         }
         this.groupNames = groupNames
       }).catch(() => {
@@ -389,7 +408,7 @@ export default {
       });
     },
     lineChartGroupChange(action) {
-        this.getStatsData(action, this.lineChartScope[action]);
+      this.getStatsData(action, this.lineChartScope[action]);
     }
   },
 }
@@ -411,6 +430,7 @@ export default {
   position: relative;
   overflow: hidden;
 }
+
 .stat-card::after {
   content: '';
   position: absolute;
@@ -422,10 +442,12 @@ export default {
   background: rgba(255, 255, 255, 0.1);
   transition: all var(--transition-normal);
 }
+
 .stat-card:hover {
   transform: translateY(-3px);
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
 }
+
 .stat-card:hover::after {
   transform: scale(1.2);
 }
@@ -434,14 +456,17 @@ export default {
   background: linear-gradient(135deg, #f4516c, #ff7a95);
   color: var(--text-inverse);
 }
+
 .stat-card--users {
   background: linear-gradient(135deg, #36a3f7, #66b8ff);
   color: var(--text-inverse);
 }
+
 .stat-card--groups {
   background: linear-gradient(135deg, #34bfa3, #5dd6bd);
   color: var(--text-inverse);
 }
+
 .stat-card--ipmap {
   background: linear-gradient(135deg, #40c9c6, #6bdfdd);
   color: var(--text-inverse);
@@ -452,18 +477,22 @@ export default {
   margin-right: 16px;
   z-index: 1;
 }
+
 .stat-card-icon i {
   font-size: 38px;
   opacity: 0.85;
 }
+
 .stat-card-body {
   z-index: 1;
 }
+
 .stat-card-label {
   font-size: 13px;
   opacity: 0.85;
   margin-bottom: 6px;
 }
+
 .stat-card-value {
   font-size: 28px;
   font-weight: 700;
@@ -483,6 +512,7 @@ export default {
   position: relative;
   transition: box-shadow var(--transition-normal);
 }
+
 .chart-card:hover {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
 }
@@ -493,11 +523,13 @@ export default {
   justify-content: space-between;
   margin-bottom: 6px;
 }
+
 .chart-card-title {
   font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
 }
+
 .chart-group-select {
   width: 130px;
 }

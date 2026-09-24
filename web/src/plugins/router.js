@@ -25,6 +25,7 @@ const routes = [
             { path: 'set/other', component: () => import('@/pages/set/Other') },
             { path: 'set/audit', component: () => import('@/pages/set/Audit') },
             { path: 'set/syslog', component: () => import('@/pages/set/Syslog') },
+            { path: 'set/cluster', component: () => import('@/pages/set/Cluster') },
 
             { path: 'user/list', component: () => import('@/pages/user/List') },
             { path: 'user/online', component: () => import('@/pages/user/Online') },

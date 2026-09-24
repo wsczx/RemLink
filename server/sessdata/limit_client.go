@@ -13,6 +13,22 @@ var (
 	limitMux    = sync.Mutex{}
 )
 
+// 返回当前并发连接数与上限，供节点总览展示节点容量
+func GetConcurrency() (current, maxClient, maxUserClient int, perUser map[string]int) {
+	limitMux.Lock()
+	defer limitMux.Unlock()
+	c := limitClient[limitAllKey]
+	perUser = make(map[string]int, len(limitClient))
+	for k, v := range limitClient {
+		if k == limitAllKey {
+			continue
+		}
+		perUser[k] = v
+	}
+	cfg := base.GetCfg()
+	return c, cfg.MaxClient, cfg.MaxUserClient, perUser
+}
+
 func LimitClient(user string, close bool) bool {
 	limitMux.Lock()
 	defer limitMux.Unlock()

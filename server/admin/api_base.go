@@ -538,7 +538,20 @@ func authMiddleware(next http.Handler) http.Handler {
 		// 进行登陆鉴权
 		jwtToken := getJwt(r)
 		data, err := GetJwtData(jwtToken)
-		if err != nil || base.GetCfg().AdminUser != fmt.Sprint(data["admin_user"]) {
+		if err != nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		// 节点间专用端点（/cluster/* 与 /set/restart）
+		if isClusterAuthPath(r.URL.Path) {
+			if isClusterJwt(data) || isAdminUser(data) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if !isAdminUser(data) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -546,6 +559,20 @@ func authMiddleware(next http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(fn)
+}
+
+// 节点端点：既可由本地后台（管理员 token）访问，也可由对端节点（节点间专用 token）互调
+func isClusterAuthPath(p string) bool {
+	return strings.HasPrefix(p, "/cluster/") || p == "/set/restart" || p == "/set/upgrade/trigger"
+}
+
+// 节点间专用 JWT
+func isClusterJwt(data map[string]any) bool {
+	return fmt.Sprint(data["aud"]) == ClusterJwtAud
+}
+
+func isAdminUser(data map[string]any) bool {
+	return base.GetCfg().AdminUser == fmt.Sprint(data["admin_user"])
 }
 
 func adminSameOrigin(r *http.Request) bool {

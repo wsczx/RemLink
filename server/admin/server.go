@@ -21,6 +21,7 @@ var UiData embed.FS
 
 // 开启服务
 func StartAdmin() {
+	base.SetNodeBootTime(serverStartTime.Unix())
 	r := mux.NewRouter()
 	r.Use(recoverHttp, authMiddleware, handlers.CompressHandler)
 	// 所有路由添加安全头
@@ -60,8 +61,26 @@ func StartAdmin() {
 	r.HandleFunc("/set/profile", SetProfile)
 	r.HandleFunc("/set/profile/edit", SetProfileEdit).Methods(http.MethodPost)
 	r.HandleFunc("/set/restart", SetRestart).Methods(http.MethodPost)
+
+	// 节点管理
+	r.HandleFunc("/cluster/nodes", ClusterNodes).Methods(http.MethodGet)
+	r.HandleFunc("/cluster/status", ClusterNodeStatus).Methods(http.MethodGet)
+	r.HandleFunc("/cluster/overview", ClusterOverview).Methods(http.MethodGet)
+	r.HandleFunc("/cluster/restart", ClusterRestart).Methods(http.MethodPost)
+	r.HandleFunc("/cluster/restart/all", ClusterRestartAll).Methods(http.MethodPost)
+	r.HandleFunc("/cluster/upgrade", ClusterUpgrade).Methods(http.MethodPost)
+	r.HandleFunc("/cluster/upgrade/all", ClusterUpgradeAll).Methods(http.MethodPost)
+	r.HandleFunc("/cluster/session/kick", ClusterSessionKick).Methods(http.MethodPost)
+	r.HandleFunc("/cluster/unlock", ClusterUnlock).Methods(http.MethodPost)
+	r.HandleFunc("/cluster/sessions", ClusterSessions).Methods(http.MethodGet)
+	r.HandleFunc("/cluster/locks", ClusterLocks).Methods(http.MethodGet)
+	r.HandleFunc("/cluster/session/reline", ClusterReline).Methods(http.MethodPost)
+	r.HandleFunc("/cluster/node/update", ClusterNodeUpdate).Methods(http.MethodPost)
+	r.HandleFunc("/cluster/set/config", ClusterSetConfig).Methods(http.MethodPost) // 接收其它节点推送的单个配置字段变更（仅本机应用，防环）
+	r.HandleFunc("/cluster/syslog/history", ClusterSyslogHistory).Methods(http.MethodGet)
 	r.HandleFunc("/set/upgrade/check", CheckUpgrade).Methods(http.MethodGet)
 	r.HandleFunc("/set/upgrade/start", StartUpgrade).Methods(http.MethodPost)
+	r.HandleFunc("/set/upgrade/trigger", handleUpgradeStart).Methods(http.MethodPost)
 	r.HandleFunc("/set/upgrade/status", UpgradeStatusHandler).Methods(http.MethodGet)
 	r.HandleFunc("/set/db/table_sizes", SetDbTableSizes)
 	r.HandleFunc("/set/db/backup", SetDbBackup).Methods(http.MethodPost)
@@ -97,7 +116,8 @@ func StartAdmin() {
 	r.HandleFunc("/set/audit/export", SetAuditExport)
 	r.HandleFunc("/set/audit/act_log_list", UserActLogList)
 	r.HandleFunc("/set/audit/admin_op_log_list", AdminOpLogList)
-	r.HandleFunc("/set/syslog/ws", SyslogWS) // WebSocket 系统日志实时推送
+	r.HandleFunc("/set/syslog/ws", SyslogWS)                                    // WebSocket 系统日志实时推送（本机）
+	r.HandleFunc("/cluster/syslog/ws", ClusterSyslogWS).Methods(http.MethodGet) // 集群实时日志（本机/代理到节点）
 	r.HandleFunc("/set/syslog/history_enabled", SyslogHistoryEnabled)
 	r.HandleFunc("/set/syslog/history_dates", SyslogHistoryDates)
 	r.HandleFunc("/set/syslog/history_list", SyslogHistoryList)

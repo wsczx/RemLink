@@ -2,6 +2,8 @@ package admin
 
 import (
 	"bufio"
+	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -185,5 +187,65 @@ func SyslogHistoryList(w http.ResponseWriter, r *http.Request) {
 		"page":      page,
 		"page_size": pageSize,
 		"datas":     datas,
+	})
+}
+
+// 集群历史日志：默认（无 node 或本机）直接复用单节点 SyslogHistoryList，不另写读取逻辑；
+// 选定其它节点时仅更换目标节点地址、访问该节点的同一接口，由对端按本机逻辑返回。
+func ClusterSyslogHistory(w http.ResponseWriter, r *http.Request) {
+	nodeId := strings.TrimSpace(r.FormValue("node"))
+	if nodeId == "" || nodeId == base.GetNodeId() {
+		SyslogHistoryList(w, r)
+		return
+	}
+
+	nodes, err := dbdata.GetClusterNodeRepo().GetNodes()
+	if err != nil {
+		RespError(w, RespInternalErr, err.Error())
+		return
+	}
+	var target *dbdata.ClusterNode
+	for _, n := range nodes {
+		if n.Id == nodeId {
+			target = n
+			break
+		}
+	}
+	if target == nil {
+		RespError(w, RespParamErr, "节点不存在或已下线")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	// 透传原始查询参数（含 node=<对端自身 id>），对端收到自身 node 即走本机分支
+	_, body, cerr := clusterCli.Call(ctx, http.MethodGet, target.AdminUrl, "/cluster/syslog/history?"+r.URL.RawQuery, nil, "")
+	if cerr != nil {
+		RespError(w, RespInternalErr, "拉取节点日志失败: "+cerr.Error())
+		return
+	}
+	var hr struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+		Data struct {
+			Count    int                  `json:"count"`
+			Page     int                  `json:"page"`
+			PageSize int                  `json:"page_size"`
+			Datas    []SyslogHistoryEntry `json:"datas"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(body, &hr) != nil {
+		RespError(w, RespInternalErr, "解析节点日志响应失败")
+		return
+	}
+	if hr.Code != 0 {
+		RespError(w, RespInternalErr, hr.Msg)
+		return
+	}
+	RespSucess(w, map[string]any{
+		"count":     hr.Data.Count,
+		"page":      hr.Data.Page,
+		"page_size": hr.Data.PageSize,
+		"datas":     hr.Data.Datas,
 	})
 }

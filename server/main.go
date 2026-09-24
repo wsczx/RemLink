@@ -47,6 +47,8 @@ func main() {
 
 	handler.Start()
 
+	dbdata.GetClusterNodeRepo().Start()
+
 	signalWatch()
 }
 

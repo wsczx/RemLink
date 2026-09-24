@@ -45,7 +45,12 @@ func Start() error {
 
 	if _, err := s.NewJob(
 		gocron.CronJob("0 0 * * *", false),
-		gocron.NewTask(dbdata.CheckAndRenewCert),
+		gocron.NewTask(func() {
+			if !dbdata.IsClusterLeader() {
+				return
+			}
+			dbdata.CheckAndRenewCert()
+		}),
 	); err != nil {
 		base.Error("注册定时任务失败 (CheckAndRenewCert):", err)
 	}

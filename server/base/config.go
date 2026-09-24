@@ -166,7 +166,7 @@ var configMetas = map[string]configMeta{
 
 	"max_client":        {usage: "最大用户连接", group: "连接控制", defaultVal: "200"},
 	"max_user_client":   {usage: "最大单用户连接", group: "连接控制", defaultVal: "3"},
-	"default_group":     {usage: "默认用户组", group: "连接控制", defaultVal: "one"},
+	"default_group":     {usage: "默认用户组", group: "连接控制", defaultVal: "one", hidden: true},
 	"cstp_keepalive":    {usage: "keepalive时间(秒)", group: "连接控制", defaultVal: "3"},
 	"cstp_dpd":          {usage: "死链接检测时间(秒)", group: "连接控制", defaultVal: "20"},
 	"mobile_keepalive":  {usage: "移动端keepalive接检测时间(秒)", group: "连接控制", defaultVal: "4"},

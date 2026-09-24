@@ -122,7 +122,8 @@
                   <i class="el-icon-question help-icon-inline"></i>
                 </el-tooltip>
                 <el-button type="primary" size="small" @click="generateClientCert">生成证书</el-button>
-                <el-button type="success" size="small" icon="el-icon-plus" @click="batchGenerateClientCert">批量生成</el-button>
+                <el-button type="success" size="small" icon="el-icon-plus"
+                  @click="batchGenerateClientCert">批量生成</el-button>
                 <el-button size="small" :disabled="multipleSelection.length === 0" @click="batchSendCertMail">
                   <i class="el-icon-message"></i> 发送邮件
                 </el-button>
@@ -187,8 +188,8 @@
               <el-dialog title="批量生成客户端证书" :visible.sync="batchGenerateDialog" width="560px" :append-to-body="true">
                 <el-form :model="batchGenerateForm" label-width="100px" size="small">
                   <el-form-item label="用户组" required>
-                    <el-select v-model="batchGenerateForm.groupName" placeholder="请选择目标用户组" filterable style="width: 100%;"
-                      @change="onBatchGroupChange">
+                    <el-select v-model="batchGenerateForm.groupName" placeholder="请选择目标用户组" filterable
+                      style="width: 100%;" @change="onBatchGroupChange">
                       <el-option v-for="group in allGroups" :key="group" :label="group" :value="group" />
                     </el-select>
                     <div class="batch-tip">
@@ -314,11 +315,10 @@
                   </el-table-column>
                   <el-table-column label="设备ID" min-width="200" class-name="cert-device-col">
                     <template slot-scope="scope">
-                      <el-tooltip v-if="scope.row.device_id && scope.row.device_id.length > 0"
-                        placement="top" effect="dark">
+                      <el-tooltip v-if="scope.row.device_id && scope.row.device_id.length > 0" placement="top"
+                        effect="dark">
                         <div slot="content" class="device-tip-content">
-                          <div v-for="(deviceId, index) in scope.row.device_id" :key="index"
-                            class="device-tip-line">
+                          <div v-for="(deviceId, index) in scope.row.device_id" :key="index" class="device-tip-line">
                             {{ deviceId }}
                           </div>
                         </div>
@@ -616,7 +616,7 @@ export default {
       if (!groupName) return;
       axios.get('/group/cert_auth_check', { params: { groupname: groupName } }).then(resp => {
         if (resp.data.code === 0 && !resp.data.data.has_cert_auth) {
-          this.$message.warning(`当前组"${groupName}"尚未配置证书认证，建议先在"用户组管理 > 编辑组 > 认证方式"中添加 TLS 证书认证步骤`);
+          this.$message.warning(`当前组"${groupName}"尚未配置证书认证，需配套在"用户组管理 > 编辑组 > 认证方式"中添加 TLS 证书认证步骤`);
         }
       }).catch(() => { });
     },
@@ -1309,13 +1309,13 @@ export default {
   padding: 1px 0;
 }
 
-.device-tip-line + .device-tip-line {
+.device-tip-line+.device-tip-line {
   border-top: 1px solid rgba(255, 255, 255, 0.15);
   margin-top: 2px;
   padding-top: 3px;
 }
 
-.cert-device-col .device-item + .device-item {
+.cert-device-col .device-item+.device-item {
   border-top: 1px dashed var(--border-color-light);
   margin-top: 2px;
   padding-top: 4px;
