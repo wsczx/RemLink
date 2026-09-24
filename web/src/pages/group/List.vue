@@ -448,7 +448,7 @@ export default {
   components: { draggable },
   created() {
     this.$emit('update:route_path', this.$route.path)
-    this.$emit('update:route_name', ['用户组管理'])
+    this.$emit('update:route_name', ['访问控制', '用户组管理'])
   },
   mounted() {
     this.loadAllPolicyNames().then(() => { this.getData(1); });
@@ -909,7 +909,7 @@ export default {
     checkGroupCerts() {
       axios.get('/group/cert_check', { params: { groupname: this.ruleForm.name } }).then(resp => {
         if (resp.data.code === 0 && resp.data.data.cert_count === 0) {
-          this.$message.warning(`当前组"${this.ruleForm.name}"尚未签发任何客户端证书，建议先在"系统设置 > 证书设置 > 客户端证书"中生成证书后再启用证书认证`);
+          this.$message.warning(`当前组"${this.ruleForm.name}"尚未签发任何客户端证书，需配套在"系统设置 > 证书设置 > 客户端证书"中生成证书后再启用证书认证`);
         }
       }).catch(() => { });
     },

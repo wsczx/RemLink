@@ -540,7 +540,7 @@ export default {
   name: "ProviderList",
   created() {
     this.$emit('update:route_path', this.$route.path)
-    this.$emit('update:route_name', ['认证管理'])
+    this.$emit('update:route_name', ['访问控制', '认证源管理'])
   },
   mounted() { this.getData(1); },
   data() {
