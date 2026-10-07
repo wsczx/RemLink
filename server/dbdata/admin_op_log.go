@@ -60,7 +60,11 @@ var AdminOpLogTypes = []string{
 
 // 构建管理员操作日志查询 session
 func GetAdminOpLogSession(values url.Values) *xorm.Session {
-	session := xdb.Where("1=1")
+	return applyAdminOpLogFilter(xdb.Where("1=1"), values).OrderBy("id desc")
+}
+
+// 管理员操作日志筛选条件（列表/按天统计共用，不含排序）
+func applyAdminOpLogFilter(session *xorm.Session, values url.Values) *xorm.Session {
 	if v := values.Get("op_type"); v != "" {
 		session.And("op_type = ?", v)
 	}
@@ -74,7 +78,5 @@ func GetAdminOpLogSession(values url.Values) *xorm.Session {
 		kw := "%" + strings.TrimSpace(v) + "%"
 		session.And("(op_target like ? or detail like ?)", kw, kw)
 	}
-
-	session.OrderBy("id desc")
 	return session
 }

@@ -628,7 +628,7 @@ func webAuthOnPass(w http.ResponseWriter, r *http.Request,
 
 	webAuthJSON(w, http.StatusOK, map[string]any{
 		"status":       "done",
-		"complete_url": fmt.Sprintf("/web-auth/complete?state=%s", url.QueryEscape(state)),
+		"complete_url": fmt.Sprintf("/api/v1/web-auth/complete?state=%s", url.QueryEscape(state)),
 		"portal_url":   "/ui/#/portal",
 		"success":      true,
 	})

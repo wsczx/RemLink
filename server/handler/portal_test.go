@@ -95,7 +95,7 @@ func TestPortalLogin_Success(t *testing.T) {
 	ast := assert.New(t)
 
 	body := `{"username":"testuser","password":"testpass123"}`
-	req := httptest.NewRequest("POST", "/portal/login", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/portal/login", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -123,7 +123,7 @@ func TestPortalLogin_WrongPassword(t *testing.T) {
 	ast := assert.New(t)
 
 	body := `{"username":"testuser","password":"wrongpassword"}`
-	req := httptest.NewRequest("POST", "/portal/login", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/portal/login", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -146,7 +146,7 @@ func TestPortalLogin_UserNotFound(t *testing.T) {
 	ast := assert.New(t)
 
 	body := `{"username":"nonexistent","password":"testpass123"}`
-	req := httptest.NewRequest("POST", "/portal/login", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/portal/login", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -164,7 +164,7 @@ func TestPortalLogin_Disabled(t *testing.T) {
 	base.SetCfgForTest(&base.ServerConfig{EnableUserPortal: false})
 
 	body := `{"username":"test","password":"test"}`
-	req := httptest.NewRequest("POST", "/portal/login", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/portal/login", strings.NewReader(body))
 	w := httptest.NewRecorder()
 
 	PortalLogin(w, req)
@@ -222,7 +222,7 @@ func TestPortalChangePassword_Success(t *testing.T) {
 	ast := assert.New(t)
 
 	body := `{"old_password":"oldpass123","new_password":"newpass123"}`
-	req := httptest.NewRequest("POST", "/portal/change_password", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/portal/change_password", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(&http.Cookie{Name: portalCookieName, Value: token})
 	w := httptest.NewRecorder()
@@ -237,7 +237,7 @@ func TestPortalChangePassword_Success(t *testing.T) {
 	ast.Equal(float64(0), resp["code"])
 
 	loginBody := `{"username":"testuser","password":"newpass123"}`
-	loginReq := httptest.NewRequest("POST", "/portal/login", strings.NewReader(loginBody))
+	loginReq := httptest.NewRequest("POST", "/api/v1/portal/login", strings.NewReader(loginBody))
 	loginReq.Header.Set("Content-Type", "application/json")
 	loginW := httptest.NewRecorder()
 	PortalLogin(loginW, loginReq)
@@ -260,7 +260,7 @@ func TestPortalChangePassword_WrongOldPassword(t *testing.T) {
 	ast := assert.New(t)
 
 	body := `{"old_password":"wrongoldpass","new_password":"newpass123"}`
-	req := httptest.NewRequest("POST", "/portal/change_password", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/portal/change_password", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(&http.Cookie{Name: portalCookieName, Value: token})
 	w := httptest.NewRecorder()
@@ -291,7 +291,7 @@ func TestPortalChangePassword_WeakNewPassword(t *testing.T) {
 	ast := assert.New(t)
 
 	body := `{"old_password":"oldpass123","new_password":"12345678"}`
-	req := httptest.NewRequest("POST", "/portal/change_password", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/portal/change_password", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(&http.Cookie{Name: portalCookieName, Value: token})
 	w := httptest.NewRecorder()
@@ -321,7 +321,7 @@ func TestPortalChangePassword_TooShort(t *testing.T) {
 	ast := assert.New(t)
 
 	body := `{"old_password":"oldpass123","new_password":"abc123"}`
-	req := httptest.NewRequest("POST", "/portal/change_password", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/portal/change_password", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(&http.Cookie{Name: portalCookieName, Value: token})
 	w := httptest.NewRecorder()
@@ -340,7 +340,7 @@ func TestPortalChangePassword_Unauthorized(t *testing.T) {
 	base.UpdateCfg(func(c *base.ServerConfig) { c.EnableUserPortal = true })
 
 	body := `{"old_password":"old","new_password":"newpass123"}`
-	req := httptest.NewRequest("POST", "/portal/change_password", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/portal/change_password", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -389,7 +389,7 @@ func TestPortalChangePassword_ExternalUser(t *testing.T) {
 	ast.Nil(err)
 
 	body := `{"old_password":"old","new_password":"newpass123"}`
-	req := httptest.NewRequest("POST", "/portal/change_password", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/portal/change_password", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(&http.Cookie{Name: portalCookieName, Value: token})
 	w := httptest.NewRecorder()
@@ -415,7 +415,7 @@ func TestPortalResetPassword_InvalidToken(t *testing.T) {
 	ast := assert.New(t)
 
 	body := `{"token":"invalid-token","new_password":"newpass123"}`
-	req := httptest.NewRequest("POST", "/portal/reset_password", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/portal/reset_password", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -433,7 +433,7 @@ func TestPortalResetPassword_EmptyFields(t *testing.T) {
 	ast := assert.New(t)
 
 	body := `{"token":"","new_password":"newpass123"}`
-	req := httptest.NewRequest("POST", "/portal/reset_password", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/portal/reset_password", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -493,7 +493,7 @@ func TestPortalResetPassword_Success(t *testing.T) {
 
 	// 重置密码
 	body := `{"token":"` + token + `","new_password":"newpass456"}`
-	req := httptest.NewRequest("POST", "/portal/reset_password", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/portal/reset_password", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -504,7 +504,7 @@ func TestPortalResetPassword_Success(t *testing.T) {
 	ast.Equal(float64(0), resp["code"])
 
 	loginBody := `{"username":"resetuser","password":"newpass456"}`
-	loginReq := httptest.NewRequest("POST", "/portal/login", strings.NewReader(loginBody))
+	loginReq := httptest.NewRequest("POST", "/api/v1/portal/login", strings.NewReader(loginBody))
 	loginReq.Header.Set("Content-Type", "application/json")
 	loginW := httptest.NewRecorder()
 	PortalLogin(loginW, loginReq)
@@ -518,7 +518,7 @@ func TestPortalLogout(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{EnableUserPortal: true})
 
-	req := httptest.NewRequest("POST", "/portal/logout", nil)
+	req := httptest.NewRequest("POST", "/api/v1/portal/logout", nil)
 	w := httptest.NewRecorder()
 
 	PortalLogout(w, req)
@@ -549,7 +549,7 @@ func TestPortalLogin_ForcePwd(t *testing.T) {
 	ast.Nil(err)
 
 	// 首次登录应返回 change_pwd 挑战（走管道 forcepwd 步骤）
-	loginReq := httptest.NewRequest("POST", "/portal/login", strings.NewReader(`{"username":"forceuser","password":"oldpass123"}`))
+	loginReq := httptest.NewRequest("POST", "/api/v1/portal/login", strings.NewReader(`{"username":"forceuser","password":"oldpass123"}`))
 	loginReq.Header.Set("Content-Type", "application/json")
 	loginW := httptest.NewRecorder()
 	PortalLogin(loginW, loginReq)
@@ -562,7 +562,7 @@ func TestPortalLogin_ForcePwd(t *testing.T) {
 	ast.NotEmpty(token)
 
 	chgBody := `{"token":"` + token + `","new_password":"newpass123","new_password_confirm":"newpass123"}`
-	chgReq := httptest.NewRequest("POST", "/portal/force_change_password", strings.NewReader(chgBody))
+	chgReq := httptest.NewRequest("POST", "/api/v1/portal/force_change_password", strings.NewReader(chgBody))
 	chgReq.Header.Set("Content-Type", "application/json")
 	chgW := httptest.NewRecorder()
 	PortalForceChangePassword(chgW, chgReq)
@@ -571,7 +571,7 @@ func TestPortalLogin_ForcePwd(t *testing.T) {
 	ast.Equal(float64(0), chgResp["code"])
 
 	// 用新密码可正常登录
-	login2Req := httptest.NewRequest("POST", "/portal/login", strings.NewReader(`{"username":"forceuser","password":"newpass123"}`))
+	login2Req := httptest.NewRequest("POST", "/api/v1/portal/login", strings.NewReader(`{"username":"forceuser","password":"newpass123"}`))
 	login2Req.Header.Set("Content-Type", "application/json")
 	login2W := httptest.NewRecorder()
 	PortalLogin(login2W, login2Req)
@@ -608,7 +608,7 @@ func TestPortalLogin_OTP(t *testing.T) {
 	_ = dbdata.SetUser(u)
 
 	ast := assert.New(t)
-	loginReq := httptest.NewRequest("POST", "/portal/login", strings.NewReader(`{"username":"otpuser","password":"oldpass123"}`))
+	loginReq := httptest.NewRequest("POST", "/api/v1/portal/login", strings.NewReader(`{"username":"otpuser","password":"oldpass123"}`))
 	loginReq.Header.Set("Content-Type", "application/json")
 	loginW := httptest.NewRecorder()
 	PortalLogin(loginW, loginReq)
@@ -623,7 +623,7 @@ func TestPortalLogin_OTP(t *testing.T) {
 	// 计算当前 TOTP 码并提交
 	code := gotp.NewDefaultTOTP("JBSWY3DPEHPK3PXP").Now()
 	verifyBody := fmt.Sprintf(`{"session_id":"%s","code":"%s"}`, sessionID, code)
-	verifyReq := httptest.NewRequest("POST", "/portal/verify", strings.NewReader(verifyBody))
+	verifyReq := httptest.NewRequest("POST", "/api/v1/portal/verify", strings.NewReader(verifyBody))
 	verifyReq.Header.Set("Content-Type", "application/json")
 	verifyW := httptest.NewRecorder()
 	PortalVerify(verifyW, verifyReq)

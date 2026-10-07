@@ -168,11 +168,23 @@ func ProviderSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 请求体未携带 status 时：新建默认启用，更新保留原状态；显式传 0 表示停用
+	var probe struct {
+		Status *int8 `json:"status"`
+	}
+	_ = json.Unmarshal(body, &probe)
+	if probe.Status == nil {
+		v.Status = 1
+	}
+
 	// 更新时保留未修改的敏感字段
 	if v.Id > 0 {
 		old := &dbdata.Provider{}
 		if err := dbdata.One("Id", v.Id, old); err == nil {
 			keepProviderSecrets(v, old)
+			if probe.Status == nil {
+				v.Status = old.Status
+			}
 		}
 	}
 

@@ -90,7 +90,7 @@ func portalSSOLogin(w http.ResponseWriter, r *http.Request, pending *AuthSession
 		_ = portalIssueLoginResponse(w, r, user, ctx.LogInfo())
 		// 子域名第三方登录：认证成功后回跳原 WebVPN 子域名；否则回门户首页
 		// redirect 只允许本站注册域（.WebVpnDomain 后缀）内的 https URL，杜绝开放重定向
-		if rp := pending.Ctx.SSO.Redirect; webVpnSafeRedirect(rp) {
+		if rp := pending.Ctx.SSO.Redirect; webVpnSafeRedirect(rp) || webPathSafeRedirect(rp, r.Host) {
 			http.Redirect(w, r, rp, http.StatusFound)
 		} else {
 			http.Redirect(w, r, "/ui/#/portal", http.StatusFound)

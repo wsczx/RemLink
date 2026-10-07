@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="RemLink">
+  <rect width="32" height="32" rx="7" fill="#0A1622" stroke="#0EA5E9" stroke-width="1"/>
+  <path d="M7 21 L16 12 L25 12" fill="none" stroke="#7DD3FC" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="7" cy="21" r="3" fill="#38BDF8"/>
+  <circle cx="25" cy="12" r="3" fill="#38BDF8"/>
+</svg>

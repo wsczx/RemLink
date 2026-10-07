@@ -104,7 +104,7 @@ func TestWebAuthStart_Success(t *testing.T) {
 
 	state := createWebAuthSession(t, "webauth-group")
 
-	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/start?state="+state, nil)
+	req := httptest.NewRequest("GET", "/api/v1/web-auth/start?state="+state, nil)
 	w := httptest.NewRecorder()
 
 	WebAuthStart(w, req)
@@ -122,7 +122,7 @@ func TestWebAuthStart_EmptyState(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{EnableWebAuth: true})
 
-	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/start", nil)
+	req := httptest.NewRequest("GET", "/api/v1/web-auth/start", nil)
 	w := httptest.NewRecorder()
 
 	WebAuthStart(w, req)
@@ -139,7 +139,7 @@ func TestWebAuthStart_InvalidState(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{EnableWebAuth: true})
 
-	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/start?state=expired-session", nil)
+	req := httptest.NewRequest("GET", "/api/v1/web-auth/start?state=expired-session", nil)
 	w := httptest.NewRecorder()
 
 	WebAuthStart(w, req)
@@ -156,7 +156,7 @@ func TestWebAuthStart_Disabled(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{EnableWebAuth: false})
 
-	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/start?state=any", nil)
+	req := httptest.NewRequest("GET", "/api/v1/web-auth/start?state=any", nil)
 	w := httptest.NewRecorder()
 
 	WebAuthStart(w, req)
@@ -192,7 +192,7 @@ func TestWebAuthSelectGroup_Success(t *testing.T) {
 	state := createWebAuthSession(t, "select-group")
 
 	body := `{"group":"select-group","username":"testuser"}`
-	req := httptest.NewRequest("POST", "/+CSCOE+/web-auth/select-group?state="+state, strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/web-auth/groups?state="+state, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -210,7 +210,7 @@ func TestWebAuthSelectGroup_InvalidState(t *testing.T) {
 	base.Test()
 
 	body := `{"group":"any","username":"test"}`
-	req := httptest.NewRequest("POST", "/+CSCOE+/web-auth/select-group?state=expired", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/web-auth/groups?state=expired", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -226,7 +226,7 @@ func TestWebAuthSelectGroup_EmptyState(t *testing.T) {
 	base.Test()
 
 	body := `{"group":"any"}`
-	req := httptest.NewRequest("POST", "/+CSCOE+/web-auth/select-group", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/web-auth/groups", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -246,7 +246,7 @@ func TestWebAuthSelectGroup_GroupNotFound(t *testing.T) {
 	state := createWebAuthSession(t, "default")
 
 	body := `{"group":"nonexistent-group","username":"test"}`
-	req := httptest.NewRequest("POST", "/+CSCOE+/web-auth/select-group?state="+state, strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/web-auth/groups?state="+state, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -262,7 +262,7 @@ func TestWebAuthSelectGroup_EmptyBody(t *testing.T) {
 	base.Test()
 
 	body := ``
-	req := httptest.NewRequest("POST", "/+CSCOE+/web-auth/select-group?state=any", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/web-auth/groups?state=any", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -278,7 +278,7 @@ func TestWebAuthStep_InvalidState(t *testing.T) {
 	base.Test()
 
 	body := `{"username":"test","password":"test"}`
-	req := httptest.NewRequest("POST", "/+CSCOE+/web-auth/step?state=expired", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/web-auth/step?state=expired", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -294,7 +294,7 @@ func TestWebAuthStep_EmptyState(t *testing.T) {
 	base.Test()
 
 	body := `{"username":"test","password":"test"}`
-	req := httptest.NewRequest("POST", "/+CSCOE+/web-auth/step", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/web-auth/step", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -309,7 +309,7 @@ func TestWebAuthStep_EmptyState(t *testing.T) {
 func TestWebAuthComplete_InvalidState(t *testing.T) {
 	base.Test()
 
-	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/complete?state=expired", nil)
+	req := httptest.NewRequest("GET", "/api/v1/web-auth/complete?state=expired", nil)
 	w := httptest.NewRecorder()
 
 	WebAuthComplete(w, req)
@@ -321,7 +321,7 @@ func TestWebAuthComplete_InvalidState(t *testing.T) {
 func TestWebAuthComplete_EmptyState(t *testing.T) {
 	base.Test()
 
-	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/complete", nil)
+	req := httptest.NewRequest("GET", "/api/v1/web-auth/complete", nil)
 	w := httptest.NewRecorder()
 
 	WebAuthComplete(w, req)
@@ -342,7 +342,7 @@ func TestWebAuthComplete_Success(t *testing.T) {
 	sess.Ctx.GetSSO().WebAuthCompleted = true
 	AuthSessionManager.Save(state, sess)
 
-	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/complete?state="+state, nil)
+	req := httptest.NewRequest("GET", "/api/v1/web-auth/complete?state="+state, nil)
 	w := httptest.NewRecorder()
 
 	WebAuthComplete(w, req)
@@ -427,7 +427,7 @@ func TestWebAuthStart_CertGuardDisabled(t *testing.T) {
 
 	state := createWebAuthSessionWithCert(t, "guard-group", "test", "guard-group")
 
-	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/start?state="+state, nil)
+	req := httptest.NewRequest("GET", "/api/v1/web-auth/start?state="+state, nil)
 	w := httptest.NewRecorder()
 	WebAuthStart(w, req)
 
@@ -466,7 +466,7 @@ func TestWebAuthStart_CertAutoAuthFallback(t *testing.T) {
 
 	state := createWebAuthSessionWithCert(t, "cert-fallback", "test", "cert-fallback")
 
-	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/start?state="+state, nil)
+	req := httptest.NewRequest("GET", "/api/v1/web-auth/start?state="+state, nil)
 	w := httptest.NewRecorder()
 	WebAuthStart(w, req)
 
@@ -503,7 +503,7 @@ func TestWebAuthSelectGroup_GroupFilterPrefill(t *testing.T) {
 	})
 
 	body := `{"group":"prefill-group","username":"alice"}`
-	req := httptest.NewRequest("POST", "/+CSCOE+/web-auth/select-group?state="+state, strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/web-auth/groups?state="+state, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	WebAuthSelectGroup(w, req)
@@ -541,7 +541,7 @@ func TestWebAuthSelectGroup_NoPrefillWhenFilterOff(t *testing.T) {
 	})
 
 	body := `{"group":"noprefill-group","username":"test"}`
-	req := httptest.NewRequest("POST", "/+CSCOE+/web-auth/select-group?state="+state, strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v1/web-auth/groups?state="+state, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	WebAuthSelectGroup(w, req)

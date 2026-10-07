@@ -67,6 +67,7 @@ type UserActLog struct {
 	Status          uint8     `json:"status" xorm:"not null default 0 Int"`
 	Info            string    `json:"info" xorm:"varchar(255) not null default ''"` // 详情
 	IsLockedFail    bool      `json:"-" xorm:"-"`                                   // 因锁定而拒绝的登录，限频写入
+	CountryCode     string    `json:"country_code" xorm:"-" csv:"-"`                // 来源 IP 国家代码（GeoIP，仅接口返回时填充）
 	CreatedAt       time.Time `json:"created_at" xorm:"DateTime created"`
 }
 
@@ -85,6 +86,7 @@ type AdminOpLog struct {
 	OpTarget  string    `json:"op_target" xorm:"varchar(255) not null default ''"` // 操作目标（用户名/组名/策略名等）
 	Detail    string    `json:"detail" xorm:"varchar(512) not null default ''"`    // 操作详情
 	ClientIp  string    `json:"client_ip" xorm:"varchar(64) not null default ''"`  // 管理员操作时IP
+	CountryCode string  `json:"country_code" xorm:"-" csv:"-"`                     // 来源 IP 国家代码（GeoIP，仅接口返回时填充）
 	CreatedAt time.Time `json:"created_at" xorm:"DateTime created"`
 }
 
@@ -101,6 +103,7 @@ type AccessAudit struct {
 	AccessProto uint8     `json:"access_proto" xorm:"Int default 0"`            // 访问协议
 	Info        string    `json:"info" xorm:"varchar(255) not null default ''"` // 详情
 	CreatedAt   time.Time `json:"created_at" xorm:"DateTime"`
+	CountryCode string    `json:"country_code" xorm:"-" csv:"-"` // 源 IP 国家代码（GeoIP，仅接口返回时填充）
 }
 
 // 策略定义 — 可被用户组和用户引用的独立策略实体

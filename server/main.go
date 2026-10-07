@@ -15,9 +15,11 @@ import (
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/handler"
+	"github.com/wsczx/remlink/webvpn/gateway"
 )
 
-//go:embed ui
+// all: 前缀：包含 _ / . 开头的构建产物（如 _plugin-vue_export-helper-*.js），否则懒加载页面会 404
+//go:embed all:ui
 var uiData embed.FS
 
 // 程序版本
@@ -65,6 +67,7 @@ func signalWatch() {
 		default:
 			// stop
 			base.Info("Stop")
+			gateway.Shutdown()
 			handler.Stop()
 			return
 		}

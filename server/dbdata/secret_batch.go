@@ -86,6 +86,13 @@ func EnableEncryption() (map[string]int, error) {
 	}
 	stats["Provider"] = n
 
+	// WebVPN 远程凭据：KEK 密文（$WVK1$）迁移为主密钥密文
+	n, _, err = migrateWebVpnCreds(true)
+	if err != nil {
+		return stats, err
+	}
+	stats["WebVpnApp"] = n
+
 	// JwtSecret/AdminOtp 由 MarshalJSON 加密
 	{
 		sc := &SettingServerConfig{}
@@ -145,6 +152,13 @@ func DisableEncryption() (map[string]int, []string, error) {
 		return stats, warnings, err
 	}
 	stats["Provider"] = n
+	warnings = append(warnings, w...)
+	// WebVPN 远程凭据不落明文：主密钥密文转为 jwt_secret 派生 KEK 密文（须在删除密钥前完成）
+	n, w, err = migrateWebVpnCreds(false)
+	if err != nil {
+		return stats, warnings, err
+	}
+	stats["WebVpnApp"] = n
 	warnings = append(warnings, w...)
 	if raw, srvId, srvErr := loadSettingRaw("SettingServerConfig"); srvErr == nil && len(raw) > 0 {
 		dec, decErr := security.DecryptJSON(raw)

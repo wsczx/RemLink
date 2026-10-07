@@ -75,6 +75,7 @@ type ServerConfig struct {
 	HttpServerLog bool   `json:"http_server_log"`
 	Pprof         bool   `json:"pprof"`
 	AuditInterval int    `json:"audit_interval"`
+	GeoipDb       string `json:"geoip_db"`
 
 	// 安全/认证
 	DisplayError       bool   `json:"display_error"`
@@ -113,6 +114,10 @@ type ServerConfig struct {
 	// WebVPN 会话时效
 	WebVpnSessionTTL         int `json:"webvpn_session_ttl"`
 	WebVpnSessionMaxLifetime int `json:"webvpn_session_max_lifetime"`
+
+	// WebVPN 远程桌面（RDP/VNC 经 guacd 接入）
+	GuacdAddr       string `json:"guacd_addr"`
+	GuacdRecordPath string `json:"guacd_record_path"`
 
 	// 高级功能可见性
 	ShowFakeDNS bool `json:"show_fakedns"`
@@ -183,6 +188,7 @@ var configMetas = map[string]configMeta{
 	"http_server_log": {usage: "开启go标准库http.Server的日志", group: "日志/调试"},
 	"pprof":           {usage: "开启pprof", group: "日志/调试", defaultVal: "false"},
 	"audit_interval":  {usage: "审计去重间隔(秒),-1关闭", group: "日志/调试", defaultVal: "600"},
+	"geoip_db":        {usage: "GeoIP 国家库(.mmdb)路径，兼容 MaxMind GeoLite2-Country / DB-IP IP to Country Lite；文件不存在时国家识别自动关闭，替换文件后自动热加载", group: "日志/调试", defaultVal: "./conf/geoip.mmdb"},
 
 	"display_error":       {usage: "客户端显示详细错误信息(线上环境慎开启)", group: "安全/认证"},
 	"exclude_export_ip":   {usage: "排除出口ip路由(出口ip不加密传输)", group: "安全/认证", defaultVal: "true"},
@@ -213,6 +219,8 @@ var configMetas = map[string]configMeta{
 	"webvpn_sso_domain":            {usage: "WebVPN 子域名三方登录（企微/飞书/钉钉）跳转认证用的门户域名。留空则子域名登录页不显示三方登录入口", group: "门户设置"},
 	"webvpn_session_ttl":           {usage: "WebVPN 会话滑动续期周期（分钟）。用户持续活跃时按此周期刷新登录态，到期前 1 小时触发续期；建议 30~120", group: "门户设置", defaultVal: "60"},
 	"webvpn_session_max_lifetime":  {usage: "WebVPN 会话绝对寿命上限（分钟）。自首次登录起算，超过后无论是否活跃都强制重新登录；建议 240~1440", group: "门户设置", defaultVal: "480"},
+	"guacd_addr":                   {usage: "WebVPN 远程桌面（RDP/VNC）使用的 guacd 地址（host:port），留空表示不启用远程桌面。guacd 只应监听内网/本机", group: "门户设置", defaultVal: "127.0.0.1:4822"},
+	"guacd_record_path":            {usage: "guacd 视角下的 WebVPN 录像目录（即本服务 ./conf/webvpn_record 在 guacd 容器内的挂载路径，如 /record）。留空则使用本服务录像目录的绝对路径（guacd 与本服务同机部署时适用）", group: "门户设置"},
 	"allow_mobile_sso":             {usage: "允许手机端使用 SSO 单点登录（企微/飞书/钉钉等）。默认关闭，开启后手机端浏览器模式仍强制内置", group: "门户设置"},
 
 	"show_fakedns": {usage: "在管理界面显示 FakeDNS 功能入口", group: "高级功能可见性", defaultVal: "false"},

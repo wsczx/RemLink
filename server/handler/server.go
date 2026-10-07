@@ -20,6 +20,7 @@ import (
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/utils"
+	"github.com/wsczx/remlink/webvpn/gateway"
 )
 
 func startTls() {
@@ -113,6 +114,10 @@ func webVpnRootHandler() http.Handler {
 		if WebVpnHandler(w, r) {
 			return
 		}
+		// 路径模式（后置）WebVPN：主域名下 /web/<协议>/<应用>/
+		if WebPathHandler(w, r) {
+			return
+		}
 		root.ServeHTTP(w, r)
 	})
 }
@@ -126,6 +131,8 @@ func initRoute() http.Handler {
 			next.ServeHTTP(w, req)
 		})
 	})
+	// 门户写接口 CSRF 防护（含路径模式下与门户同源的被代理页面）
+	r.Use(portalCSRFMiddleware)
 
 	r.HandleFunc("/", LinkHome).Methods(http.MethodGet)
 	r.HandleFunc("/", LinkAuth).Methods(http.MethodPost)
@@ -136,33 +143,37 @@ func initRoute() http.Handler {
 	for _, ep := range portalLoginEndpoints {
 		r.HandleFunc(ep.path, ep.handler).Methods(ep.method)
 	}
-	r.HandleFunc("/portal/api/my_groups", PortalMyGroups).Methods(http.MethodGet)
-	r.HandleFunc("/portal/api/change_password", PortalChangePassword).Methods(http.MethodPost)
-	r.HandleFunc("/portal/api/force_change_password", PortalForceChangePassword).Methods(http.MethodPost)
-	r.HandleFunc("/portal/api/logout", PortalLogout).Methods(http.MethodPost)
-	r.HandleFunc("/portal/api/otp/regenerate", PortalOTPRegenerate).Methods(http.MethodPost)
-	r.HandleFunc("/portal/api/forgot_password", PortalForgotPassword).Methods(http.MethodPost)
-	r.HandleFunc("/portal/api/reset_password/verify", PortalResetPasswordVerify).Methods(http.MethodGet)
-	r.HandleFunc("/portal/api/reset_password", PortalResetPassword).Methods(http.MethodPost)
-	r.HandleFunc("/portal/api/certs", PortalCertList).Methods(http.MethodGet)
-	r.HandleFunc("/portal/api/certs/download", PortalCertDownload).Methods(http.MethodPost)
-	r.HandleFunc("/portal/api/devices", PortalDevices).Methods(http.MethodGet)
-	r.HandleFunc("/portal/api/devices/offline", PortalDeviceOffline).Methods(http.MethodPost)
+	r.HandleFunc("/api/v1/portal/my_groups", PortalMyGroups).Methods(http.MethodGet)
+	r.HandleFunc("/api/v1/portal/change_password", PortalChangePassword).Methods(http.MethodPost)
+	r.HandleFunc("/api/v1/portal/force_change_password", PortalForceChangePassword).Methods(http.MethodPost)
+	r.HandleFunc("/api/v1/portal/logout", PortalLogout).Methods(http.MethodPost)
+	r.HandleFunc("/api/v1/portal/otp/regenerate", PortalOTPRegenerate).Methods(http.MethodPost)
+	r.HandleFunc("/api/v1/portal/forgot_password", PortalForgotPassword).Methods(http.MethodPost)
+	r.HandleFunc("/api/v1/portal/reset_password/verify", PortalResetPasswordVerify).Methods(http.MethodGet)
+	r.HandleFunc("/api/v1/portal/reset_password", PortalResetPassword).Methods(http.MethodPost)
+	r.HandleFunc("/api/v1/portal/certs", PortalCertList).Methods(http.MethodGet)
+	r.HandleFunc("/api/v1/portal/certs/download", PortalCertDownload).Methods(http.MethodPost)
+	r.HandleFunc("/api/v1/portal/devices", PortalDevices).Methods(http.MethodGet)
+	r.HandleFunc("/api/v1/portal/devices/offline", PortalDeviceOffline).Methods(http.MethodPost)
 	// WebVPN 用户侧端点（独立会话：webvpn_session）
 	r.HandleFunc("/webvpn/login-config", webVpnLoginConfig).Methods(http.MethodGet)
 	r.HandleFunc("/webvpn/me", webVpnMe).Methods(http.MethodGet)
 	r.HandleFunc("/webvpn/my-apps", webVpnMyApps).Methods(http.MethodGet)
 	r.HandleFunc("/webvpn/logout", webVpnLogout).Methods(http.MethodGet, http.MethodPost)
+	// WebVPN 远程协议（SSH 终端 / 文件 / 远程桌面）：子域名模式 /webvpn/*，路径模式 /web/<协议>/<应用>/webvpn/*
+	// 路径模式直接复用门户会话识别用户
+	gateway.SetPathUserResolver(portalCurrentUser)
+	gateway.RegisterRoutes(r)
 	// WebAuth 端点
-	r.HandleFunc("/web-auth/start", WebAuthStart).Methods(http.MethodGet)
-	r.HandleFunc("/web-auth/identify", WebAuthIdentify).Methods(http.MethodPost)
-	r.HandleFunc("/web-auth/groups", WebAuthSelectGroup).Methods(http.MethodPost)
-	r.HandleFunc("/web-auth/step", WebAuthStep).Methods(http.MethodPost)
-	r.HandleFunc("/web-auth/sms/resend", WebAuthSmsResend).Methods(http.MethodPost)
-	r.HandleFunc("/web-auth/continue", WebAuthContinue).Methods(http.MethodPost)
+	r.HandleFunc("/api/v1/web-auth/start", WebAuthStart).Methods(http.MethodGet)
+	r.HandleFunc("/api/v1/web-auth/identify", WebAuthIdentify).Methods(http.MethodPost)
+	r.HandleFunc("/api/v1/web-auth/groups", WebAuthSelectGroup).Methods(http.MethodPost)
+	r.HandleFunc("/api/v1/web-auth/step", WebAuthStep).Methods(http.MethodPost)
+	r.HandleFunc("/api/v1/web-auth/sms/resend", WebAuthSmsResend).Methods(http.MethodPost)
+	r.HandleFunc("/api/v1/web-auth/continue", WebAuthContinue).Methods(http.MethodPost)
 	r.HandleFunc("/web-auth/sso-callback", WebAuthSSOCallback).Methods(http.MethodGet)
-	r.HandleFunc("/web-auth/complete", WebAuthComplete).Methods(http.MethodGet)
-	r.HandleFunc("/web-auth/change_password", WebAuthChangePassword).Methods(http.MethodPost)
+	r.HandleFunc("/api/v1/web-auth/complete", WebAuthComplete).Methods(http.MethodGet)
+	r.HandleFunc("/api/v1/web-auth/change_password", WebAuthChangePassword).Methods(http.MethodPost)
 	r.HandleFunc("/+CSCOE+/web-auth/sp/login", WebAuthSPLogin).Methods(http.MethodGet)
 	r.PathPrefix("/ui/").Handler(admin.ServeUI())
 	r.HandleFunc("/CSCOSSLC/tunnel", LinkTunnel).Methods(http.MethodConnect)
@@ -229,7 +240,8 @@ func initRoute() http.Handler {
 	}).Methods(http.MethodGet)
 	r.PathPrefix("/portal/").HandlerFunc(PortalHome)
 	r.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
+		// 未注册的 /api/* 直接 404，避免把 SPA 首页当作接口响应返回
+		if r.Method == http.MethodGet && !strings.HasPrefix(r.URL.Path, "/api/") {
 			admin.ServeIndex(w, r)
 			return
 		}

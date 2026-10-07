@@ -358,6 +358,10 @@ func ProviderSyncUsers(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
+	if p.Status != 1 {
+		RespError(w, RespParamErr, "该认证源已停用")
+		return
+	}
 	if p.Type != "ldap" && p.Type != "wxwork" && p.Type != "feishu" && p.Type != "dingtalk" {
 		RespError(w, RespParamErr, "仅支持 LDAP/企微/飞书/钉钉 类型的同步用户")
 		return

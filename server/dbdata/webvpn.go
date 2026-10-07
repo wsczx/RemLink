@@ -73,21 +73,51 @@ func InvalidateWebVpnAppCache() {
 // 反向代理应用配置
 // 通过子域名 *.WebVpnDomain 访问：子域名 = Name，反代到 Backend
 type WebVpnApp struct {
-	Id                 int       `json:"id" xorm:"pk autoincr not null"`
-	Name               string    `json:"name" xorm:"varchar(60) not null unique"` // 子域名前缀，也是应用唯一标识
-	Note               string    `json:"note" xorm:"varchar(255)"`
-	Backend            string    `json:"backend" xorm:"varchar(255)"`      // 后端地址，如 https://10.0.0.5:8080
-	Users              []string  `json:"users" xorm:"Text"`                // 授权用户名白名单；空=全部用户（受 Groups 约束）
-	Groups             []string  `json:"groups" xorm:"Text"`               // 授权用户组白名单；空=不限组
-	AllowPath          []string  `json:"allow_path" xorm:"Text"`           // 路径前缀白名单；空=全部路径
-	IpAllowList        []string  `json:"ip_allow_list" xorm:"Text"`        // 客户端来源 IP 白名单（CIDR 或单 IP）；空=不限制
-	AllowCrossSite     bool      `json:"allow_cross_site" xorm:"Bool"`     // 是否启用跨站访问；开启后仍须命中来源白名单
-	CorsAllowedOrigins []string  `json:"cors_allowed_origins" xorm:"Text"` // 允许跨域访问的精确 Origin；空=仅同源
-	HostRewrite        string    `json:"host_rewrite" xorm:"varchar(255)"` // 反代时改写到后端的 Host（覆盖默认的后端地址）；空=用后端地址
-	SkipVerify         bool      `json:"skip_verify" xorm:"Bool"`          // 后端为自签/内网证书时跳过 TLS 校验
-	Status             int8      `json:"status" xorm:"Int"`                // 1=启用
-	CreatedAt          time.Time `json:"created_at" xorm:"DateTime created"`
-	UpdatedAt          time.Time `json:"updated_at" xorm:"DateTime updated"`
+	Id                 int      `json:"id" xorm:"pk autoincr not null"`
+	Name               string   `json:"name" xorm:"varchar(60) not null unique"` // 子域名前缀，也是应用唯一标识
+	Note               string   `json:"note" xorm:"varchar(255)"`
+	Backend            string   `json:"backend" xorm:"varchar(255)"`      // 后端地址，如 https://10.0.0.5:8080
+	Users              []string `json:"users" xorm:"Text"`                // 授权用户名白名单；空=全部用户（受 Groups 约束）
+	Groups             []string `json:"groups" xorm:"Text"`               // 授权用户组白名单；空=不限组
+	AllowPath          []string `json:"allow_path" xorm:"Text"`           // 路径前缀白名单；空=全部路径
+	IpAllowList        []string `json:"ip_allow_list" xorm:"Text"`        // 客户端来源 IP 白名单（CIDR 或单 IP）；空=不限制
+	AllowCrossSite     bool     `json:"allow_cross_site" xorm:"Bool"`     // 是否启用跨站访问；开启后仍须命中来源白名单
+	CorsAllowedOrigins []string `json:"cors_allowed_origins" xorm:"Text"` // 允许跨域访问的精确 Origin；空=仅同源
+	HostRewrite        string   `json:"host_rewrite" xorm:"varchar(255)"` // 反代时改写到后端的 Host（覆盖默认的后端地址）；空=用后端地址
+	SkipVerify         bool     `json:"skip_verify" xorm:"Bool"`          // 后端为自签/内网证书时跳过 TLS 校验
+	Status             int8     `json:"status" xorm:"Int"`                // 1=启用
+	// 访问方式：subdomain（子域名，默认，兼容旧数据）| path（主域名路径 /web/<协议>/<应用>/）| both
+	AccessMode string `json:"access_mode" xorm:"varchar(16) not null default 'subdomain'"`
+
+	// ---- 非 HTTP 协议接入（SSH/SFTP/SMB/FTP/RDP/VNC）----
+	// 目标地址只能由管理员配置，用户侧不得指定（防 SSRF）
+	Protocol   string `json:"protocol" xorm:"varchar(16) not null default 'http'"` // http|ssh|sftp|smb|ftp|rdp|vnc；空视为 http（兼容旧数据）
+	TargetHost string `json:"target_host" xorm:"varchar(255)"`                     // 非 http 协议的目标主机（域名或 IP）
+	TargetPort int    `json:"target_port" xorm:"Int"`                              // 非 http 协议的目标端口；0=协议默认端口
+	CredMode   string `json:"cred_mode" xorm:"varchar(16)"`                        // prompt|stored|passthrough；空=prompt
+	CredUser   string `json:"cred_user" xorm:"varchar(128)"`                       // 托管/固定的目标账号
+	// 凭据密文（AES-256-GCM），API 永不回显；写入时为明文，SetWebVpnApp 负责加密，空值表示不修改
+	CredSecret         string `json:"cred_secret,omitempty" xorm:"Text"`
+	CredKey            string `json:"cred_key,omitempty" xorm:"Text"`             // SSH 私钥（PEM），加密存储
+	HostKeyFp          string `json:"host_key_fp" xorm:"varchar(128)"`            // SSH 主机指纹（SHA256:...）；空=首次连接 TOFU 记录
+	Options            string `json:"options" xorm:"Text"`                        // 协议扩展参数 JSON，见 WebVpnAppOptions
+	AllowUpload        bool   `json:"allow_upload" xorm:"Bool"`                   // 允许上传/新建目录/重命名
+	AllowDownload      bool   `json:"allow_download" xorm:"Bool"`                 // 允许下载
+	AllowDelete        bool   `json:"allow_delete" xorm:"Bool"`                   // 允许删除
+	AllowClipboard     bool   `json:"allow_clipboard" xorm:"Bool"`                // 允许剪贴板（RDP/VNC 由网关强制，SSH 终端由前端遵循）
+	MaxFileSize        int64  `json:"max_file_size" xorm:"BigInt default 0"`      // 单文件上传/下载上限（字节）；0=不限
+	Record             bool   `json:"record" xorm:"Bool"`                         // 是否录像（SSH: asciicast v2；RDP/VNC: guacd 录像 .guac）
+	IdleTimeout        int    `json:"idle_timeout" xorm:"Int default 0"`          // 空闲断开（秒）；0=默认 1800
+	MaxSessionsPerUser int    `json:"max_sessions_per_user" xorm:"Int default 0"` // 单用户并发会话上限；0=默认上限
+
+	// 仅用于 API：凭据是否已配置（不入库）；清除凭据须显式传 clear_secret / clear_key
+	HasSecret   bool `json:"has_secret" xorm:"-"`
+	HasKey      bool `json:"has_key" xorm:"-"`
+	ClearSecret bool `json:"clear_secret,omitempty" xorm:"-"`
+	ClearKey    bool `json:"clear_key,omitempty" xorm:"-"`
+
+	CreatedAt time.Time `json:"created_at" xorm:"DateTime created"`
+	UpdatedAt time.Time `json:"updated_at" xorm:"DateTime updated"`
 }
 
 // 分页查询所有 WebVPN 应用；name 非空时按子域名/名称前缀模糊过滤
@@ -115,10 +145,10 @@ func SetWebVpnApp(a *WebVpnApp) error {
 	if !webVpnAppNameValid(a.Name) {
 		return errWebVpnInvalidName
 	}
-	if a.Backend == "" {
-		return errWebVpnEmptyBackend
+	if err := validateWebVpnTarget(a); err != nil {
+		return err
 	}
-	if _, err := ParseWebVpnBackendURL(a.Backend); err != nil {
+	if err := normalizeWebVpnAccessMode(a); err != nil {
 		return err
 	}
 	if err := normalizeWebVpnCorsOrigins(a); err != nil {
@@ -126,11 +156,17 @@ func SetWebVpnApp(a *WebVpnApp) error {
 	}
 	// 记录变更前的授权范围，用于权限收窄/调整时吊销相关用户会话
 	var oldUsers, oldGroups []string
+	var old *WebVpnApp
 	if a.Id > 0 {
-		var old WebVpnApp
-		if err := One("Id", a.Id, &old); err == nil {
-			oldUsers, oldGroups = old.Users, old.Groups
+		var o WebVpnApp
+		if err := One("Id", a.Id, &o); err == nil {
+			oldUsers, oldGroups = o.Users, o.Groups
+			old = &o
 		}
+	}
+	// 凭据：明文加密入库；空值保持原值；clear_* 显式清除
+	if err := applyWebVpnCreds(a, old); err != nil {
+		return err
 	}
 	a.UpdatedAt = time.Now()
 	var err error
@@ -148,6 +184,11 @@ func SetWebVpnApp(a *WebVpnApp) error {
 		InvalidateWebVpnAppCache()
 		// 权限白名单变更后，令新旧授权范围内的用户重新签发会话，使权限立即生效
 		revokeAffectedWebVpnUsers(oldUsers, oldGroups, a.Users, a.Groups)
+		// 通知在线长连接重新校验（授权/目标/启停变化时主动断开）
+		if old != nil && old.Name != a.Name {
+			fireWebVpnAppChanged(old.Name)
+		}
+		fireWebVpnAppChanged(a.Name)
 	}
 	return err
 }
@@ -167,6 +208,9 @@ func DelWebVpnApp(id int) error {
 	if err == nil {
 		InvalidateWebVpnAppCache()
 		revokeAffectedWebVpnUsers(delUsers, delGroups, nil, nil)
+		if old.Name != "" {
+			fireWebVpnAppChanged(old.Name)
+		}
 	}
 	return err
 }
@@ -330,7 +374,7 @@ type WebVpnAudit struct {
 	ClientIP   string    `json:"client_ip" xorm:"varchar(60) not null"`
 	DurationMs int64     `json:"duration_ms" xorm:"BigInt not null default 0"`
 	RiskLevel  int8      `json:"risk_level" xorm:"Int not null default 0"` // 0=正常 1=可疑 2=高危
-	CreatedAt  time.Time `json:"created_at" xorm:"DateTime created"`
+	CreatedAt  time.Time `json:"created_at" xorm:"DateTime created index"` // 访问聚合按时间窗口扫描
 }
 
 // 显式指定审计表名
@@ -487,8 +531,11 @@ func WebVpnRevokeUser(username string) error {
 		}
 		webVpnRevokeBeforeMu.Unlock()
 		base.Error("持久化 WebVPN 吊销记录失败:", err)
+		// 持久化失败仍断开在线长连接：安全优先
+		fireWebVpnUserRevoked(username)
 		return err
 	}
+	fireWebVpnUserRevoked(username)
 	return nil
 }
 

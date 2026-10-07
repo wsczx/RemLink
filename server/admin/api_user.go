@@ -18,6 +18,7 @@ import (
 	"github.com/skip2/go-qrcode"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/geoip"
 	"github.com/wsczx/remlink/pkg/notify"
 	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/sessdata"
@@ -190,9 +191,11 @@ func UserSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 密码为空时由系统随机生成并通过邮件下发，非空时校验复杂度
+	// 密码为空时由系统随机生成（仅本次响应返回明文，供管理员复制或通过邮件下发），非空时校验复杂度
+	generated := false
 	if data.PinCode == "" {
 		data.PinCode = utils.RandomRunes(8)
+		generated = true
 	} else if err := utils.CheckPasswordPolicy(data.PinCode); err != nil {
 		RespError(w, RespParamErr, err.Error())
 		return
@@ -221,6 +224,10 @@ func UserSet(w http.ResponseWriter, r *http.Request) {
 	// 停用用户时立即断开其在线 VPN 会话
 	if data.Status != 1 {
 		sessdata.CloseUserSessions(data.Username, dbdata.UserLogoutAdmin)
+	}
+	if generated {
+		RespSucess(w, map[string]string{"generated_password": plainpwd})
+		return
 	}
 	RespSucess(w, nil)
 }
@@ -310,6 +317,9 @@ func UserOnline(w http.ResponseWriter, r *http.Request) {
 
 	// datas := sessdata.OnlineSess()
 	datas := sessdata.GetOnlineSess(search_cate, search_text, showSleeper)
+	for i := range datas {
+		datas[i].CountryCode = geoip.Lookup(datas[i].RemoteAddr)
+	}
 
 	data := map[string]any{
 		"count":     len(datas),

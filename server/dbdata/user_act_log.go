@@ -288,7 +288,17 @@ func (ua *UserActLogProcess) ClearUserActLog(ts string) (int64, error) {
 
 // 后台筛选用户操作日志
 func (ua *UserActLogProcess) GetSession(values url.Values) *xorm.Session {
-	session := xdb.Where("1=1")
+	session := applyUserActLogFilter(xdb.Where("1=1"), values)
+	if values.Get("sort") == "1" {
+		session.OrderBy("id desc")
+	} else {
+		session.OrderBy("id asc")
+	}
+	return session
+}
+
+// 用户行为日志筛选条件（列表/按天统计共用，不含排序）
+func applyUserActLogFilter(session *xorm.Session, values url.Values) *xorm.Session {
 	if v := values.Get("username"); v != "" {
 		fuzzy := "%" + v + "%"
 		session.And("username IN (SELECT username FROM user WHERE username LIKE ? OR nickname LIKE ?)", fuzzy, fuzzy)
@@ -311,11 +321,6 @@ func (ua *UserActLogProcess) GetSession(values url.Values) *xorm.Session {
 		n, _ := strconv.ParseUint(v, 10, 8)
 		session.And("client = ?", uint8(n)-1)
 	}
-	if values.Get("sort") == "1" {
-		session.OrderBy("id desc")
-	} else {
-		session.OrderBy("id asc")
-	}
 	return session
 }
 
@@ -324,4 +329,14 @@ func substr(s string, pos, length int) string {
 	runes := []rune(s)
 	l := min(pos+length, len(runes))
 	return string(runes[pos:l])
+}
+
+// 查询 since 之后的 VPN/门户接入事件（认证失败/认证成功/连接成功），不含管理后台登录，按时间倒序
+func FindAccessEvents(since time.Time, limit int) ([]UserActLog, error) {
+	var datas []UserActLog
+	err := xdb.Where("created_at >= ?", since).
+		And("client <> ?", UserAdminClient).
+		In("status", UserAuthFail, UserAuthSuccess, UserConnected).
+		OrderBy("id desc").Limit(limit).Find(&datas)
+	return datas, err
 }

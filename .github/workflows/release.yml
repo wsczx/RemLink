@@ -33,14 +33,13 @@ jobs:
 
       - uses: actions/setup-node@v5
         with:
-          node-version: "16"
-          cache: "yarn"
-          cache-dependency-path: "web/yarn.lock"
+          node-version: "22"
       - name: Build web
-        working-directory: web
+        working-directory: new_ui
         run: |
-          yarn install --frozen-lockfile
-          yarn run build
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm run build
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4

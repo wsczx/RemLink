@@ -1,0 +1,70 @@
+# RemLink + guacd（WebVPN 远程桌面 RDP/VNC）部署示例
+#
+# 说明：
+#   - guacd 只在 compose 内部网络中监听 4822，不对外发布端口；浏览器永远不会直连 guacd，
+#     所有 Guacamole 流量都经 RemLink 网关（鉴权、一次性票据、剪贴板策略、踢下线）。
+#   - RemLink 通过服务名 guacd:4822 访问 guacd（配置项 guacd_addr，可用环境变量 LINK_GUACD_ADDR 初始化，
+#     也可在管理后台「系统设置 → 门户设置」修改）。
+#   - 录像：guacd 把 .guac 录像直接写入共享卷。RemLink 的录像目录为 /app/conf/webvpn_record，
+#     在 guacd 容器内挂载为 /record，并把 guacd_record_path 设为 /record（LINK_GUACD_RECORD_PATH）。
+#     guacd 镜像以 uid 1000 运行，需保证该目录对 uid 1000 可写，例如：
+#       mkdir -p ./conf/webvpn_record && chown 1000:1000 ./conf/webvpn_record && chmod 0770 ./conf/webvpn_record
+#   - guacd 需要能访问内网 RDP/VNC 目标主机（目标地址只来自管理员在后台配置的应用）。
+#
+# 用法：
+#   cd docker/guacd && docker compose up -d
+
+services:
+  remlink:
+    image: wsczx/remlink:latest
+    container_name: remlink
+    restart: always
+    privileged: true
+    ports:
+      - 443:443
+      - 8800:8800
+      - 443:443/udp
+    environment:
+      LINK_LOG_LEVEL: info
+      LINK_GUACD_ADDR: guacd:4822
+      LINK_GUACD_RECORD_PATH: /record
+    volumes:
+      - ./conf:/app/conf
+    depends_on:
+      - guacd
+    networks:
+      - remlink
+    dns_search: .
+
+  guacd:
+    image: guacamole/guacd:1.5.5
+    container_name: remlink-guacd
+    restart: always
+    # 不发布任何端口：仅 remlink 可经内部网络访问
+    expose:
+      - "4822"
+    environment:
+      GUACD_LOG_LEVEL: info
+    volumes:
+      # 与 remlink 的 ./conf/webvpn_record 为同一目录
+      - ./conf/webvpn_record:/record
+    networks:
+      - remlink
+    # 若 RDP/VNC 目标位于宿主机所在内网，确保 guacd 容器可路由到目标网段（默认 bridge 网络经宿主机 NAT 即可）
+
+networks:
+  remlink:
+    driver: bridge
+
+# ---------------------------------------------------------------------------
+# 变体：remlink 使用 host 网络（network_mode: host）时，guacd 只发布到回环地址：
+#
+#   guacd:
+#     image: guacamole/guacd:1.5.5
+#     ports:
+#       - "127.0.0.1:4822:4822"
+#     volumes:
+#       - /home/myconf/webvpn_record:/record
+#
+# 并保持 guacd_addr 为默认值 127.0.0.1:4822、guacd_record_path 设为 /record。
+# ---------------------------------------------------------------------------

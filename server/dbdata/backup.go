@@ -55,6 +55,8 @@ var backupTables = []backupTable{
 	{"webvpn_app", "WebVPN应用", "business", WebVpnApp{}},
 	{"webvpn_audit", "WebVPN审计", "log", WebVpnAudit{}},
 	{"webvpn_revoke", "WebVPN会话吊销", "business", WebVpnRevoke{}},
+	{"webvpn_session", "WebVPN远程会话", "log", WebVpnSession{}},
+	{"webvpn_file_log", "WebVPN文件操作日志", "log", WebVpnFileLog{}},
 }
 
 func backupTableByNameMap() map[string]backupTable {

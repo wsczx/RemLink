@@ -54,7 +54,7 @@ func TestGetTableSizes(t *testing.T) {
 		groups[s.Group]++
 	}
 	ast.Equal(10, groups["business"])
-	ast.Equal(4, groups["log"])
+	ast.Equal(6, groups["log"]) // 含 webvpn_session / webvpn_file_log
 	ast.Equal(4, groups["stats"])
 }
 

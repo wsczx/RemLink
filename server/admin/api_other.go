@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strings"
 
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
@@ -251,5 +252,20 @@ func AdminPortalLoginConfig(w http.ResponseWriter, r *http.Request) {
 		"favicon": brand.Favicon,
 		"desc":    brand.Desc,
 		"footer":  brand.Footer,
+		// 管理端口只提供后台接口；门户 / Web 认证页在此打开时，前端据此跳转到 VPN 服务端口
+		"admin_origin": true,
+		"vpn_port":     vpnServicePort(),
 	})
+}
+
+// VPN 服务（门户所在）监听端口，取自 server_addr（如 ":443"、"0.0.0.0:8443"、"8443"）
+func vpnServicePort() string {
+	addr := strings.TrimSpace(base.GetCfg().ServerAddr)
+	if i := strings.LastIndex(addr, ":"); i >= 0 {
+		addr = addr[i+1:]
+	}
+	if addr == "" {
+		return "443"
+	}
+	return addr
 }
