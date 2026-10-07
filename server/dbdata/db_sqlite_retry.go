@@ -171,3 +171,49 @@ func newRetrySqliteDB(dsn string) (*sql.DB, error) {
 	}
 	return sql.OpenDB(connector), nil
 }
+
+// 规范化 SQLite DSN（modernc.org/sqlite 语法）：
+//   - 旧版 mattn 驱动的 _busy_timeout=N 在 modernc 下不生效，转换为 _pragma=busy_timeout(N)，
+//     未配置时默认 5000ms。否则驱动拿不到写锁会立即返回 "database is locked"
+//   - 默认 journal_mode(WAL)：读写互不阻塞，并发读不再阻塞流量统计、审计批量写
+//   - 默认 _txlock=immediate：事务开始即取写锁，避免「先读后写」升级锁时 busy_timeout 无法化解的冲突
+//
+// 用户在 db_source 中显式配置的同名参数优先
+func sqliteDSN(dsn string) string {
+	if dsn == ":memory:" || strings.Contains(dsn, "mode=memory") {
+		return dsn
+	}
+	base, query, _ := strings.Cut(dsn, "?")
+	var params []string
+	busy := "5000"
+	for _, kv := range strings.Split(query, "&") {
+		if kv == "" {
+			continue
+		}
+		if v, ok := strings.CutPrefix(kv, "_busy_timeout="); ok {
+			if v != "" {
+				busy = v
+			}
+			continue
+		}
+		params = append(params, kv)
+	}
+	has := func(s string) bool {
+		for _, p := range params {
+			if strings.Contains(p, s) {
+				return true
+			}
+		}
+		return false
+	}
+	if !has("busy_timeout") {
+		params = append(params, "_pragma=busy_timeout("+busy+")")
+	}
+	if !has("journal_mode") {
+		params = append(params, "_pragma=journal_mode(WAL)")
+	}
+	if !has("_txlock=") {
+		params = append(params, "_txlock=immediate")
+	}
+	return base + "?" + strings.Join(params, "&")
+}

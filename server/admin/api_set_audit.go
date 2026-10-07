@@ -7,6 +7,7 @@ import (
 
 	"github.com/gocarina/gocsv"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/geoip"
 )
 
 func SetAuditList(w http.ResponseWriter, r *http.Request) {
@@ -35,6 +36,7 @@ func SetAuditList(w http.ResponseWriter, r *http.Request) {
 	nickMap := dbdata.NicknameMap(names)
 	for i := range datas {
 		datas[i].Nickname = nickMap[datas[i].Username]
+		datas[i].CountryCode = geoip.Lookup(datas[i].Src)
 	}
 
 	data := map[string]any{
@@ -154,6 +156,7 @@ func UserActLogList(w http.ResponseWriter, r *http.Request) {
 	nickMap := dbdata.NicknameMap(names)
 	for i := range datas {
 		datas[i].Nickname = nickMap[datas[i].Username]
+		datas[i].CountryCode = geoip.Lookup(datas[i].RemoteAddr)
 	}
 
 	data := map[string]any{
@@ -187,6 +190,9 @@ func AdminOpLogList(w http.ResponseWriter, r *http.Request) {
 	if datas == nil {
 		datas = []dbdata.AdminOpLog{}
 	}
+	for i := range datas {
+		datas[i].CountryCode = geoip.Lookup(datas[i].ClientIp)
+	}
 	data := map[string]any{
 		"count":     count,
 		"page_size": dbdata.PageSize,
@@ -195,4 +201,42 @@ func AdminOpLogList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RespSucess(w, data)
+}
+
+// 接入链路：返回最近一段时间的接入事件，供前端按来源/入口/结果/分配地址聚合
+// 参数 hours（默认 24，最大 720）、limit（默认 1000，最大 5000）
+func AccessFlowList(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	hours, _ := strconv.Atoi(r.FormValue("hours"))
+	if hours <= 0 || hours > 720 {
+		hours = 24
+	}
+	limit, _ := strconv.Atoi(r.FormValue("limit"))
+	if limit <= 0 || limit > 5000 {
+		limit = 1000
+	}
+	datas, err := dbdata.FindAccessEvents(time.Now().Add(-time.Duration(hours)*time.Hour), limit)
+	if err != nil && !dbdata.CheckErrNotFound(err) {
+		RespError(w, RespInternalErr, err)
+		return
+	}
+	if datas == nil {
+		datas = []dbdata.UserActLog{}
+	}
+	names := make([]string, 0, len(datas))
+	for _, d := range datas {
+		names = append(names, d.Username)
+	}
+	nickMap := dbdata.NicknameMap(names)
+	for i := range datas {
+		datas[i].Nickname = nickMap[datas[i].Username]
+		datas[i].CountryCode = geoip.Lookup(datas[i].RemoteAddr)
+	}
+	RespSucess(w, map[string]any{
+		"datas":     datas,
+		"limit":     limit,
+		"truncated": len(datas) >= limit,
+		"osOps":     dbdata.UserActLogIns.OsOps,
+		"clientOps": dbdata.UserActLogIns.ClientOps,
+	})
 }

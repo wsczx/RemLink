@@ -1,5 +1,5 @@
 # RemLink Dockerfile
-# 需要先编译前端（bash scripts/build_web.sh）再执行 docker build
+# 需要先编译前端（bash scripts/build_web.sh，产物 new_ui/ui）再执行 docker build
 
 # 编译阶段
 FROM golang:1.26-alpine3.22 AS builder
@@ -13,7 +13,7 @@ ENV TZ=Asia/Shanghai
 WORKDIR /server
 COPY docker/init_build.sh /tmp/
 COPY server/ /server/
-COPY web/ui  /server/ui
+COPY new_ui/ui /server/ui
 
 RUN --mount=type=cache,target=/go --mount=type=cache,target=/root/.cache/go-build sh /tmp/init_build.sh
 

@@ -41,6 +41,8 @@ func TableModels() []any {
 		&WebVpnApp{},
 		&WebVpnAudit{},
 		&WebVpnRevoke{},
+		&WebVpnSession{},
+		&WebVpnFileLog{},
 	}
 }
 
@@ -56,13 +58,7 @@ func initDb() {
 		if dbSource != ":memory:" && !strings.HasPrefix(dbSource, "file:") {
 			dbSource = "file:" + dbSource
 		}
-		if !strings.Contains(dbSource, "_busy_timeout=") {
-			sep := "?"
-			if strings.Contains(dbSource, "?") {
-				sep = "&"
-			}
-			dbSource += sep + "_busy_timeout=5000"
-		}
+		dbSource = sqliteDSN(dbSource)
 		// 注入 SQLite 锁退避重试（见 db_sqlite_retry.go）
 		sqlDB, dErr := newRetrySqliteDB(dbSource)
 		if dErr != nil {

@@ -21,6 +21,7 @@ type Online struct {
 	UniqueMac         bool      `json:"unique_mac"`
 	Ip                net.IP    `json:"ip"`
 	RemoteAddr        string    `json:"remote_addr"`
+	CountryCode       string    `json:"country_code"` // 来源 IP 国家代码（GeoIP，由管理接口填充）
 	TransportProtocol string    `json:"transport_protocol"`
 	TunName           string    `json:"tun_name"`
 	Mtu               int       `json:"mtu"`
@@ -49,6 +50,21 @@ func (o Onlines) Less(i, j int) bool {
 
 func (o Onlines) Swap(i, j int) {
 	o[i], o[j] = o[j], o[i]
+}
+
+// 返回真实在线会话（活跃且仍有活动连接）的客户端来源地址，用于地理分布统计（不查库）
+func OnlineRemoteAddrs() []string {
+	sessMux.Lock()
+	defer sessMux.Unlock()
+	addrs := make([]string, 0, len(sessions))
+	for _, v := range sessions {
+		v.mux.Lock()
+		if v.IsActive && v.CSess != nil && v.CSess.IpAddr != nil {
+			addrs = append(addrs, v.CSess.RemoteAddr)
+		}
+		v.mux.Unlock()
+	}
+	return addrs
 }
 
 // 返回在线会话列表，支持按用户名/组/MAC/IP/远端地址模糊搜索

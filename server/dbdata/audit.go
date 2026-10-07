@@ -8,7 +8,23 @@ import (
 )
 
 func GetAuditSession(values url.Values) *xorm.Session {
-	session := xdb.Where("1=1")
+	session := applyAuditFilter(xdb.Where("1=1"), values)
+	sort, _ := strconv.Atoi(values.Get("search[sort]"))
+	switch sort {
+	case 0:
+		// 默认倒序：新记录在前，无需翻到最后一页
+		session.OrderBy("id desc")
+	case 2:
+		session.OrderBy("id asc")
+	default:
+		// sort==1 兼容旧前端：倒序
+		session.OrderBy("id desc")
+	}
+	return session
+}
+
+// 访问审计筛选条件（列表/导出/按天统计共用，不含排序）
+func applyAuditFilter(session *xorm.Session, values url.Values) *xorm.Session {
 	if v := values.Get("search[username]"); v != "" {
 		fuzzy := "%" + v + "%"
 		session.And("username IN (SELECT username FROM user WHERE username LIKE ? OR nickname LIKE ?)", fuzzy, fuzzy)
@@ -43,17 +59,6 @@ func GetAuditSession(values url.Values) *xorm.Session {
 	}
 	if v := values.Get("search[info]"); v != "" {
 		session.And("info LIKE ?", "%"+v+"%")
-	}
-	sort, _ := strconv.Atoi(values.Get("search[sort]"))
-	switch sort {
-	case 0:
-		// 默认倒序：新记录在前，无需翻到最后一页
-		session.OrderBy("id desc")
-	case 2:
-		session.OrderBy("id asc")
-	default:
-		// sort==1 兼容旧前端：倒序
-		session.OrderBy("id desc")
 	}
 	return session
 }

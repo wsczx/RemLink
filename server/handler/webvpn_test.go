@@ -796,7 +796,7 @@ func TestPortalLogoutRevokesWebVpnSession(t *testing.T) {
 		"portal_type": "local",
 	}, time.Now().Add(time.Hour).Unix())
 	assert.NoError(t, err)
-	logoutReq := httptest.NewRequest(http.MethodPost, "/portal/api/logout", nil)
+	logoutReq := httptest.NewRequest(http.MethodPost, "/api/v1/portal/logout", nil)
 	logoutReq.AddCookie(&http.Cookie{Name: portalCookieName, Value: portalTok})
 	logoutReq.Header.Set("X-Forwarded-Proto", "https")
 	logoutRec := httptest.NewRecorder()
@@ -977,7 +977,7 @@ func webVpnUserFromTokenOK(token string) bool {
 }
 
 // 验证 P1-6 修复：
-// 子域（*.WebVpnDomain）请求门户写接口 /portal/api/* 必须被拒绝（403），
+// 子域（*.WebVpnDomain）请求门户写接口 /api/v1/portal/* 必须被拒绝（403），
 // 不得 delegate 回主路由（否则会带上 .WebVpnDomain 通配的 portal_session cookie，
 // 形成跨子域门户越权调用，如登出/改密码）
 func TestWebVpnHandlerSubdomainPortalApiForbidden(t *testing.T) {
@@ -986,16 +986,16 @@ func TestWebVpnHandlerSubdomainPortalApiForbidden(t *testing.T) {
 	ast := assert.New(t)
 
 	for _, p := range []string{
-		"/portal/api/logout",
-		"/portal/api/change_password",
-		"/portal/api/devices/offline",
+		"/api/v1/portal/logout",
+		"/api/v1/portal/change_password",
+		"/api/v1/portal/devices/offline",
 	} {
 		req := httptest.NewRequest(http.MethodPost, p, nil)
 		req.Host = "evil.wv.example.com" // 任意 WebVPN 子域
 		rec := httptest.NewRecorder()
 		handled := WebVpnHandler(rec, req)
-		ast.True(handled, "子域 /portal/api/* 应由 WebVpnHandler 拦截（不应 delegate），path=%s", p)
-		ast.Equal(http.StatusForbidden, rec.Code, "子域 /portal/api/* 应返回 403，path=%s", p)
+		ast.True(handled, "子域 /api/v1/portal/* 应由 WebVpnHandler 拦截（不应 delegate），path=%s", p)
+		ast.Equal(http.StatusForbidden, rec.Code, "子域 /api/v1/portal/* 应返回 403，path=%s", p)
 	}
 	// 精确 /portal 仅放行 GET（登录页壳）；非 GET（POST/DELETE 等）一律 403，不得反代/委托
 	for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
@@ -1022,14 +1022,14 @@ func TestWebVpnHandlerSubdomainPortalLoginAllowed(t *testing.T) {
 		method string
 		path   string
 	}{
-		{http.MethodPost, "/portal/api/login"},
-		{http.MethodPost, "/portal/api/verify"},
-		{http.MethodPost, "/portal/api/sms/send"},
-		{http.MethodPost, "/portal/api/sms/verify"},
-		{http.MethodGet, "/portal/api/login-config"},
-		{http.MethodGet, "/portal/api/me"},
-		{http.MethodGet, "/portal/api/otp/status"},
-		{http.MethodGet, "/portal/api/sso"},
+		{http.MethodPost, "/api/v1/portal/login"},
+		{http.MethodPost, "/api/v1/portal/verify"},
+		{http.MethodPost, "/api/v1/portal/sms/send"},
+		{http.MethodPost, "/api/v1/portal/sms/verify"},
+		{http.MethodGet, "/api/v1/portal/login-config"},
+		{http.MethodGet, "/api/v1/portal/me"},
+		{http.MethodGet, "/api/v1/portal/otp/status"},
+		{http.MethodGet, "/api/v1/portal/sso"},
 	}
 	for _, c := range cases {
 		req := httptest.NewRequest(c.method, c.path, nil)
@@ -1083,16 +1083,25 @@ func TestWebVpnHandlerSubdomainNonWhitelistProxy(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handled := WebVpnHandler(rec, req)
 	ast.True(handled, "子域非白名单路径应由 WebVpnHandler 转交代理")
+
+	// 内网应用自身的 /api/v1/*（门户前缀 /api/v1/portal/ 以外）不得被网关劫持，应转交代理
+	for _, p := range []string{"/api/v1/users", "/api/v1/web-auth/start", "/api/v1/user/list"} {
+		req := httptest.NewRequest(http.MethodGet, p, nil)
+		req.Host = "app.wv.example.com"
+		rec := httptest.NewRecorder()
+		ast.True(WebVpnHandler(rec, req), "子域 %s 应转交代理而非由主路由处理", p)
+		ast.NotEqual(http.StatusForbidden, rec.Code, "子域 %s 不应 403", p)
+	}
 }
 
 // 验证 WebVpnHandler 仅处理 WebVPN 子域请求：
-// 主域名（非 *.WebVpnDomain）的 /portal/api/* 请求应不被拦截，delegate 回主路由
+// 主域名（非 *.WebVpnDomain）的 /api/v1/portal/* 请求应不被拦截，delegate 回主路由
 func TestWebVpnHandlerNonSubdomainIgnored(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
 	ast := assert.New(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/portal/api/logout", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/portal/logout", nil)
 	req.Host = "www.example.com" // 非 WebVPN 子域
 	rec := httptest.NewRecorder()
 	handled := WebVpnHandler(rec, req)
@@ -1164,12 +1173,12 @@ func TestWebVpnPortalMainDomain(t *testing.T) {
 	})
 
 	// 请求带端口：门户域名沿用该端口
-	r1 := httptest.NewRequest(http.MethodGet, "/portal/api/sso", nil)
+	r1 := httptest.NewRequest(http.MethodGet, "/api/v1/portal/sso", nil)
 	r1.Host = "app.wv.example.com:4343"
 	ast.Equal("https://vpntest.example.com:4343", portalMainDomain(r1), "子域带端口应沿用端口")
 
 	// 请求无端口：门户域名不带端口
-	r2 := httptest.NewRequest(http.MethodGet, "/portal/api/sso", nil)
+	r2 := httptest.NewRequest(http.MethodGet, "/api/v1/portal/sso", nil)
 	r2.Host = "app.wv.example.com"
 	ast.Equal("https://vpntest.example.com", portalMainDomain(r2), "子域无端口时门户域名不带端口")
 
@@ -1177,7 +1186,7 @@ func TestWebVpnPortalMainDomain(t *testing.T) {
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.WebVpnSsoDomain = ""
 	})
-	r3 := httptest.NewRequest(http.MethodGet, "/portal/api/sso", nil)
+	r3 := httptest.NewRequest(http.MethodGet, "/api/v1/portal/sso", nil)
 	r3.Host = "app.wv.example.com:4343"
 	ast.Equal("", portalMainDomain(r3), "未配置 webvpn_sso_domain 应返回空")
 }
@@ -1197,7 +1206,7 @@ func TestWebVpnPortalSSOSubdomainRedirect(t *testing.T) {
 
 	// 子域名发起第三方登录，携带回跳地址（子域完整 URL，含端口）
 	req := httptest.NewRequest(http.MethodGet,
-		"/portal/api/sso?type=wxwork&redirect="+url.QueryEscape("https://app.wv.example.com:4343/"),
+		"/api/v1/portal/sso?type=wxwork&redirect="+url.QueryEscape("https://app.wv.example.com:4343/"),
 		nil)
 	req.Host = "app.wv.example.com:4343"
 	rec := httptest.NewRecorder()
@@ -1205,7 +1214,7 @@ func TestWebVpnPortalSSOSubdomainRedirect(t *testing.T) {
 
 	ast.Equal(http.StatusFound, rec.Code, "子域第三方登录应 302 跳门户域名")
 	loc := rec.Header().Get("Location")
-	ast.Contains(loc, "https://vpntest.example.com:4343/portal/api/sso", "应跳转到门户域名 sso 接口，实际: %s", loc)
+	ast.Contains(loc, "https://vpntest.example.com:4343/api/v1/portal/sso", "应跳转到门户域名 sso 接口，实际: %s", loc)
 	ast.Contains(loc, "redirect="+url.QueryEscape("https://app.wv.example.com:4343/"), "应透传回跳地址，实际: %s", loc)
 
 	// 未配置 webvpn_sso_domain：子域三方登录应返回 400（不可用），而非跳到错误域名
@@ -1213,7 +1222,7 @@ func TestWebVpnPortalSSOSubdomainRedirect(t *testing.T) {
 		c.WebVpnSsoDomain = ""
 	})
 	req2 := httptest.NewRequest(http.MethodGet,
-		"/portal/api/sso?type=wxwork&redirect="+url.QueryEscape("https://app.wv.example.com:4343/"),
+		"/api/v1/portal/sso?type=wxwork&redirect="+url.QueryEscape("https://app.wv.example.com:4343/"),
 		nil)
 	req2.Host = "app.wv.example.com:4343"
 	rec2 := httptest.NewRecorder()
@@ -1280,7 +1289,7 @@ func TestPortalLoginOnWebVpnSubdomainSkipsPortalCookie(t *testing.T) {
 	}
 
 	// 子域 host 下的登录请求
-	req := httptest.NewRequest(http.MethodPost, "/portal/api/login", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/portal/login", nil)
 	req.Host = "app.wv.example.com"
 	req.Header.Set("X-Forwarded-Proto", "https")
 
@@ -1301,7 +1310,7 @@ func TestPortalLoginOnWebVpnSubdomainSkipsPortalCookie(t *testing.T) {
 	ast.True(hasGrant, "子域登录应签发 webvpn_grant（供子域兑换会话）")
 
 	// 对照：父域 host 下登录应正常写 portal_session
-	req2 := httptest.NewRequest(http.MethodPost, "/portal/api/login", nil)
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/portal/login", nil)
 	req2.Host = "mv.example.com"
 	req2.Header.Set("X-Forwarded-Proto", "https")
 	rec2 := httptest.NewRecorder()

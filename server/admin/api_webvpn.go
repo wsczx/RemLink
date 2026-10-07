@@ -10,6 +10,7 @@ import (
 	"github.com/gocarina/gocsv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/geoip"
 )
 
 // 返回 WebVPN 泛域名后缀（如 wv.example.com），供前端拼接访问地址
@@ -36,14 +37,16 @@ func WebVpnAppList(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	if datas == nil {
-		datas = []dbdata.WebVpnApp{}
+	// 凭据密文永不回显，仅返回 has_secret / has_key
+	out := make([]dbdata.WebVpnApp, 0, len(datas))
+	for _, d := range datas {
+		out = append(out, d.Redacted())
 	}
 
 	RespSucess(w, map[string]any{
 		"count":     count,
 		"page_size": pageSize,
-		"datas":     datas,
+		"datas":     out,
 	})
 }
 
@@ -61,23 +64,8 @@ func WebVpnAppDetail(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	if data.Users == nil {
-		data.Users = []string{}
-	}
-	if data.Groups == nil {
-		data.Groups = []string{}
-	}
-	if data.AllowPath == nil {
-		data.AllowPath = []string{}
-	}
-	if data.IpAllowList == nil {
-		data.IpAllowList = []string{}
-	}
-	if data.CorsAllowedOrigins == nil {
-		data.CorsAllowedOrigins = []string{}
-	}
-
-	RespSucess(w, data)
+	// Redacted 同时把 nil 切片规范为 []，并清空凭据密文
+	RespSucess(w, data.Redacted())
 }
 
 // 新增或更新 WebVPN 应用
@@ -96,12 +84,18 @@ func WebVpnAppSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// cred_secret / cred_key 为明文输入，由 SetWebVpnApp 加密入库；空值表示不修改，clear_secret / clear_key 表示清除
+	credChanged := v.CredSecret != "" || v.CredKey != "" || v.ClearSecret || v.ClearKey
 	if err := dbdata.SetWebVpnApp(v); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
 
-	dbdata.AdminLog("WebVPN应用管理", v.Name, "创建/修改了WebVPN应用", r.RemoteAddr)
+	msg := "创建/修改了WebVPN应用"
+	if credChanged {
+		msg += "（含托管凭据变更）"
+	}
+	dbdata.AdminLog("WebVPN应用管理", v.Name, msg, r.RemoteAddr)
 	RespSucess(w, nil)
 }
 
@@ -158,14 +152,20 @@ func WebVpnAuditList(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	if datas == nil {
-		datas = []dbdata.WebVpnAudit{}
+	// 附加客户端 IP 国家代码（不改动 dbdata.WebVpnAudit 结构）
+	type webVpnAuditRow struct {
+		dbdata.WebVpnAudit
+		CountryCode string `json:"country_code"`
+	}
+	rows := make([]webVpnAuditRow, 0, len(datas))
+	for _, d := range datas {
+		rows = append(rows, webVpnAuditRow{WebVpnAudit: d, CountryCode: geoip.Lookup(d.ClientIP)})
 	}
 
 	RespSucess(w, map[string]any{
 		"count":     count,
 		"page_size": pageSize,
-		"datas":     datas,
+		"datas":     rows,
 	})
 }
 

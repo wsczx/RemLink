@@ -1,0 +1,87 @@
+*, ::before, ::after { box-sizing: border-box; }
+html, body, #app { height: 100%; margin: 0; }
+body {
+  font-family: v-sans, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: var(--text-font-size-md);
+  color: var(--color-text-primary);
+  background: var(--color-body);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--color-text-primary); text-decoration: none; }
+code, pre, .mono { font-family: v-mono, ui-monospace, SFMono-Regular, Menlo, monospace; }
+svg { width: var(--x-icon-size, 1em); height: var(--x-icon-size, 1em); }
+
+/* 分段 tab */
+.ax-block-tab--active {
+  background: var(--color-primary);
+  color: var(--color-text-primary);
+  box-shadow: 0 1px 2px #00000014, inset 0 0 0 1px var(--color-border-default);
+}
+.ax-status { display: inline-flex; align-items: center; gap: var(--spacing-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 小徽标：currentColor 铺底 14% */
+.ax-badge { position: relative; display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 8px; font-size: 12px; isolation: isolate; }
+.ax-badge::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: currentColor; opacity: .14; z-index: -1; }
+
+/* 表格最后一行不画底边框 */
+.n-data-table .n-data-table-tr:last-child .n-data-table-td { border-bottom: 0; }
+
+/* 无边框的筛选条输入框 */
+.ax-bare-input { background: transparent !important; }
+.ax-bare-input .n-input-wrapper { padding-left: 0 !important; }
+.ax-bare-input .n-input__border, .ax-bare-input .n-input__state-border { display: none; }
+
+.ax-scrollbar-none::-webkit-scrollbar { width: 0; height: 0; }
+
+/* ===== RemLink 控制台 ===== */
+.text-success { color: var(--color-text-success); }
+.text-warning { color: var(--color-text-warning); }
+.text-error { color: var(--color-text-error); }
+.text-info { color: var(--color-text-info); }
+
+/* 面板 */
+.rl-panel { background: var(--color-primary); border: 1px solid var(--color-border-default); border-radius: 12px; min-width: 0; }
+.rl-panel__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; padding: 10px 20px; border-bottom: 1px solid var(--color-border-default); }
+.rl-panel__toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--color-border-default); }
+.rl-panel__foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-top: 1px solid var(--color-border-default); }
+.rl-panel .n-data-table .n-data-table-th { background: var(--color-secondary); }
+.rl-panel > div > .n-data-table .n-data-table-base-table { border-radius: 0; }
+
+/* 指标卡 */
+.rl-stat { display: block; padding: 16px 20px; color: inherit; transition: border-color .15s; }
+.rl-stat--link:hover { border-color: var(--color-border-strong); }
+
+/* 设置行 */
+.rl-setting-row { display: grid; grid-template-columns: minmax(200px, 320px) minmax(0, 1fr); gap: 12px 40px; padding: 18px 20px; }
+.rl-setting-row + .rl-setting-row { border-top: 1px solid var(--color-border-default); }
+.rl-setting-row__control { min-width: 0; max-width: 560px; }
+@media (max-width: 900px) { .rl-setting-row { grid-template-columns: 1fr; } }
+
+/* 状态点 */
+.rl-status { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; color: var(--color-text-primary); }
+.rl-status__dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: var(--color-text-quaternary); }
+.rl-status--success .rl-status__dot { background: var(--color-text-success); }
+.rl-status--warning .rl-status__dot { background: var(--color-text-warning); }
+.rl-status--error .rl-status__dot { background: var(--color-text-error); }
+.rl-status--info .rl-status__dot { background: var(--color-text-info); }
+.rl-status--muted { color: var(--color-text-secondary); }
+.rl-status__dot--pulse { box-shadow: 0 0 0 0 currentColor; animation: rl-pulse 2s infinite; }
+@keyframes rl-pulse { 0% { box-shadow: 0 0 0 0 rgba(47,133,90,.45); } 70% { box-shadow: 0 0 0 6px rgba(47,133,90,0); } 100% { box-shadow: 0 0 0 0 rgba(47,133,90,0); } }
+
+/* 下划线 tab */
+.rl-utab { position: relative; height: 38px; padding: 0 2px; border: 0; background: none; cursor: pointer; font: inherit; font-size: 14px; color: var(--color-text-secondary); display: inline-flex; align-items: center; }
+.rl-utab:hover { color: var(--color-text-primary); }
+.rl-utab--active { color: var(--color-text-primary); font-weight: 600; }
+.rl-utab--active::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--color-action); border-radius: 2px; }
+
+/* 纯图标按钮 */
+.rl-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; color: var(--color-text-secondary); cursor: pointer; font-size: 18px; }
+.rl-icon-btn:hover { background: var(--color-action-hover); color: var(--color-text-primary); }
+
+/* 国旗 */
+.rl-flag { display: inline-block; border-radius: 2px; background-size: cover; background-position: center; box-shadow: 0 0 0 1px var(--color-border-default); }
+.rl-flag--none { background: repeating-linear-gradient(135deg, var(--color-fill) 0 3px, var(--color-disabled) 3px 5px); }
+
+/* 等宽数字 / 代码片段 */
+.rl-mono { font-family: v-mono, ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.rl-kbd { display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: 4px; background: var(--color-fill); font-family: v-mono, ui-monospace, monospace; font-size: 12px; color: var(--color-text-secondary); }

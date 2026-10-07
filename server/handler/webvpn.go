@@ -23,16 +23,21 @@ func WebVpnHandler(w http.ResponseWriter, r *http.Request) bool {
 	if !isWebVpnHost {
 		return false
 	}
+	// WebVPN 根域本身（无子域前缀）下的 /web/* 是路径模式入口，交给 WebPathHandler
+	if prefix == "" && strings.HasPrefix(r.URL.Path, webvpn.WebPathRoot) {
+		return false
+	}
 	// WebVPN 自有端点（/webvpn/*，如登录/登出/me）不走代理，交由 initRoute 处理
 	if strings.HasPrefix(r.URL.Path, "/webvpn/") {
 		return false
 	}
 	// 门户相关路径一律禁止在 WebVPN 子域下访问（防止跨子域携带通配 portal_session cookie 越权调用门户接口）：
-	// 仅放行 GET /portal（登录页）与白名单内的登录前置接口（见 portalLoginEndpoints）
+	// 仅放行 GET /portal（登录页）与白名单内的登录前置接口 /api/v1/portal/*（见 portalLoginEndpoints）
 	if r.URL.Path == "/portal" && r.Method == http.MethodGet {
 		return false
 	}
-	if r.URL.Path == "/portal" || strings.HasPrefix(r.URL.Path, "/portal/") {
+	if r.URL.Path == "/portal" || strings.HasPrefix(r.URL.Path, "/portal/") ||
+		strings.HasPrefix(r.URL.Path, portalAPIPrefix) {
 		if webVpnPortalLoginEndpoint(r.URL.Path, r.Method) {
 			return false
 		}
@@ -78,7 +83,8 @@ func WebVpnHandler(w http.ResponseWriter, r *http.Request) bool {
 	}
 	// 未登录 /ui/ 由 RemLink 前端渲染登录页
 	// 登录后 /ui/ 透传至后端，以支持 JumpServer 等后端应用自身使用 /ui/ 的前端入口
-	if strings.HasPrefix(r.URL.Path, "/ui/") && (!ok || user == nil) {
+	// 非 HTTP 协议应用（SSH/SFTP 等）没有后端 Web，/ui/ 始终由 RemLink 前端承载（终端/文件页）
+	if strings.HasPrefix(r.URL.Path, "/ui/") && (!ok || user == nil || (err == nil && app != nil && !app.IsHTTP())) {
 		return false
 	}
 	if !ok || user == nil {
@@ -308,22 +314,62 @@ func webVpnMyApps(w http.ResponseWriter, r *http.Request) {
 	if port == "" {
 		port = portOf(r.Host)
 	}
+	// 路径地址位于 VPN 主域名：门户在主域名调用时用相对地址；在 WebVPN 子域名调用时只能借助 webvpn_sso_domain 拼出主域名
+	pathBase, pathOK := "", true
+	if sub, ok := webVpnHostPrefix(r.Host); ok && sub != "" {
+		pathBase = portalMainDomain(r)
+		pathOK = pathBase != ""
+	}
 	datas := make([]map[string]any, 0, len(apps))
 	for _, a := range apps {
-		urlStr := ""
-		if domain != "" {
-			urlStr = "https://" + a.Name + "." + host
+		hasSub, hasPath := a.AccessOf(domain != "")
+		subURL, pathURL := "", ""
+		if hasSub {
+			subURL = "https://" + a.Name + "." + host
 			if port != "" {
-				urlStr += ":" + port
+				subURL += ":" + port
 			}
 		}
+		if hasPath && pathOK {
+			pathURL = pathBase + webPathURL(&a)
+		}
+		// 首选地址：按应用设置，两者皆可时优先子域名（与门户隔离更好）
+		preferred := subURL
+		if preferred == "" || a.AccessModeOf() == dbdata.WebVpnAccessPath {
+			if pathURL != "" {
+				preferred = pathURL
+			}
+		}
+		if !hasSub && !hasPath {
+			continue // 当前配置下无可用访问方式（如未配置域名的子域名 HTTP 应用）
+		}
 		datas = append(datas, map[string]any{
-			"name": a.Name,
-			"note": a.Note,
-			"url":  urlStr,
+			"name":          a.Name,
+			"note":          a.Note,
+			"url":           preferred,
+			"subdomain_url": subURL,
+			"path_url":      pathURL,
+			"access_mode":   a.AccessModeOf(),
+			"protocol":      a.ProtocolOf(),
 		})
 	}
 	portalOK(w, datas)
+}
+
+// 非 HTTP 协议应用的子域入口：GET/HEAD 跳转到前端远程访问页，其余路径 404
+func webVpnRemoteEntry(w http.ResponseWriter, r *http.Request, app *dbdata.WebVpnApp) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	q := url.Values{}
+	q.Set("app", app.Name)
+	q.Set("protocol", app.ProtocolOf())
+	http.Redirect(w, r, "/ui/#/webvpn/remote?"+q.Encode(), http.StatusFound)
 }
 
 // 当前登录入口复用门户登录页，仅返回前端所需子域等基础配置
@@ -566,15 +612,18 @@ type portalLoginEndpoint struct {
 // WebVPN 子域名登录所放行的门户接口唯一来源：
 // initRoute 据此注册路由（见 server.go），WebVpnHandler 据此判断放行。新增子域名登录
 // 必需的门户接口只需改此处
+// 门户 JSON 接口统一前缀（页面路由 /portal 本身不在此前缀下）
+const portalAPIPrefix = "/api/v1/portal/"
+
 var portalLoginEndpoints = []portalLoginEndpoint{
-	{"/portal/api/login", http.MethodPost, PortalLogin},
-	{"/portal/api/verify", http.MethodPost, PortalVerify},
-	{"/portal/api/sms/send", http.MethodPost, PortalSmsSend},
-	{"/portal/api/sms/verify", http.MethodPost, PortalSmsVerify},
-	{"/portal/api/login-config", http.MethodGet, PortalLoginConfig},
-	{"/portal/api/me", http.MethodGet, PortalMe},
-	{"/portal/api/otp/status", http.MethodGet, PortalOTPStatus},
-	{"/portal/api/sso", http.MethodGet, PortalSSO},
+	{"/api/v1/portal/login", http.MethodPost, PortalLogin},
+	{"/api/v1/portal/verify", http.MethodPost, PortalVerify},
+	{"/api/v1/portal/sms/send", http.MethodPost, PortalSmsSend},
+	{"/api/v1/portal/sms/verify", http.MethodPost, PortalSmsVerify},
+	{"/api/v1/portal/login-config", http.MethodGet, PortalLoginConfig},
+	{"/api/v1/portal/me", http.MethodGet, PortalMe},
+	{"/api/v1/portal/otp/status", http.MethodGet, PortalOTPStatus},
+	{"/api/v1/portal/sso", http.MethodGet, PortalSSO},
 }
 
 // 判断子域名下是否放行某门户登录接口（以 portalLoginEndpoints 为唯一来源）
@@ -632,9 +681,23 @@ func webVpnProxy(w http.ResponseWriter, r *http.Request, prefix string) {
 		webVpnAppErrorPage(w, r, prefix, "notfound", "应用不存在或已删除")
 		return
 	}
+	// 访问方式仅为「路径」的应用不接受子域名访问
+	if sub, _ := app.AccessOf(true); !sub {
+		webVpnAppErrorPage(w, r, prefix, "notfound", "该应用未开启子域名访问")
+		return
+	}
 	// 滑动续期（距签发超过 TTL-1h 时重签）
 	if _, err := mgr.Session().Renew(w, r); err != nil {
 		base.Error("WebVPN 会话续期失败:", err)
+	}
+	// 非 HTTP 协议应用：不反代，入口跳转到 RemLink 前端的远程访问页
+	if !app.IsHTTP() {
+		if !webvpn.AuthorizedUserIP(app, user, r) {
+			webVpnForbiddenPage(w, r, user.Username, app.Name)
+			return
+		}
+		webVpnRemoteEntry(w, r, app)
+		return
 	}
 	// 请求级完整授权（用户/组/IP/路径白名单）
 	if !webvpn.Authorized(app, user, r) {

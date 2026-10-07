@@ -534,3 +534,10 @@ func buildNameToCertificate(cert *tls.Certificate, setDefault bool) {
 		nameToCertificate[san] = cert
 	}
 }
+
+// 返回当前 SNI 表中作为默认证书（主证书）实际对外提供的证书；未加载时返回 nil
+func CurrentDefaultCertificate() *tls.Certificate {
+	ntcMux.RLock()
+	defer ntcMux.RUnlock()
+	return nameToCertificate["default"]
+}

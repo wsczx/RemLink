@@ -24,8 +24,22 @@ var remLinkSessionCookies = []string{
 	"acSamlv2Token",   // SAML SSO 会话令牌
 }
 
-// 构造 WebVPN 应用的反向代理
+// 构造 WebVPN 应用的反向代理（子域名模式）
 func NewReverseProxy(app *dbdata.WebVpnApp, originalHost string) (*httputil.ReverseProxy, error) {
+	return newReverseProxy(app, originalHost, nil)
+}
+
+// 构造路径模式（/web/http/<应用>/）的反向代理：转发前去掉路径前缀，响应做链接改写与同源缓解
+func NewPathReverseProxy(app *dbdata.WebVpnApp, publicHost string, tls bool) (*httputil.ReverseProxy, error) {
+	target, err := dbdata.ParseWebVpnBackendURL(app.Backend)
+	if err != nil {
+		return nil, err
+	}
+	rw := NewPathRewriter(WebPathPrefix(dbdata.WebVpnProtoHTTP, app.Name), publicHost, tls, target.Host, app.HostRewrite)
+	return newReverseProxy(app, publicHost, rw)
+}
+
+func newReverseProxy(app *dbdata.WebVpnApp, originalHost string, pr *PathRewriter) (*httputil.ReverseProxy, error) {
 	target, err := dbdata.ParseWebVpnBackendURL(app.Backend)
 	if err != nil {
 		return nil, err
@@ -37,6 +51,7 @@ func NewReverseProxy(app *dbdata.WebVpnApp, originalHost string) (*httputil.Reve
 			req.Header.Del("X-Forwarded-For")
 			req.Header.Del("X-Forwarded-Proto")
 			req.Header.Del("X-Forwarded-Host")
+			req.Header.Del("X-Forwarded-Prefix")
 			req.Header.Del("X-Real-IP")
 			req.Header.Del("X-RemLink-WebVpn")
 
@@ -51,9 +66,20 @@ func NewReverseProxy(app *dbdata.WebVpnApp, originalHost string) (*httputil.Reve
 			req.Header.Set("X-Forwarded-Host", originalHost)
 			req.Header.Set("Cookie", StripRemLinkCookies(req.Cookies()))
 			req.Header.Set("X-RemLink-WebVpn", "1")
+			if pr != nil {
+				pr.rewriteRequest(req)
+			}
 		},
 		ModifyResponse: func(resp *http.Response) error {
 			scrubBackendCORSHeaders(resp.Header)
+			if pr != nil {
+				resp.Header.Del("Content-Security-Policy")
+				resp.Header.Del("Content-Security-Policy-Report-Only")
+				resp.Header.Del("Cross-Origin-Embedder-Policy")
+				resp.Header.Del("Cross-Origin-Resource-Policy")
+				resp.Header.Del("X-Frame-Options")
+				return pr.rewriteResponse(resp)
+			}
 			if loc := resp.Header.Get("Location"); loc != "" {
 				if u, e := url.Parse(loc); e == nil && u.Host != "" {
 					if HostMatchesBackend(u.Host, target.Host) {
@@ -71,7 +97,7 @@ func NewReverseProxy(app *dbdata.WebVpnApp, originalHost string) (*httputil.Reve
 		},
 		ErrorHandler: func(ew http.ResponseWriter, req *http.Request, e error) {
 			origin := req.Header.Get("Origin")
-			if origin != "" && dbdata.WebVpnCorsOriginAllowed(app, origin) {
+			if pr == nil && origin != "" && dbdata.WebVpnCorsOriginAllowed(app, origin) {
 				ew.Header().Set("Access-Control-Allow-Origin", origin)
 				ew.Header().Set("Access-Control-Allow-Credentials", "true")
 				ew.Header().Set("Vary", "Origin")
@@ -104,6 +130,11 @@ func pathAllowed(path, prefix string) bool {
 }
 
 func Authorized(app *dbdata.WebVpnApp, user *dbdata.User, r *http.Request) bool {
+	return authorized(app, user, r, r.URL.Path)
+}
+
+// appPath 为用于路径白名单匹配的应用内路径（子域名模式即请求路径，路径模式为去掉 /web/http/<应用> 前缀后的部分）
+func authorized(app *dbdata.WebVpnApp, user *dbdata.User, r *http.Request, appPath string) bool {
 	if app.Status != 1 {
 		return false
 	}
@@ -122,7 +153,7 @@ func Authorized(app *dbdata.WebVpnApp, user *dbdata.User, r *http.Request) bool 
 	if len(app.AllowPath) > 0 {
 		ok := false
 		for _, p := range app.AllowPath {
-			if pathAllowed(r.URL.Path, p) {
+			if pathAllowed(appPath, p) {
 				ok = true
 				break
 			}

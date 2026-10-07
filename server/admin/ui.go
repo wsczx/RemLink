@@ -54,7 +54,8 @@ func ServeIndex(w http.ResponseWriter, r *http.Request) {
 // 未知 GET 路径回退 index.html（前端展示 404 页）
 func NotFound() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
+		// 未注册的 /api/* 直接 404，避免把 SPA 首页当作接口响应返回
+		if r.Method == http.MethodGet && !strings.HasPrefix(r.URL.Path, "/api/") {
 			ServeIndex(w, r)
 			return
 		}

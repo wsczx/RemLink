@@ -2,7 +2,7 @@
 
 VERSION := $(shell cat version)
 
-## 构建前端（Docker node:16-alpine）
+## 构建前端 new_ui（Docker node:22-alpine + corepack pnpm）
 web:
 	bash scripts/build_web.sh
 
@@ -36,7 +36,7 @@ go:
 
 ## 清理构建产物
 clean:
-	rm -rf server/ui web/ui server/remlink remlink-deploy remlink-deploy-* artifact-dist
+	rm -rf server/ui new_ui/ui server/remlink remlink-deploy remlink-deploy-* artifact-dist
 
 ## 本地发布（绕过 GitHub Actions，需 gh 登录 + docker 登录）
 ##   ARCH=linux/amd64 make release        仅 amd64
@@ -52,7 +52,7 @@ release-l:
 help:
 	@echo "RemLink 构建命令:"
 	@echo ""
-	@echo "  make web        构建前端"
+	@echo "  make web        构建前端（new_ui）"
 	@echo "  make build      构建前端 + Docker 镜像"
 	@echo "  make docker     构建 Docker 镜像"
 	@echo "  make local      本地编译二进制（musl + UPX）"

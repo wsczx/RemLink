@@ -117,8 +117,10 @@ func SetProvider(p *Provider) error {
 	if err := ValidateProviderConfig(p); err != nil {
 		return err
 	}
-	if p.Status == 0 {
-		p.Status = 1
+	// 状态仅允许 0(停用)/1(启用)。0 是合法的停用值，不能再兜底改回 1，
+	// 否则前端「停用」永远不生效；缺省状态的兜底由调用方（API 层）负责
+	if p.Status != 0 && p.Status != 1 {
+		return fmt.Errorf("Provider 状态无效: %d", p.Status)
 	}
 
 	if p.Id > 0 {

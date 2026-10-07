@@ -18,6 +18,7 @@ import (
 	"github.com/wsczx/remlink/pkg/notify"
 	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/webvpn"
+	"github.com/wsczx/remlink/webvpn/gateway"
 )
 
 const portalCookieName = "portal_session"
@@ -186,7 +187,7 @@ func PortalSSO(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "未配置 WebVPN 第三方登录专用门户域名，请先在系统设置中填写 webvpn_sso_domain", http.StatusBadRequest)
 			return
 		}
-		target := main + "/portal/api/sso?type=" + url.QueryEscape(ssoType)
+		target := main + "/api/v1/portal/sso?type=" + url.QueryEscape(ssoType)
 		if redirect != "" {
 			target += "&redirect=" + url.QueryEscape(redirect)
 		}
@@ -412,6 +413,7 @@ func PortalLogout(w http.ResponseWriter, r *http.Request) {
 		}
 		if ok && user != nil {
 			webvpn.GetManager().Session().RevokeUser(user.Username)
+			gateway.ForgetLoginPassword(user.Username)
 		}
 	}
 	// 清除一次性免登授权
@@ -796,6 +798,10 @@ func portalStartAuth(w http.ResponseWriter, username, password string, r *http.R
 						return
 					}
 					finalResp = portalIssueLoginResponse(w, r, portalUser, ctx.LogInfo())
+					if finalResp.Code == 0 {
+						// WebVPN「透传门户账号」凭据模式需要登录密码，进程内加密缓存
+						gateway.RememberLoginPassword(username, password)
+					}
 				},
 				OnFail: func(fl *Flow, w http.ResponseWriter, r *http.Request) {
 					if fl.Result.Err != nil {
@@ -883,6 +889,9 @@ func portalResumeAuth(w http.ResponseWriter, sessionID, code string, r *http.Req
 					return
 				}
 				resp = portalIssueLoginResponse(w, r, portalUser, ctx.LogInfo())
+				if resp.Code == 0 && ctx.Conn.Password != "" {
+					gateway.RememberLoginPassword(fl.Result.Username, ctx.Conn.Password)
+				}
 			},
 			OnFail: func(fl *Flow, w http.ResponseWriter, r *http.Request) {
 				if fl.Result.Err != nil {
