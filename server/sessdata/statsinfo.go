@@ -6,6 +6,7 @@ import (
 
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/mem"
+	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 )
 
@@ -54,7 +55,7 @@ func saveStatsInfo() {
 			if err != nil {
 				numData = []byte("{}")
 			}
-			so := dbdata.StatsOnline{Num: onlineNum, NumGroups: string(numData), CreatedAt: tNow}
+			so := dbdata.StatsOnline{Num: onlineNum, NumGroups: string(numData), NodeId: base.GetNodeId(), CreatedAt: tNow}
 			// network
 			upData, err := json.Marshal(upGroups)
 			if err != nil {
@@ -64,11 +65,11 @@ func saveStatsInfo() {
 			if err != nil {
 				downData = []byte("{}")
 			}
-			sn := dbdata.StatsNetwork{Up: up, Down: down, UpGroups: string(upData), DownGroups: string(downData), CreatedAt: tNow}
+			sn := dbdata.StatsNetwork{Up: up, Down: down, UpGroups: string(upData), DownGroups: string(downData), NodeId: base.GetNodeId(), CreatedAt: tNow}
 			// cpu
-			sc := dbdata.StatsCpu{Percent: getCpuPercent(), CreatedAt: tNow}
+			sc := dbdata.StatsCpu{Percent: getCpuPercent(), NodeId: base.GetNodeId(), CreatedAt: tNow}
 			// mem
-			sm := dbdata.StatsMem{Percent: getMemPercent(), CreatedAt: tNow}
+			sm := dbdata.StatsMem{Percent: getMemPercent(), NodeId: base.GetNodeId(), CreatedAt: tNow}
 			count++
 			// 是否保存至数据库
 			save := count*StatsCycleSec >= AddCycleSec

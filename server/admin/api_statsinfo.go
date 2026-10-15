@@ -12,6 +12,7 @@ func StatsInfoList(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	action := r.FormValue("action")
 	scope := r.FormValue("scope")
+	node := r.FormValue("node")
 	ok = dbdata.StatsInfoIns.ValidAction(action)
 	if !ok {
 		RespError(w, RespParamErr, errors.New("不存在的图表类别"))
@@ -22,7 +23,7 @@ func StatsInfoList(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespParamErr, errors.New("不存在的日期范围"))
 		return
 	}
-	datas, err := dbdata.StatsInfoIns.GetData(action, scope)
+	datas, err := dbdata.StatsInfoIns.GetData(action, scope, node)
 	if err != nil {
 		RespError(w, RespInternalErr, err)
 		return

@@ -2,6 +2,7 @@ package dbdata
 
 import (
 	"container/list"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -96,7 +97,8 @@ func (s *StatsInfo) SaveStatsInfo(so StatsOnline, sn StatsNetwork, sc StatsCpu, 
 }
 
 // 获取统计数据
-func (s *StatsInfo) GetData(action string, scope string) (res []any, err error) {
+// nodeId: "" 不限定节点(单节点兼容); "all" 跨节点汇总(在线/网络做 SUM, cpu/mem 退回不过滤); 其它值为具体节点 id 过滤
+func (s *StatsInfo) GetData(action string, scope string, nodeId string) (res []any, err error) {
 	if scope == "rt" {
 		return s.GetRealTime(action), nil
 	}
@@ -113,32 +115,62 @@ func (s *StatsInfo) GetData(action string, scope string) (res []any, err error) 
 	if where == "" {
 		return nil, errors.New("不支持的数据库类型: " + base.GetCfg().DbType)
 	}
+	args := []any{sd.fsTime, sd.feTime}
+	if nodeId != "" && nodeId != "all" {
+		where += " AND node_id = ?"
+		args = append(args, nodeId)
+	}
+	summary := nodeId == "all"
 	// 查询数据表
 	switch action {
 	case "online":
 		statsRes := []StatsOnline{}
-		FindWhere(&statsRes, 0, 0, where, sd.fsTime, sd.feTime)
-		for _, v := range statsRes {
-			t := v.CreatedAt.Format(LayoutTimeFormatMin)
-			statsMaps[t] = v
+		FindWhere(&statsRes, 0, 0, where, args...)
+		if summary {
+			for _, v := range statsRes {
+				t := v.CreatedAt.Format(LayoutTimeFormatMin)
+				agg, _ := statsMaps[t].(StatsOnline)
+				agg.Num += v.Num
+				agg.NumGroups = mergeGroupJSON(agg.NumGroups, v.NumGroups)
+				agg.CreatedAt = v.CreatedAt
+				statsMaps[t] = agg
+			}
+		} else {
+			for _, v := range statsRes {
+				t := v.CreatedAt.Format(LayoutTimeFormatMin)
+				statsMaps[t] = v
+			}
 		}
 	case "network":
 		statsRes := []StatsNetwork{}
-		FindWhere(&statsRes, 0, 0, where, sd.fsTime, sd.feTime)
-		for _, v := range statsRes {
-			t := v.CreatedAt.Format(LayoutTimeFormatMin)
-			statsMaps[t] = v
+		FindWhere(&statsRes, 0, 0, where, args...)
+		if summary {
+			for _, v := range statsRes {
+				t := v.CreatedAt.Format(LayoutTimeFormatMin)
+				agg, _ := statsMaps[t].(StatsNetwork)
+				agg.Up += v.Up
+				agg.Down += v.Down
+				agg.UpGroups = mergeGroupJSON(agg.UpGroups, v.UpGroups)
+				agg.DownGroups = mergeGroupJSON(agg.DownGroups, v.DownGroups)
+				agg.CreatedAt = v.CreatedAt
+				statsMaps[t] = agg
+			}
+		} else {
+			for _, v := range statsRes {
+				t := v.CreatedAt.Format(LayoutTimeFormatMin)
+				statsMaps[t] = v
+			}
 		}
 	case "cpu":
 		statsRes := []StatsCpu{}
-		FindWhere(&statsRes, 0, 0, where, sd.fsTime, sd.feTime)
+		FindWhere(&statsRes, 0, 0, where, args...)
 		for _, v := range statsRes {
 			t := v.CreatedAt.Format(LayoutTimeFormatMin)
 			statsMaps[t] = v
 		}
 	case "mem":
 		statsRes := []StatsMem{}
-		FindWhere(&statsRes, 0, 0, where, sd.fsTime, sd.feTime)
+		FindWhere(&statsRes, 0, 0, where, args...)
 		for _, v := range statsRes {
 			t := v.CreatedAt.Format(LayoutTimeFormatMin)
 			statsMaps[t] = v
@@ -163,6 +195,23 @@ func (s *StatsInfo) GetData(action string, scope string) (res []any, err error) 
 		}
 	}
 	return
+}
+
+// 合并两个 "map[int]uint64" 形式的分组 JSON, 返回按组求和后的 JSON(用于跨节点汇总)
+func mergeGroupJSON(a, b string) string {
+	ma := map[int]uint64{}
+	mb := map[int]uint64{}
+	if a != "" {
+		_ = json.Unmarshal([]byte(a), &ma)
+	}
+	if b != "" {
+		_ = json.Unmarshal([]byte(b), &mb)
+	}
+	for k, v := range mb {
+		ma[k] += v
+	}
+	data, _ := json.Marshal(ma)
+	return string(data)
 }
 
 // 获取日期范围的明细值

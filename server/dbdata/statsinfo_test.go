@@ -40,16 +40,16 @@ func TestStatsInfo(t *testing.T) {
 	StatsInfoIns.SaveStatsInfo(so, sn, sc, sm)
 
 	var err error
-	_, err = StatsInfoIns.GetData("online", "1h")
+	_, err = StatsInfoIns.GetData("online", "1h", "")
 	ast.Nil(err)
 
-	_, err = StatsInfoIns.GetData("network", "1h")
+	_, err = StatsInfoIns.GetData("network", "1h", "")
 	ast.Nil(err)
 
-	_, err = StatsInfoIns.GetData("cpu", "1h")
+	_, err = StatsInfoIns.GetData("cpu", "1h", "")
 	ast.Nil(err)
 
-	_, err = StatsInfoIns.GetData("mem", "1h")
+	_, err = StatsInfoIns.GetData("mem", "1h", "")
 	ast.Nil(err)
 
 }

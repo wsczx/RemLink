@@ -137,6 +137,7 @@ type StatsOnline struct {
 	Id        int       `json:"id" xorm:"pk autoincr not null"`
 	Num       int       `json:"num" xorm:"Int"`
 	NumGroups string    `json:"num_groups" xorm:"varchar(500) not null"`
+	NodeId    string    `json:"node_id" xorm:"varchar(64) index"`
 	CreatedAt time.Time `json:"created_at" xorm:"DateTime created index"`
 }
 
@@ -146,18 +147,21 @@ type StatsNetwork struct {
 	Down       uint64    `json:"down" xorm:"BigInt"`
 	UpGroups   string    `json:"up_groups" xorm:"varchar(500) not null"`
 	DownGroups string    `json:"down_groups" xorm:"varchar(500) not null"`
+	NodeId     string    `json:"node_id" xorm:"varchar(64) index"`
 	CreatedAt  time.Time `json:"created_at" xorm:"DateTime created index"`
 }
 
 type StatsCpu struct {
 	Id        int       `json:"id" xorm:"pk autoincr not null"`
 	Percent   float64   `json:"percent" xorm:"Float"`
+	NodeId    string    `json:"node_id" xorm:"varchar(64) index"`
 	CreatedAt time.Time `json:"created_at" xorm:"DateTime created index"`
 }
 
 type StatsMem struct {
 	Id        int       `json:"id" xorm:"pk autoincr not null"`
 	Percent   float64   `json:"percent" xorm:"Float"`
+	NodeId    string    `json:"node_id" xorm:"varchar(64) index"`
 	CreatedAt time.Time `json:"created_at" xorm:"DateTime created index"`
 }
 
