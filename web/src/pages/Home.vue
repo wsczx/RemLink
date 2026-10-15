@@ -58,14 +58,21 @@
         <div class="chart-card">
           <div class="chart-card-header">
             <span class="chart-card-title">用户在线数</span>
+            <el-select v-if="multiNode" size="small" v-model="nodeSel.online" @change="nodeSelChange('online')"
+              class="chart-node-select">
+              <el-option v-for="(item, index) in nodeOptions('online')" :key="index" :label="item.text"
+                :value="item.value" />
+            </el-select>
             <el-select size="small" v-model="lineChartGroup.online" @change="lineChartGroupChange('online')"
               class="chart-group-select">
               <el-option v-for="(item, index) in groupNames" :key="index" :label="item.text" :value="item.value" />
             </el-select>
           </div>
           <div class="chart-card-toolbar">
-            <el-radio-group v-model="lineChartScope.online" size="mini" @change="(l) => lineChartScopeChange('online', l)">
-              <el-radio-button label="rt">实时</el-radio-button>
+            <el-radio-group v-model="lineChartScope.online" size="mini"
+              @change="(l) => lineChartScopeChange('online', l)">
+              <el-radio-button label="rt" :disabled="multiNode && nodeSel.online !== selfId"
+                title="实时数据仅支持本机">实时</el-radio-button>
               <el-radio-button label="1h">1小时</el-radio-button>
               <el-radio-button label="24h">24小时</el-radio-button>
               <el-radio-button label="7d">7天</el-radio-button>
@@ -80,6 +87,11 @@
         <div class="chart-card">
           <div class="chart-card-header">
             <span class="chart-card-title">网络吞吐量</span>
+            <el-select v-if="multiNode" size="small" v-model="nodeSel.network" @change="nodeSelChange('network')"
+              class="chart-node-select">
+              <el-option v-for="(item, index) in nodeOptions('network')" :key="index" :label="item.text"
+                :value="item.value" />
+            </el-select>
             <el-select size="small" v-model="lineChartGroup.network" @change="lineChartGroupChange('network')"
               class="chart-group-select">
               <el-option v-for="(item, index) in groupNames" :key="index" :label="item.text" :value="item.value" />
@@ -88,7 +100,8 @@
           <div class="chart-card-toolbar">
             <el-radio-group v-model="lineChartScope.network" size="mini"
               @change="(l) => lineChartScopeChange('network', l)">
-              <el-radio-button label="rt">实时</el-radio-button>
+              <el-radio-button label="rt" :disabled="multiNode && nodeSel.network !== selfId"
+                title="实时数据仅支持本机">实时</el-radio-button>
               <el-radio-button label="1h">1小时</el-radio-button>
               <el-radio-button label="24h">24小时</el-radio-button>
               <el-radio-button label="7d">7天</el-radio-button>
@@ -105,10 +118,16 @@
         <div class="chart-card">
           <div class="chart-card-header">
             <span class="chart-card-title">CPU 使用率</span>
+            <el-select v-if="multiNode" size="small" v-model="nodeSel.cpu" @change="nodeSelChange('cpu')"
+              class="chart-node-select">
+              <el-option v-for="(item, index) in nodeOptions('cpu')" :key="index" :label="item.text"
+                :value="item.value" />
+            </el-select>
           </div>
           <div class="chart-card-toolbar">
             <el-radio-group v-model="lineChartScope.cpu" size="mini" @change="(l) => lineChartScopeChange('cpu', l)">
-              <el-radio-button label="rt">实时</el-radio-button>
+              <el-radio-button label="rt" :disabled="multiNode && nodeSel.cpu !== selfId"
+                title="实时数据仅支持本机">实时</el-radio-button>
               <el-radio-button label="1h">1小时</el-radio-button>
               <el-radio-button label="24h">24小时</el-radio-button>
               <el-radio-button label="7d">7天</el-radio-button>
@@ -123,10 +142,16 @@
         <div class="chart-card">
           <div class="chart-card-header">
             <span class="chart-card-title">内存使用率</span>
+            <el-select v-if="multiNode" size="small" v-model="nodeSel.mem" @change="nodeSelChange('mem')"
+              class="chart-node-select">
+              <el-option v-for="(item, index) in nodeOptions('mem')" :key="index" :label="item.text"
+                :value="item.value" />
+            </el-select>
           </div>
           <div class="chart-card-toolbar">
             <el-radio-group v-model="lineChartScope.mem" size="mini" @change="(l) => lineChartScopeChange('mem', l)">
-              <el-radio-button label="rt">实时</el-radio-button>
+              <el-radio-button label="rt" :disabled="multiNode && nodeSel.mem !== selfId"
+                title="实时数据仅支持本机">实时</el-radio-button>
               <el-radio-button label="1h">1小时</el-radio-button>
               <el-radio-button label="24h">24小时</el-radio-button>
               <el-radio-button label="7d">7天</el-radio-button>
@@ -162,6 +187,15 @@ export default {
         ip_map: 0,
       },
       groupNames: [],
+      nodes: [],
+      selfId: "",
+      multiNode: false,
+      nodeSel: {
+        online: "all",
+        network: "all",
+        cpu: "",
+        mem: "",
+      },
       // 每张图各自维护最新请求序号，避免并发拉取时相互顶掉响应
       statsReqId: {
         online: 0,
@@ -224,8 +258,10 @@ export default {
   mounted() {
     this.getData()
     this.getGroups()
-    this.getAllStats()
     this.getClusterOnline()
+    this.getNodes().finally(() => {
+      this.loadAllCharts()
+    })
     const chartsTimer = setInterval(() => {
       this.getAllStats()
       this.getClusterOnline()
@@ -262,17 +298,20 @@ export default {
     },
     getAllStats() {
       for (var action in this.lineChartScope) {
-        if (this.lineChartScope[action] == "rt") {
+        if (this.lineChartScope[action] == "rt" && this.nodeSel[action] == this.selfId) {
           this.getStatsData(action);
         }
       }
     },
-    getStatsData(action, scope) {
+    getStatsData(action, scope, node) {
       if (!scope) {
         scope = "rt"
       }
+      if (node === undefined) {
+        node = this.nodeSel[action]
+      }
       const reqId = ++this.statsReqId[action]
-      let getData = { params: { "action": action, "scope": scope } }
+      let getData = { params: { "action": action, "scope": scope, "node": node } }
       axios.get('/statsinfo/list', getData).then(resp => {
         if (reqId !== this.statsReqId[action]) return;
         var data = resp.data.data
@@ -407,6 +446,46 @@ export default {
         this.$message.error('请求出错');
       });
     },
+    getNodes() {
+      return axios.get('/cluster/nodes').then(resp => {
+        const list = (resp.data && resp.data.data) || []
+        this.nodes = list
+        const self = list.find(n => n.is_self)
+        this.selfId = self ? self.id : ""
+        this.multiNode = list.length > 1
+        this.nodeSel.cpu = this.selfId
+        this.nodeSel.mem = this.selfId
+        if (this.multiNode) {
+          this.nodeSel.online = "all"
+          this.nodeSel.network = "all"
+        } else {
+          this.nodeSel.online = ""
+          this.nodeSel.network = ""
+        }
+        // 汇总(非本机)用历史区间, 本机用实时
+        const setScope = (a) => { this.lineChartScope[a] = (this.multiNode && this.nodeSel[a] !== this.selfId) ? "1h" : "rt" }
+        setScope("online"); setScope("network"); setScope("cpu"); setScope("mem")
+      }).catch(() => { });
+    },
+    nodeOptions(action) {
+      const list = this.nodes.map(n => ({ text: n.is_self ? "本机" : (n.name || n.id), value: n.id }))
+      if (action === "online" || action === "network") {
+        return [{ text: "全部节点（汇总）", value: "all" }].concat(list)
+      }
+      return list
+    },
+    nodeSelChange(action) {
+      const node = this.nodeSel[action]
+      if (node !== this.selfId && this.lineChartScope[action] === "rt") {
+        this.lineChartScope[action] = "1h"
+      }
+      this.getStatsData(action, this.lineChartScope[action], node)
+    },
+    loadAllCharts() {
+      for (const a of ["online", "network", "cpu", "mem"]) {
+        this.getStatsData(a, this.lineChartScope[a], this.nodeSel[a])
+      }
+    },
     lineChartGroupChange(action) {
       this.getStatsData(action, this.lineChartScope[action]);
     }
@@ -532,6 +611,11 @@ export default {
 
 .chart-group-select {
   width: 130px;
+}
+
+.chart-node-select {
+  width: 150px;
+  margin-right: 8px;
 }
 
 .chart-card-toolbar {
