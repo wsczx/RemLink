@@ -11,6 +11,7 @@ import (
 	"text/template"
 
 	"github.com/wsczx/remlink/auth/authsrv"
+	"github.com/wsczx/remlink/base"
 )
 
 const (
@@ -54,7 +55,9 @@ func tplRequest(typ int, w io.Writer, data RequestData) {
 	switch typ {
 	case tpl_request:
 		t, _ := template.New("auth_request").Parse(auth_request)
-		_ = t.Execute(w, data)
+		if err := t.Execute(w, data); err != nil {
+			base.Error("渲染认证模板失败:", err)
+		}
 	case tpl_complete:
 		if data.Banner != "" {
 			buf := new(bytes.Buffer)
@@ -62,19 +65,29 @@ func tplRequest(typ int, w io.Writer, data RequestData) {
 			data.Banner = buf.String()
 		}
 		t, _ := template.New("auth_complete").Parse(auth_complete)
-		_ = t.Execute(w, data)
+		if err := t.Execute(w, data); err != nil {
+			base.Error("渲染认证模板失败:", err)
+		}
 	case tpl_otp:
 		t, _ := template.New("auth_otp").Parse(auth_otp)
-		_ = t.Execute(w, data)
+		if err := t.Execute(w, data); err != nil {
+			base.Error("渲染认证模板失败:", err)
+		}
 	case tpl_request_saml:
 		t, _ := template.New("auth_request_saml").Parse(auth_request_saml)
-		_ = t.Execute(w, data)
+		if err := t.Execute(w, data); err != nil {
+			base.Error("渲染认证模板失败:", err)
+		}
 	case tpl_accept_challenge:
 		t, _ := template.New("accept_challenge").Parse(accept_challenge)
-		_ = t.Execute(w, data)
+		if err := t.Execute(w, data); err != nil {
+			base.Error("渲染认证模板失败:", err)
+		}
 	case tpl_request_force_pwd:
 		t, _ := template.New("auth_request_force_pwd").Parse(auth_request_force_pwd)
-		_ = t.Execute(w, data)
+		if err := t.Execute(w, data); err != nil {
+			base.Error("渲染认证模板失败:", err)
+		}
 	}
 }
 

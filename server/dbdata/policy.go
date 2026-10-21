@@ -13,6 +13,12 @@ import (
 	"github.com/wsczx/remlink/base"
 )
 
+// 端口规则校验用的预编译正则，避免每次解析策略时重复编译
+var (
+	rePortsAll  = regexp.MustCompile(`^\d{1,5}(-\d{1,5})?(,\d{1,5}(-\d{1,5})?)*$`)
+	rePortRange = regexp.MustCompile(`^\d{1,5}-\d{1,5}$`)
+)
+
 // 根据 ID 加载策略并预处理所有字段
 func LoadPolicyById(id int) (*Policy, error) {
 	p := &Policy{}
@@ -166,12 +172,12 @@ func SetPolicy(p *Policy) error {
 			portsStr := v.Port
 			v.Port = strings.TrimSpace(portsStr)
 
-			if regexp.MustCompile(`^\d{1,5}(-\d{1,5})?(,\d{1,5}(-\d{1,5})?)*$`).MatchString(portsStr) {
+			if rePortsAll.MatchString(portsStr) {
 				for pt := range strings.SplitSeq(portsStr, ",") {
 					if pt == "" {
 						continue
 					}
-					if regexp.MustCompile(`^\d{1,5}-\d{1,5}$`).MatchString(pt) {
+					if rePortRange.MatchString(pt) {
 						rp := strings.Split(pt, "-")
 						portfrom, err := strconv.ParseUint(rp[0], 10, 16)
 						if err != nil {

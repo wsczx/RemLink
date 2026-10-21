@@ -69,8 +69,6 @@ func doPing(ip string) error {
 		switch result.Type {
 		case ipv4.ICMPTypeEchoReply:
 			// success
-			if _, ok := result.Body.(*icmp.Echo); ok {
-			}
 			return nil
 
 		// case ipv4.ICMPTypeTimeExceeded:

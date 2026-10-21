@@ -39,7 +39,7 @@ func execute() {
 	err := rootCmd.Execute()
 	if err != nil {
 		fmt.Println(err)
-		os.Exit(0)
+		os.Exit(1)
 	}
 
 	if !runSrv {
