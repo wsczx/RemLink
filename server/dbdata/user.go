@@ -3,6 +3,7 @@ package dbdata
 import (
 	"crypto/subtle"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/wsczx/remlink/auth"
@@ -40,7 +41,7 @@ func SetUser(v *User) error {
 	ng := []string{}
 	groups := GetGroupNames()
 	for _, g := range v.Groups {
-		if utils.InArrStr(groups, g) {
+		if slices.Contains(groups, g) {
 			ng = append(ng, g)
 		}
 	}
@@ -69,6 +70,11 @@ func SetUser(v *User) error {
 		}
 	}
 
+	var old User
+	isUpdate := v.Id > 0 && One("Id", v.Id, &old) == nil
+	pwdChanged := !isUpdate || v.PinCode != old.PinCode
+	groupsChanged := isUpdate && !sameGroups(v.Groups, old.Groups)
+
 	v.UpdatedAt = time.Now()
 	if v.Id > 0 {
 		err = Set(v)
@@ -76,13 +82,32 @@ func SetUser(v *User) error {
 		err = Add(v)
 	}
 	if err == nil {
-		// 用户组或状态变更后，使已签发的 WebVPN 会话失效
-		if revokeErr := WebVpnRevokeUser(v.Username); revokeErr != nil {
-			base.Error("用户更新成功但 WebVPN 会话吊销持久化失败:", v.Username, revokeErr)
+		// 密码变更、停用或用户组变更后，吊销已签发的 WebVPN 会话
+		if pwdChanged || v.Status != 1 || groupsChanged {
+			if revokeErr := WebVpnRevokeUser(v.Username); revokeErr != nil {
+				base.Error("用户更新成功但 WebVPN 会话吊销持久化失败:", v.Username, revokeErr)
+			}
 		}
 	}
 
 	return err
+}
+
+// 判断两个组名切片是否集合相等
+func sameGroups(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	m := make(map[string]struct{}, len(a))
+	for _, g := range a {
+		m[g] = struct{}{}
+	}
+	for _, g := range b {
+		if _, ok := m[g]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // 插入数据库前加密密码
@@ -114,10 +139,12 @@ func RemoveGroupFromUsers(groupName string) error {
 		return err
 	}
 	for i := range users {
-		if !utils.InArrStr(users[i].Groups, groupName) {
+		if !slices.Contains(users[i].Groups, groupName) {
 			continue
 		}
-		users[i].Groups = utils.RemoveStrFromArr(users[i].Groups, groupName)
+		if idx := slices.Index(users[i].Groups, groupName); idx >= 0 {
+			users[i].Groups = slices.Delete(users[i].Groups, idx, idx+1)
+		}
 		if err := Set(&users[i]); err != nil {
 			return err
 		}
