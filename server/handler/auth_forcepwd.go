@@ -12,8 +12,10 @@
 package handler
 
 import (
+	"github.com/wsczx/remlink/admin"
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/auth/authsrv"
+	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/utils"
 )
@@ -33,6 +35,11 @@ func RunForcePwdChange(ctx *auth.Context, username, newPassword string) error {
 	if _, err := dbdata.GetXdb().Where("username = ?", username).Cols("pin_code", "change_pwd").
 		Update(&dbdata.User{PinCode: hashed, ForcePwd: false}); err != nil {
 		return err
+	}
+	// 吊销该用户全部未过期门户 JWT：强制改密意味着原凭据已泄露
+	// 攻击者持旧令牌的会话必须立即失效（改密后续跑签发的新令牌不受影响）
+	if n := admin.RevokeSubjectJwt(username); n > 0 {
+		base.Info("强制改密，已吊销", n, "个有效会话:", username)
 	}
 	// 以数据库为准重载用户信息，使后续续跑管道读到 ForcePwd=false（直接通过 forcepwd 步）
 	authsrv.ReloadUserInfo(ctx)
