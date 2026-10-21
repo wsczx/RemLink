@@ -3,12 +3,12 @@ package dbdata
 import (
 	"encoding/json"
 	"net"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/pkg/security"
-	"github.com/wsczx/remlink/pkg/utils"
 )
 
 func TestGetGroupNames(t *testing.T) {
@@ -91,13 +91,13 @@ func TestGetGroupNames(t *testing.T) {
 	gAll := []string{"g1", "g2", "g3", "g4", "g5", "g6", "g7"}
 	gs := GetGroupNames()
 	for _, v := range gs {
-		ast.Equal(true, utils.InArrStr(gAll, v))
+		ast.Equal(true, slices.Contains(gAll, v))
 	}
 
 	gni := GetGroupNamesIds()
 	for _, v := range gni {
 		ast.NotEqual(0, v.Id)
-		ast.Equal(true, utils.InArrStr(gAll, v.Name))
+		ast.Equal(true, slices.Contains(gAll, v.Name))
 	}
 }
 
@@ -116,11 +116,11 @@ func TestGetGroupNamesNormal_Hidden(t *testing.T) {
 	ast.Nil(SetGroup(hid))
 
 	normal := GetGroupNamesNormal()
-	ast.True(utils.InArrStr(normal, "hidden-vis"), "可见组应出现在 GetGroupNamesNormal")
-	ast.False(utils.InArrStr(normal, "hidden-hid"), "隐藏组不应出现在 GetGroupNamesNormal")
+	ast.True(slices.Contains(normal, "hidden-vis"), "可见组应出现在 GetGroupNamesNormal")
+	ast.False(slices.Contains(normal, "hidden-hid"), "隐藏组不应出现在 GetGroupNamesNormal")
 
 	all := GetGroupNames()
-	ast.True(utils.InArrStr(all, "hidden-hid"), "隐藏组仍应被 GetGroupNames 列出(后台可用)")
+	ast.True(slices.Contains(all, "hidden-hid"), "隐藏组仍应被 GetGroupNames 列出(后台可用)")
 }
 
 // 缓存核心语义：InvalidateCertAuthCache 后立即反映最新组配置
