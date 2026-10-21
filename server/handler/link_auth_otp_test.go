@@ -7,7 +7,6 @@ import (
 	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path"
 	"testing"
 
@@ -327,10 +326,6 @@ func TestHandleSsoTokenPreservesIdentityForOtpPending(t *testing.T) {
 }
 
 func TestCreateSession(t *testing.T) {
-	if os.Getenv("CI") != "" {
-		t.Skip("在GitHub Actions中跳过此测试")
-		return
-	}
 	base.Test()
 	ast := assert.New(t)
 

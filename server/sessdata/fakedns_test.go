@@ -318,7 +318,9 @@ func TestUpdateAccess(t *testing.T) {
 
 func TestUpdateAccess_NotExists(t *testing.T) {
 	m := newTestManager(t)
-	m.UpdateAccess("100.64.0.99")
+	assert.NotPanics(t, func() {
+		m.UpdateAccess("100.64.0.99")
+	})
 }
 
 func TestUpdateDNSCache(t *testing.T) {
@@ -421,7 +423,9 @@ func TestSetRefreshAt_MinInterval(t *testing.T) {
 
 func TestSetRefreshAt_NotInActive(t *testing.T) {
 	m := newTestManager(t)
-	m.setRefreshAt("100.64.0.99", 60)
+	assert.NotPanics(t, func() {
+		m.setRefreshAt("100.64.0.99", 60)
+	})
 }
 
 func TestStop_CleansUpFirewall(t *testing.T) {
@@ -446,6 +450,7 @@ func TestStop_Idempotent(t *testing.T) {
 	m.Stop()
 	// 再次 Stop 不应 panic
 	m.Stop()
+	assert.True(t, m.stopped.Load(), "二次 Stop 后仍应为已停止状态")
 }
 
 func TestResolveAndMapping_AlreadyMapped(t *testing.T) {

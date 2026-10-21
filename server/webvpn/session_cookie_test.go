@@ -8,16 +8,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 )
 
 func setupCookieTest(t *testing.T) {
 	t.Helper()
-	base.UpdateCfg(func(c *base.ServerConfig) {
-		c.WebVpnDomain = "wv.example.com"
-		c.JwtSecret = "unit-test-secret"
-	})
+	setupWebVpnDB(t)
 }
 
 func findCookie(t *testing.T, w *httptest.ResponseRecorder, name string) *http.Cookie {
