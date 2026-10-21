@@ -287,6 +287,10 @@ func PortalChangePassword(w http.ResponseWriter, r *http.Request) {
 		portalError(w, "修改密码失败")
 		return
 	}
+	// 吊销该用户全部未过期门户 JWT（含当前会话）
+	if n := admin.RevokeSubjectJwt(user.Username); n > 0 {
+		base.Info("用户改密，已吊销", n, "个有效会话:", user.Username)
+	}
 	portalOK(w, map[string]string{"message": "密码修改成功"})
 }
 
@@ -736,6 +740,11 @@ func PortalResetPassword(w http.ResponseWriter, r *http.Request) {
 		base.Error("用户门户重置密码失败:", err)
 		portalError(w, "重置密码失败")
 		return
+	}
+
+	// 吊销该用户全部未过期门户 JWT
+	if n := admin.RevokeSubjectJwt(user.Username); n > 0 {
+		base.Info("用户重置密码，已吊销", n, "个有效会话:", user.Username)
 	}
 
 	portalOK(w, map[string]string{"message": "密码重置成功，请使用新密码登录"})

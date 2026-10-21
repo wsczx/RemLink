@@ -25,12 +25,18 @@ func portalCheckLocalPassword(user *dbdata.User, password string) error {
 }
 
 func portalIssueToken(user *dbdata.User) (string, error) {
-	return admin.SetJwtData(map[string]any{
+	token, err := admin.SetJwtData(map[string]any{
 		"portal_user_id": user.Id,
 		"portal_user":    user.Username,
 		"portal_type":    user.Type,
 		"portal_groups":  user.Groups,
 	}, time.Now().Unix()+3600*3)
+	if err != nil {
+		return "", err
+	}
+	// 用户改密/停用/删号时可批量吊销其全部未过期 JWT
+	admin.RegisterJwt(user.Username, token)
+	return token, nil
 }
 
 func portalCurrentUser(r *http.Request) (*dbdata.User, bool) {
