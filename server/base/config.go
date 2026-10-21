@@ -191,8 +191,8 @@ var configMetas = map[string]configMeta{
 	"encryption_password": {usage: "用户密码是否加密保存", group: "安全/认证", defaultVal: "true"},
 
 	"anti_brute_force": {usage: "是否开启防爆功能", group: "防暴破", defaultVal: "true"},
-	"ip_whitelist":     {usage: "IP白名单", group: "防暴破", defaultVal: "192.168.90.1,172.16.0.0/24", multiline: true},
-	"ip_blacklist":     {usage: "IP黑名单", group: "防暴破", multiline: true},
+	"ip_whitelist":     {usage: "IP白名单(命中则跳过防爆破锁定)", group: "防暴破", defaultVal: "127.0.0.1", multiline: true},
+	"ip_blacklist":     {usage: "IP黑名单(显式拒绝,优先级高于白名单)", group: "防暴破", multiline: true},
 
 	"max_ban_score":                     {usage: "单位时间内最大尝试次数，0为关闭该功能", group: "锁定策略", defaultVal: "5"},
 	"ban_reset_time":                    {usage: "设置单位时间(秒)，超过则重置计数", group: "锁定策略", defaultVal: "600"},

@@ -38,9 +38,10 @@ const (
 type LockManager struct {
 	mu sync.Mutex
 
-	ipLocks     map[string]*LockState
-	userLocks   map[string]*LockState
-	ipUserLocks map[string]map[string]*LockState
+	ipLocks        map[string]*LockState
+	userLocks      map[string]*LockState
+	ipUserLocks    map[string]map[string]*LockState
+	challengeLocks map[string]map[string]*LockState // ip -> username -> 挑战阶段（OTP 等二次验证）失败计数
 
 	ipLists       map[IPListType][]ipListItem
 	cleanupTicker *time.Ticker
@@ -63,11 +64,12 @@ var (
 func GetLockManager() *LockManager {
 	lmOnce.Do(func() {
 		lm = &LockManager{
-			ipLocks:     make(map[string]*LockState),
-			userLocks:   make(map[string]*LockState),
-			ipUserLocks: make(map[string]map[string]*LockState),
-			ipLists:     make(map[IPListType][]ipListItem),
-			warnLimiter: base.NewWarnLimiter(warnLogInterval),
+			ipLocks:        make(map[string]*LockState),
+			userLocks:      make(map[string]*LockState),
+			ipUserLocks:    make(map[string]map[string]*LockState),
+			challengeLocks: make(map[string]map[string]*LockState),
+			ipLists:        make(map[IPListType][]ipListItem),
+			warnLimiter:    base.NewWarnLimiter(warnLogInterval),
 		}
 	})
 	return lm
@@ -87,6 +89,7 @@ const (
 	warnKeyGlobalIP   = "giplock:"
 	warnKeyGlobalUser = "guplock:"
 	warnKeyUserIP     = "uiplock:"
+	warnKeyChallenge  = "chglock:"
 )
 
 // 初始化并启动清理协程（服务启动时调用一次）
@@ -143,12 +146,13 @@ func (m *LockManager) Check(username, ipaddr string) bool {
 		return false
 	}
 
-	if m.InList(ip, IPWhiteList) {
-		return true
-	}
+	// 黑名单优先于白名单：显式拒绝优先，避免管理员"加黑"被白名单覆盖无视
 	if m.InList(ip, IPBlackList) {
 		m.warnRateLimited(warnKeyBlacklist+ip, func() { base.Warn("IP", ip, "在黑名单中，拒绝访问") })
 		return false
+	}
+	if m.InList(ip, IPWhiteList) {
+		return true
 	}
 
 	if !base.GetCfg().AntiBruteForce {
@@ -172,6 +176,12 @@ func (m *LockManager) Check(username, ipaddr string) bool {
 		m.warnRateLimited(warnKeyUserIP+ip+":"+username, func() { base.Warn("IP", ip, "对用户", username, "已锁定") })
 		return false
 	}
+	// 挑战阶段（OTP 等二次验证）锁定：独立于首因子计数
+	// 首因子成功（StageSuccess）不清除，只有完整登录成功才清除
+	if username != "" && cfg.MaxBanCount > 0 && m.isChallengeLocked(username, ip, now) {
+		m.warnRateLimited(warnKeyChallenge+ip+":"+username, func() { base.Warn("IP", ip, "对用户", username, "挑战阶段已锁定") })
+		return false
+	}
 	return true
 }
 
@@ -184,14 +194,40 @@ func (m *LockManager) InBlackList(ipaddr string) bool {
 	return m.InList(host, IPBlackList)
 }
 
-// 登录成功后清除锁定计数
+// 登录成功后清除锁定计数（含挑战阶段计数）
 func (m *LockManager) Success(username, ipaddr string) {
+	m.update(username, ipaddr, true)
+	m.clearChallenge(username, ipaddr)
+}
+
+// 阶段成功（首因子通过、进入二次挑战）：仅清除首因子阶段的失败计数
+// 不清除挑战阶段计数。挑战阶段失败走 ChallengeFail 独立计数，防止攻击者
+// 已知口令时通过反复重跑登录流程无限重置 OTP 尝试
+func (m *LockManager) StageSuccess(username, ipaddr string) {
 	m.update(username, ipaddr, true)
 }
 
-// 登录失败后增加锁定计数
-func (m *LockManager) Fail(username, ipaddr string) {
-	m.update(username, ipaddr, false)
+// 挑战阶段失败（如 OTP 验证码错误）：按 (ip, username) 独立计数
+// 阈值与首因子阶段一致（MaxBanCount/BanResetTime/LockTime）
+func (m *LockManager) ChallengeFail(username, ipaddr string) {
+	ip, _, err := net.SplitHostPort(ipaddr)
+	if err != nil {
+		m.warnRateLimited(warnKeyExtractIP+ipaddr, func() { base.Error("提取 IP 地址失败:", ipaddr) })
+		return
+	}
+	if username == "" {
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cfg := base.GetCfg()
+	if cfg.MaxBanCount <= 0 {
+		return
+	}
+	ls := m.getChallengeLS(ip, username)
+	bumpLockState(ls, cfg.MaxBanCount, cfg.BanResetTime, cfg.LockTime, time.Now())
 }
 
 // 手动解锁用户
@@ -199,6 +235,18 @@ func (m *LockManager) UnlockUser(username string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.userLocks, username)
+	// 挑战阶段计数跨 IP 一并清除
+	for ip, um := range m.challengeLocks {
+		delete(um, username)
+		if len(um) == 0 {
+			delete(m.challengeLocks, ip)
+		}
+	}
+}
+
+// 登录失败后增加锁定计数
+func (m *LockManager) Fail(username, ipaddr string) {
+	m.update(username, ipaddr, false)
 }
 
 // 手动解锁 IP（仅解「全局IP锁定」）
@@ -212,7 +260,7 @@ func (m *LockManager) UnlockIP(ipaddr string) {
 	delete(m.ipLocks, host)
 }
 
-// 手动解锁指定用户在指定 IP 上的锁定（单用户IP锁定），
+// 手动解锁指定用户在指定 IP 上的锁定（单用户IP锁定 + 挑战阶段锁定），
 func (m *LockManager) UnlockUserIP(username, ipaddr string) {
 	host, _, _ := net.SplitHostPort(ipaddr)
 	if host == "" {
@@ -224,6 +272,12 @@ func (m *LockManager) UnlockUserIP(username, ipaddr string) {
 		delete(um, username)
 		if len(um) == 0 {
 			delete(m.ipUserLocks, host)
+		}
+	}
+	if um, ok := m.challengeLocks[host]; ok {
+		delete(um, username)
+		if len(um) == 0 {
+			delete(m.challengeLocks, host)
 		}
 	}
 }
@@ -261,6 +315,17 @@ func (m *LockManager) LockInfo() []LockInfo {
 				if s.Locked {
 					infos = append(infos, LockInfo{
 						Description: "单用户IP锁定", Username: username, IP: ip,
+						State: s.copy(),
+					})
+				}
+			}
+		}
+		// 挑战阶段锁定（OTP 等二次验证失败累积）
+		for ip, userStates := range m.challengeLocks {
+			for username, s := range userStates {
+				if s.Locked {
+					infos = append(infos, LockInfo{
+						Description: "挑战阶段锁定", Username: username, IP: ip,
 						State: s.copy(),
 					})
 				}
@@ -357,6 +422,13 @@ func (m *LockManager) incrLock(ip, username string, maxCount, resetTime, lockTim
 		}
 	}
 
+	bumpLockState(ls, maxCount, resetTime, lockTime, now)
+}
+
+// 累加一个 LockState 的失败计数（锁定状态机，首因子与挑战阶段共用）
+// 锁定到期自动重置；锁定期间忽略；超过 resetTime 未尝试则计数归零
+// 达到 maxCount 则锁定 lockTime 秒
+func bumpLockState(ls *LockState, maxCount, resetTime, lockTime int, now time.Time) {
 	if ls.Locked && !ls.LockTime.IsZero() && now.After(ls.LockTime) {
 		ls.FailureCount = 0
 		ls.Locked = false
@@ -392,6 +464,44 @@ func (m *LockManager) isUserIPLocked(username, ip string, now time.Time) bool {
 	return false
 }
 
+func (m *LockManager) isChallengeLocked(username, ip string, now time.Time) bool {
+	if um, ok := m.challengeLocks[ip]; ok {
+		return m.checkState(um[username], now, base.GetCfg().BanResetTime)
+	}
+	return false
+}
+
+// 获取（不存在则创建）某 (ip, username) 的挑战阶段计数。调用方须持有 m.mu
+func (m *LockManager) getChallengeLS(ip, username string) *LockState {
+	um, ok := m.challengeLocks[ip]
+	if !ok {
+		um = make(map[string]*LockState)
+		m.challengeLocks[ip] = um
+	}
+	ls := um[username]
+	if ls == nil {
+		ls = &LockState{}
+		um[username] = ls
+	}
+	return ls
+}
+
+// 清除某 (ip, username) 的挑战阶段计数（完整登录成功时调用）
+func (m *LockManager) clearChallenge(username, ipaddr string) {
+	ip, _, err := net.SplitHostPort(ipaddr)
+	if err != nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if um, ok := m.challengeLocks[ip]; ok {
+		delete(um, username)
+		if len(um) == 0 {
+			delete(m.challengeLocks, ip)
+		}
+	}
+}
+
 func (m *LockManager) checkState(ls *LockState, now time.Time, resetTime int) bool {
 	if ls == nil || ls.LastAttempt.IsZero() {
 		return false
@@ -425,27 +535,35 @@ func (s *LockState) copy() *LockState {
 
 func (m *LockManager) startCleanup() {
 	m.cleanupOnce.Do(func() {
-		m.cleanupTicker = time.NewTicker(time.Minute)
-		m.cleanupDone = make(chan struct{})
-		go func() {
+		m.mu.Lock()
+		ticker := time.NewTicker(time.Minute)
+		done := make(chan struct{})
+		m.cleanupTicker = ticker
+		m.cleanupDone = done
+		m.mu.Unlock()
+		base.SafeGo(func() {
 			for {
 				select {
-				case <-m.cleanupTicker.C:
+				case <-ticker.C:
 					m.cleanup()
-				case <-m.cleanupDone:
-					m.cleanupTicker.Stop()
+				case <-done:
+					ticker.Stop()
 					return
 				}
 			}
-		}()
+		})
 	})
 }
 func (m *LockManager) Stop() {
-	if m.cleanupDone != nil {
+	// 加锁读取 cleanupDone：与 startCleanup 的写构成并发，无锁读有数据竞争
+	m.mu.Lock()
+	done := m.cleanupDone
+	m.mu.Unlock()
+	if done != nil {
 		select {
-		case <-m.cleanupDone:
+		case <-done:
 		default:
-			close(m.cleanupDone)
+			close(done)
 		}
 	}
 }
@@ -493,6 +611,22 @@ func (m *LockManager) cleanup() {
 		}
 		if len(userMap) == 0 {
 			delete(m.ipUserLocks, ip)
+		}
+	}
+	for ip, userMap := range m.challengeLocks {
+		for username, s := range userMap {
+			if s.Locked && !s.LockTime.IsZero() && now.After(s.LockTime) {
+				s.FailureCount = 0
+				s.Locked = false
+				s.LockTime = time.Time{}
+				continue
+			}
+			if now.Sub(s.LastAttempt) > expireTime && !s.Locked {
+				delete(userMap, username)
+			}
+		}
+		if len(userMap) == 0 {
+			delete(m.challengeLocks, ip)
 		}
 	}
 	// 回收日志限频表，防止不同 key 持续累积导致内存增长
