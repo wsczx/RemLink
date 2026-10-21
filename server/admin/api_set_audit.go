@@ -43,7 +43,7 @@ func SetAuditList(w http.ResponseWriter, r *http.Request) {
 		"datas":     datas,
 	}
 
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 type accessAuditExportRow struct {
@@ -165,7 +165,7 @@ func UserActLogList(w http.ResponseWriter, r *http.Request) {
 		"clientOps": dbdata.UserActLogIns.ClientOps,
 	}
 
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 // 管理员操作日志分页查询
@@ -194,5 +194,5 @@ func AdminOpLogList(w http.ResponseWriter, r *http.Request) {
 		"opTypes":   dbdata.AdminOpLogTypes,
 	}
 
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }

@@ -1,9 +1,7 @@
 package admin
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 
 	"github.com/wsczx/remlink/dbdata"
@@ -14,7 +12,7 @@ import (
 func SecretStatus(w http.ResponseWriter, r *http.Request) {
 	enabled := security.IsEnabled()
 	dbEncrypted := dbdata.HasEncryptedData()
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"enabled":      enabled,
 		"db_encrypted": dbEncrypted,
 		"key_path":     security.KeyFilePath(),
@@ -42,7 +40,7 @@ func SecretEnable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dbdata.AdminLog("安全设置", "加密", "启用了敏感字段加密", r.RemoteAddr)
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"stats":    stats,
 		"key_path": security.KeyFilePath(),
 	})
@@ -54,19 +52,11 @@ func SecretUpload(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespParamErr, "加密已启用")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
 
 	var req struct {
 		Key string `json:"key"` // 16进制密钥
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		RespError(w, RespParamErr, "参数错误")
+	if err := readJSON(w, r, 1<<16, &req); err != nil {
 		return
 	}
 	if req.Key == "" {
@@ -87,7 +77,7 @@ func SecretUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dbdata.AdminLog("安全设置", "加密", "上传密钥并启用了敏感字段加密", r.RemoteAddr)
-	RespSucess(w, stats)
+	RespSuccess(w, stats)
 }
 
 // 解密全库敏感数据并删除密钥
@@ -106,7 +96,7 @@ func SecretDisable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dbdata.AdminLog("安全设置", "加密", "关闭了敏感字段加密", r.RemoteAddr)
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"stats":    stats,
 		"warnings": warnings,
 	})

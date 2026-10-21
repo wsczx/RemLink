@@ -1,9 +1,7 @@
 package admin
 
 import (
-	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"regexp"
 
@@ -25,21 +23,11 @@ func setOtherGet(data any, w http.ResponseWriter) {
 		v.AliAccessKeySecret = v.AliAccessKeySecret.Masked()
 		v.TencentSecretKey = v.TencentSecretKey.Masked()
 	}
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 func setOtherEdit(data any, w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<21) // 2MB：放宽品牌 logo/favicon（base64）等配置的保存上限
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
-
-	err = json.Unmarshal(body, data)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
+	if err := readJSON(w, r, 1<<21, data); err != nil { // 2MB：放宽品牌 logo/favicon（base64）等配置的保存上限
 		return
 	}
 
@@ -77,8 +65,7 @@ func setOtherEdit(data any, w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	err = dbdata.SettingSave(data)
-	if err != nil {
+	if err := dbdata.SettingSave(data); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
@@ -89,7 +76,7 @@ func setOtherEdit(data any, w http.ResponseWriter, r *http.Request) {
 		v.AliAccessKeySecret = v.AliAccessKeySecret.Masked()
 		v.TencentSecretKey = v.TencentSecretKey.Masked()
 	}
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 func SetOtherSmtp(w http.ResponseWriter, r *http.Request) {
@@ -127,21 +114,12 @@ func SetOtherAuditLog(w http.ResponseWriter, r *http.Request) {
 		"clear_time":     data.ClearTime,
 		"audit_interval": auditInterval,
 	}
-	RespSucess(w, resp)
+	RespSuccess(w, resp)
 }
 
 func SetOtherAuditLogEdit(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<21) // 2MB：放宽品牌 logo/favicon（base64）等配置的保存上限
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
 	data := &dbdata.SettingAuditLog{}
-	err = json.Unmarshal(body, data)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
+	if err := readJSON(w, r, 1<<21, data); err != nil {
 		return
 	}
 	if data.LifeDay < 0 || data.LifeDay > 365 {
@@ -153,13 +131,12 @@ func SetOtherAuditLogEdit(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespParamErr, errors.New("每天清理时间填写有误"))
 		return
 	}
-	err = dbdata.SettingSave(data)
-	if err != nil {
+	if err := dbdata.SettingSave(data); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
 	dbdata.AdminLog("系统设置", "审计日志设置", "修改了审计日志设置", r.RemoteAddr)
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 func SetOtherSms(w http.ResponseWriter, r *http.Request) {
@@ -194,7 +171,7 @@ func SetPortalDashboard(w http.ResponseWriter, r *http.Request) {
 		// 初始化默认值
 		data.ClientDownloadHtml = base.DefaultDownloadHtml
 	}
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 func SetPortalDashboardEdit(w http.ResponseWriter, r *http.Request) {
@@ -204,19 +181,11 @@ func SetPortalDashboardEdit(w http.ResponseWriter, r *http.Request) {
 }
 
 func SetOtherSmsTest(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<21) // 2MB：放宽品牌 logo/favicon（base64）等配置的保存上限
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
 
 	var req struct {
 		Phone string `json:"phone"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		RespError(w, RespInternalErr, err)
+	if err := readJSON(w, r, 1<<21, &req); err != nil {
 		return
 	}
 	if req.Phone == "" {
@@ -238,14 +207,14 @@ func SetOtherSmsTest(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	RespSucess(w, "短信发送成功")
+	RespSuccess(w, "短信发送成功")
 }
 
 // 返回品牌展示配置，供管理后台侧边栏与登录页在 8800 端口直接加载
 func AdminPortalLoginConfig(w http.ResponseWriter, r *http.Request) {
 	brand := dbdata.SettingPortalBrand{}
 	_ = dbdata.SettingGet(&brand)
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"title":   brand.Title,
 		"logo":    brand.Logo,
 		"favicon": brand.Favicon,

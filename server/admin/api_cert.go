@@ -51,7 +51,7 @@ func CustomCert(w http.ResponseWriter, r *http.Request) {
 	if err := applyUploadedCert(w, wild, certBytes, keyBytes, r); err != nil {
 		return
 	}
-	RespSucess(w, "上传成功")
+	RespSuccess(w, "上传成功")
 }
 
 // 保存上传证书并重载到 SNI 表。wild=true 写 WebVPN 泛域名证书，false 写主证书
@@ -101,7 +101,7 @@ func GetCertSetting(w http.ResponseWriter, r *http.Request) {
 	data.DNSProvider.AliYun.SecretKey = data.DNSProvider.AliYun.SecretKey.Masked()
 	data.DNSProvider.TXCloud.SecretKey = data.DNSProvider.TXCloud.SecretKey.Masked()
 	data.DNSProvider.CfCloud.AuthToken = data.DNSProvider.CfCloud.AuthToken.Masked()
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 func CreatCert(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
@@ -174,7 +174,7 @@ func CreatCert(w http.ResponseWriter, r *http.Request) {
 	} else {
 		dbdata.AdminLog("证书管理", config.Domain, "通过LetsEncrypt生成了证书", r.RemoteAddr)
 	}
-	RespSucess(w, "生成证书成功")
+	RespSuccess(w, "生成证书成功")
 }
 
 // 查询客户端 CA 是否已初始化
@@ -182,7 +182,7 @@ func CheckCAStatus(w http.ResponseWriter, r *http.Request) {
 	ca := dbdata.SettingClientCA{}
 	err := dbdata.SettingGet(&ca)
 	initialized := err == nil && ca.CertContent != "" && ca.KeyContent != ""
-	RespSucess(w, map[string]bool{"initialized": initialized})
+	RespSuccess(w, map[string]bool{"initialized": initialized})
 }
 
 // 初始化客户端 CA
@@ -203,10 +203,10 @@ func InitClientCA(w http.ResponseWriter, r *http.Request) {
 	}
 	if force {
 		dbdata.AdminLog("证书管理", "客户端CA", "强制重置了客户端CA（旧证书已失效）", r.RemoteAddr)
-		RespSucess(w, "客户端 CA 强制重置成功（旧客户端证书已失效）")
+		RespSuccess(w, "客户端 CA 强制重置成功（旧客户端证书已失效）")
 	} else {
 		dbdata.AdminLog("证书管理", "客户端CA", "初始化了客户端CA", r.RemoteAddr)
-		RespSucess(w, "客户端 CA 初始化成功")
+		RespSuccess(w, "客户端 CA 初始化成功")
 	}
 }
 
@@ -263,7 +263,7 @@ func GenerateClientCert(w http.ResponseWriter, r *http.Request) {
 
 	dbdata.AdminLog("证书管理", username, "为用户生成客户端证书(组:"+groupname+")", r.RemoteAddr)
 	certData.PrivateKey = certData.PrivateKey.Masked()
-	RespSucess(w, certData)
+	RespSuccess(w, certData)
 }
 
 // 批量生成客户端证书
@@ -299,7 +299,7 @@ func BatchGenerateClientCert(w http.ResponseWriter, r *http.Request) {
 
 	success, failed := dbdata.BatchGenerateClientCert(usernames, groupname, deviceBindingEnabled, maxDevices)
 	dbdata.AdminLog("证书管理", "批量", fmt.Sprintf("批量生成客户端证书 %d 个(组:%s)", success, groupname), r.RemoteAddr)
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"success": success,
 		"failed":  failed,
 	})
@@ -332,7 +332,7 @@ func RenewClientCert(w http.ResponseWriter, r *http.Request) {
 	}
 	dbdata.AdminLog("证书管理", username, "续期了客户端证书(组:"+groupname+")", r.RemoteAddr)
 	certData.PrivateKey = certData.PrivateKey.Masked()
-	RespSucess(w, certData)
+	RespSuccess(w, certData)
 }
 
 // 更新客户端证书的最大设备数
@@ -384,7 +384,7 @@ func UpdateClientCertMaxDevices(w http.ResponseWriter, r *http.Request) {
 
 	dbdata.AdminLog("证书管理", username, "更新了证书最大设备数(组:"+groupname+",最大设备:"+maxDevicesStr+")", r.RemoteAddr)
 	certData.PrivateKey = certData.PrivateKey.Masked()
-	RespSucess(w, certData)
+	RespSuccess(w, certData)
 }
 
 // 下载客户端 P12 证书
@@ -467,7 +467,7 @@ func ChangeClientCertStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbdata.AdminLog("证书管理", username, statusText+"客户端证书(组:"+groupname+")", r.RemoteAddr)
-	RespSucess(w, fmt.Sprintf("证书%s成功", statusText))
+	RespSuccess(w, fmt.Sprintf("证书%s成功", statusText))
 }
 
 // 删除客户端证书
@@ -496,7 +496,7 @@ func DeleteClientCert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbdata.AdminLog("证书管理", username, "删除了客户端证书(组:"+groupname+")", r.RemoteAddr)
-	RespSucess(w, "证书删除成功")
+	RespSuccess(w, "证书删除成功")
 }
 
 // 批量删除客户端证书
@@ -506,9 +506,7 @@ type batchCertReq struct {
 
 func BatchDeleteClientCert(w http.ResponseWriter, r *http.Request) {
 	var req batchCertReq
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		RespError(w, RespInternalErr, "请求参数解析失败")
+	if err := readJSON(w, r, 1<<16, &req); err != nil {
 		return
 	}
 	if len(req.Certs) == 0 {
@@ -539,7 +537,7 @@ func BatchDeleteClientCert(w http.ResponseWriter, r *http.Request) {
 	if len(failDetails) > 0 {
 		msg += "；失败详情: " + strings.Join(failDetails, "；")
 	}
-	RespSucess(w, msg)
+	RespSuccess(w, msg)
 }
 
 // 批量下载客户端证书（打包为 ZIP）
@@ -548,9 +546,7 @@ func BatchDownloadClientP12(w http.ResponseWriter, r *http.Request) {
 		Certs    []certMailItem `json:"certs"`
 		Password string         `json:"password"`
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		RespError(w, RespInternalErr, "请求参数解析失败")
+	if err := readJSON(w, r, 1<<16, &req); err != nil {
 		return
 	}
 	if len(req.Certs) == 0 {
@@ -590,7 +586,7 @@ func BatchDownloadClientP12(w http.ResponseWriter, r *http.Request) {
 
 // 获取默认证书邮件模板
 func GetCertMailTemplate(w http.ResponseWriter, r *http.Request) {
-	RespSucess(w, dbdata.CertMailTemplate())
+	RespSuccess(w, dbdata.CertMailTemplate())
 }
 
 // 获取客户端证书列表
@@ -629,7 +625,7 @@ func GetClientCertList(w http.ResponseWriter, r *http.Request) {
 	for i := range certs {
 		certs[i].PrivateKey = certs[i].PrivateKey.Masked()
 	}
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 // 获取用户证书生成所需信息
@@ -672,7 +668,7 @@ func UserCertInfo(w http.ResponseWriter, r *http.Request) {
 		"groups": activeGroups,
 	}
 
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 // 解绑特定设备
@@ -700,7 +696,7 @@ func UnbindDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbdata.AdminLog("证书管理", username, "解绑了证书设备(组:"+groupname+",设备:"+deviceId+")", r.RemoteAddr)
-	RespSucess(w, nil)
+	RespSuccess(w, nil)
 }
 
 // 更新客户端证书的设备绑定开关
@@ -744,7 +740,7 @@ func UpdateClientCertDeviceBinding(w http.ResponseWriter, r *http.Request) {
 
 	dbdata.AdminLog("证书管理", username, "更新了证书设备绑定(组:"+groupname+")", r.RemoteAddr)
 	certData.PrivateKey = certData.PrivateKey.Masked()
-	RespSucess(w, certData)
+	RespSuccess(w, certData)
 }
 
 // 发送证书邮件的请求体
@@ -761,9 +757,7 @@ type certMailItem struct {
 // 发送证书邮件（支持批量）
 func SendClientCertMail(w http.ResponseWriter, r *http.Request) {
 	var req sendCertMailReq
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		RespError(w, RespInternalErr, "请求参数解析失败")
+	if err := readJSON(w, r, 1<<16, &req); err != nil {
 		return
 	}
 
@@ -901,7 +895,7 @@ func SendClientCertMail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if successCount > 0 || (successCount == 0 && failCount == 0) {
-		RespSucess(w, msg)
+		RespSuccess(w, msg)
 	} else {
 		RespError(w, RespInternalErr, msg)
 	}

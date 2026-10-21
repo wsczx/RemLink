@@ -32,7 +32,7 @@ var syslogLineRe = regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\s+
 
 // 返回历史日志是否可用（后台已配置 log_path）
 func SyslogHistoryEnabled(w http.ResponseWriter, r *http.Request) {
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"enabled": base.GetCfg().LogPath != "",
 	})
 }
@@ -70,7 +70,7 @@ func SyslogHistoryDates(w http.ResponseWriter, r *http.Request) {
 	for i, j := 0, len(dates)-1; i < j; i, j = i+1, j-1 {
 		dates[i], dates[j] = dates[j], dates[i]
 	}
-	RespSucess(w, map[string]any{"dates": dates})
+	RespSuccess(w, map[string]any{"dates": dates})
 }
 
 // 按天查询历史日志，支持级别过滤、关键字匹配与分页
@@ -120,7 +120,7 @@ func SyslogHistoryList(w http.ResponseWriter, r *http.Request) {
 	}
 	if f == nil {
 		if os.IsNotExist(openErr) {
-			RespSucess(w, map[string]any{
+			RespSuccess(w, map[string]any{
 				"count":     0,
 				"page":      page,
 				"page_size": pageSize,
@@ -180,7 +180,7 @@ func SyslogHistoryList(w http.ResponseWriter, r *http.Request) {
 		dbdata.AdminLog("系统设置", "查看历史系统日志:"+date, detail, r.RemoteAddr)
 	}
 
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"count":     total,
 		"page":      page,
 		"page_size": pageSize,

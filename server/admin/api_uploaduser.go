@@ -53,7 +53,7 @@ func UserUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	os.Remove(fileName)
 	dbdata.AdminLog("用户管理", header.Filename, "批量导入了用户", r.RemoteAddr)
-	RespSucess(w, "批量添加成功")
+	RespSuccess(w, "批量添加成功")
 }
 
 func UploadUser(file string) error {
