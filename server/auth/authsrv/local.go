@@ -2,11 +2,11 @@ package authsrv
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
-	"github.com/wsczx/remlink/pkg/utils"
 )
 
 func init() {
@@ -59,7 +59,7 @@ func (a *LocalAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 		return auth.StepFail, fmt.Errorf("LDAP 用户不能使用本地认证")
 	}
 
-	if !utils.InArrStr(v.Groups, ctx.Conn.GroupName) {
+	if !slices.Contains(v.Groups, ctx.Conn.GroupName) {
 		return auth.StepFail, fmt.Errorf("用户组错误")
 	}
 

@@ -2,12 +2,11 @@ package admin
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -54,14 +53,14 @@ func Login(w http.ResponseWriter, r *http.Request) {
 
 	// 启用了 OTP：返回 otp_required，等待第二步验证
 	if base.GetCfg().AdminOtp != "" {
-		// 密码验证成功，清除密码阶段的失败计数，OTP 阶段从头计数
-		lm.Success(adminUser, r.RemoteAddr)
+		// 密码验证成功，仅清除密码阶段的失败计数；OTP 阶段使用独立计数
+		lm.StageSuccess(adminUser, r.RemoteAddr)
 		otpToken, err := SetJwtData(map[string]any{"otp_user": adminUser}, time.Now().Unix()+300)
 		if err != nil {
 			RespError(w, 1, err)
 			return
 		}
-		RespSucess(w, map[string]any{
+		RespSuccess(w, map[string]any{
 			"otp_required": true,
 			"otp_token":    otpToken,
 		})
@@ -77,20 +76,12 @@ func Login(w http.ResponseWriter, r *http.Request) {
 
 // 第二步验证
 func LoginOTP(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
 
 	var req struct {
 		OtpToken string `json:"otp_token"`
 		OtpCode  string `json:"otp_code"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		RespError(w, RespParamErr, "参数错误")
+	if err := readJSON(w, r, 1<<16, &req); err != nil {
 		return
 	}
 	if req.OtpToken == "" || req.OtpCode == "" {
@@ -122,7 +113,7 @@ func LoginOTP(w http.ResponseWriter, r *http.Request) {
 
 	// 验证 OTP
 	if err := authsrv.VerifyAdminOTP(req.OtpCode); err != nil {
-		lm.Fail(adminUser, r.RemoteAddr)
+		lm.ChallengeFail(adminUser, r.RemoteAddr)
 		RespError(w, RespParamErr, "OTP 验证码错误")
 		base.Error(adminUser, "管理员 OTP 验证失败")
 		dbdata.UserActLogIns.Add(dbdata.UserActLog{Username: adminUser, RemoteAddr: r.RemoteAddr, Status: dbdata.UserAuthFail, Info: "管理员登录失败", Client: dbdata.UserAdminClient}, r.UserAgent())
@@ -137,20 +128,12 @@ func LoginOTP(w http.ResponseWriter, r *http.Request) {
 
 // 管理员修改自身密码
 func ChangeAdminPassword(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
 
 	var req struct {
 		OldPassword string `json:"old_password"`
 		NewPassword string `json:"new_password"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		RespError(w, RespParamErr, "参数错误")
+	if err := readJSON(w, r, 1<<16, &req); err != nil {
 		return
 	}
 	if req.OldPassword == "" || req.NewPassword == "" {
@@ -192,8 +175,13 @@ func ChangeAdminPassword(w http.ResponseWriter, r *http.Request) {
 	})
 	base.Info("管理员密码已修改")
 
+	// 吊销该管理员全部未过期 JWT（含当前会话），攻击者持旧令牌的会话立即失效
+	if n := RevokeSubjectJwt(base.GetCfg().AdminUser); n > 0 {
+		base.Info("管理员改密，已吊销", n, "个有效会话")
+	}
+
 	dbdata.AdminLog("安全设置", "管理员密码", "修改了管理员登录密码", r.RemoteAddr)
-	RespSucess(w, map[string]string{"message": "密码修改成功"})
+	RespSuccess(w, map[string]string{"message": "密码修改成功"})
 }
 
 // 查看管理员 OTP 密钥二维码
@@ -208,26 +196,22 @@ func AdminOtpQr(w http.ResponseWriter, r *http.Request) {
 
 	// GET：仅返回启用状态，不需要生成二维码
 	if r.Method == http.MethodGet {
-		RespSucess(w, map[string]any{
+		RespSuccess(w, map[string]any{
 			"enabled": true,
 		})
 		return
 	}
 
 	// POST：需提交密码+当前动态验证码，验证通过后返回密钥和二维码
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
 
 	var req struct {
 		Password string `json:"password"`
 		OtpCode  string `json:"otp_code"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil || req.Password == "" || req.OtpCode == "" {
+	if err := readJSON(w, r, 1<<16, &req); err != nil {
+		return
+	}
+	if req.Password == "" || req.OtpCode == "" {
 		RespError(w, RespParamErr, "参数错误")
 		return
 	}
@@ -249,7 +233,7 @@ func AdminOtpQr(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbdata.AdminLog("安全设置", "两步验证", "查看了OTP密钥和二维码", r.RemoteAddr)
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"enabled":   true,
 		"secret":    cfg.AdminOtp,
 		"qr_base64": qrBase64,
@@ -273,7 +257,7 @@ func AdminOtpGenerate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbdata.AdminLog("安全设置", "两步验证", "生成了新的OTP密钥（预览）", r.RemoteAddr)
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"secret":    secret,
 		"qr_base64": qrBase64,
 	})
@@ -283,20 +267,16 @@ func AdminOtpGenerate(w http.ResponseWriter, r *http.Request) {
 // 首次绑定：仅需验证新密钥的动态码
 // 重新绑定（已启用 OTP 时）：额外要求输入管理员密码 + 当前 OTP 动态码
 func AdminOtpConfirm(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
 
 	var req struct {
 		OtpCode        string `json:"otp_code"`
 		Password       string `json:"password"`
 		CurrentOtpCode string `json:"current_otp_code"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil || req.OtpCode == "" {
+	if err := readJSON(w, r, 1<<16, &req); err != nil {
+		return
+	}
+	if req.OtpCode == "" {
 		RespError(w, RespParamErr, "参数错误")
 		return
 	}
@@ -364,24 +344,16 @@ func AdminOtpConfirm(w http.ResponseWriter, r *http.Request) {
 		action = "重新绑定了两步验证密钥"
 	}
 	dbdata.AdminLog("安全设置", "两步验证", action, r.RemoteAddr)
-	RespSucess(w, map[string]string{"message": "两步验证已启用"})
+	RespSuccess(w, map[string]string{"message": "两步验证已启用"})
 }
 
 // 禁用管理员两步验证（必须输入当前动态验证码）
 func AdminOtpDisable(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
 
 	var req struct {
 		OtpCode string `json:"otp_code"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		RespError(w, RespParamErr, "参数错误")
+	if err := readJSON(w, r, 1<<16, &req); err != nil {
 		return
 	}
 
@@ -421,7 +393,7 @@ func AdminOtpDisable(w http.ResponseWriter, r *http.Request) {
 	base.Info("管理员两步验证已禁用")
 
 	dbdata.AdminLog("安全设置", "两步验证", "禁用了两步验证", r.RemoteAddr)
-	RespSucess(w, map[string]string{"message": "两步验证已禁用"})
+	RespSuccess(w, map[string]string{"message": "两步验证已禁用"})
 }
 
 // 生成管理员 OTP 二维码的 base64 编码
@@ -442,7 +414,7 @@ func generateAdminOTPQrBase64(issuer, adminUser, secret string) (string, error) 
 
 // 签发管理员登录 JWT token
 func issueLoginJWT(w http.ResponseWriter, r *http.Request, adminUser string) {
-	expiresAt := time.Now().Unix() + 3600*3
+	expiresAt := time.Now().Unix() + JwtAdminLoginTTLSec
 	jwtData := map[string]any{"admin_user": adminUser}
 	tokenString, err := SetJwtData(jwtData, expiresAt)
 	if err != nil {
@@ -456,6 +428,9 @@ func issueLoginJWT(w http.ResponseWriter, r *http.Request, adminUser string) {
 	data["expires_at"] = expiresAt
 	data["admin_temp"] = base.GetCfg().AdminTemp
 
+	// 登记主体索引：管理员改密时可批量吊销其全部未过期 JWT
+	RegisterJwt(adminUser, tokenString)
+
 	ck := &http.Cookie{
 		Name:     "jwt",
 		Value:    tokenString,
@@ -466,7 +441,7 @@ func issueLoginJWT(w http.ResponseWriter, r *http.Request, adminUser string) {
 	}
 	http.SetCookie(w, ck)
 
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 // 验证当前登录态，返回管理员用户名
@@ -477,7 +452,7 @@ func AuthCheck(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"admin_user": data["admin_user"],
 	})
 }
@@ -497,7 +472,7 @@ func Logout(w http.ResponseWriter, r *http.Request) {
 		Secure:   isTLS(r),
 		SameSite: http.SameSiteLaxMode,
 	})
-	RespSucess(w, nil)
+	RespSuccess(w, nil)
 }
 
 // 判断请求是否通过 TLS/HTTPS 传输
@@ -523,7 +498,7 @@ func authMiddleware(next http.Handler) http.Handler {
 	fn := func(w http.ResponseWriter, r *http.Request) {
 		route := mux.CurrentRoute(r)
 		name := route.GetName()
-		if utils.InArrStr([]string{"login", "login_otp", "auth_check", "index", "static", "login_config"}, name) {
+		if slices.Contains([]string{"login", "login_otp", "auth_check", "index", "static", "login_config"}, name) {
 			// 不进行鉴权
 			next.ServeHTTP(w, r)
 			return

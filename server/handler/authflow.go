@@ -105,8 +105,9 @@ func (f *Flow) dispatch(w http.ResponseWriter, r *http.Request, result *auth.Pip
 	}
 }
 
-// 挑战阶段锁定计数决策：返回 true 表示按成功清计数，false 表示按失败累加
-// 规则：① 挑战码错误（原地踏步，IsChallengeRetry）计失败；② 非挑战重试但无活动挑战（异常态）也计失败；③ 其余（正常进入挑战）清计数
+// 挑战阶段锁定计数决策：返回 true 表示按阶段成功清首因子计数，false 表示按挑战失败累加
+// 规则：① 挑战码错误（原地踏步，IsChallengeRetry）计挑战失败；② 非挑战重试但无活动挑战（异常态）也计挑战失败；③ 其余（正常进入挑战）仅清首因子计数
+// 挑战失败走 ChallengeFail 独立计数：首因子成功不清除，防止已知口令者反复重跑认证流程重置 OTP 尝试
 func (f *Flow) pendingLockDecision(result *auth.PipelineResult) bool {
 	if result.IsChallengeRetry() {
 		return false
@@ -117,12 +118,12 @@ func (f *Flow) pendingLockDecision(result *auth.PipelineResult) bool {
 	return true
 }
 
-// 维护挑战阶段的锁定计数：挑战码错误则累加；首次进入挑战（带 Challenge）按成功清计数
+// 维护挑战阶段的锁定计数：挑战码错误则累加挑战计数；首次进入挑战（带 Challenge）仅清首因子计数
 func (f *Flow) handlePendingLock(result *auth.PipelineResult) {
 	if f.pendingLockDecision(result) {
-		lockManager.Success(f.Username, f.RemoteAddr)
+		lockManager.StageSuccess(f.Username, f.RemoteAddr)
 	} else {
-		lockManager.Fail(f.Username, f.RemoteAddr)
+		lockManager.ChallengeFail(f.Username, f.RemoteAddr)
 	}
 }
 
