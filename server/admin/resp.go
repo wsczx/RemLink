@@ -49,12 +49,6 @@ func RespSuccess(w http.ResponseWriter, data any) {
 	respHttp(w, 0, data, "")
 }
 
-
 func RespError(w http.ResponseWriter, respCode int, errS ...any) {
 	respHttp(w, respCode, nil, errS...)
 }
-
-// RespSucess 为 RespSuccess 的旧拼写兼容别名。
-// 拆分提交时定义（本文件）与调用点不在同一提交，中间态需要两种拼写均可编译；
-// 全部调用点改为 RespSuccess 后，此别名在清理提交中删除
-var RespSucess = RespSuccess

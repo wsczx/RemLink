@@ -17,14 +17,6 @@ func testRegister(name string, a Authenticator) func() {
 	}
 }
 
-// alwaysFailAuth 始终认证失败的 mock
-type alwaysFailAuth struct{ NopChallenger }
-
-func (a *alwaysFailAuth) Name() string { return "always_fail" }
-func (a *alwaysFailAuth) Authenticate(*Context) (StepResult, error) {
-	return StepFail, fmt.Errorf("always fail")
-}
-
 // providerAuth 需要 Provider 配置的 mock
 type providerAuth struct {
 	NopChallenger

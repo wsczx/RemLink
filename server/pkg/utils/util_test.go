@@ -6,13 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestInArrStr(t *testing.T) {
-	assert := assert.New(t)
-	arr := []string{"a", "b", "c"}
-	assert.True(InArrStr(arr, "b"))
-	assert.False(InArrStr(arr, "d"))
-}
-
 func TestHumanByte(t *testing.T) {
 	assert := assert.New(t)
 	var s string
