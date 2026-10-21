@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path"
 	"strings"
 	"sync"
 	"testing"
@@ -15,7 +14,7 @@ import (
 	"github.com/wsczx/remlink/admin"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
-	"github.com/wsczx/remlink/pkg/utils"
+	"github.com/wsczx/remlink/internal/testfixture"
 	"github.com/wsczx/remlink/webvpn"
 )
 
@@ -96,19 +95,7 @@ var backendSeen struct {
 }
 
 func setupWebVpnTest(t *testing.T) (backend *httptest.Server, teardown func()) {
-	base.UpdateCfg(func(c *base.ServerConfig) {
-		c.DbType = "sqlite3"
-		c.DbSource = path.Join(t.TempDir(), "webvpn_test.db")
-		c.WebVpnDomain = "wv.example.com"
-		c.JwtSecret = "unit-test-secret"
-	})
-	base.ReinitLog() // 初始化日志器，避免 base.Info/Error 在测试中 nil panic
-
-	// 清空跨测试残留的整用户吊销阈值，避免前一个测试 WebVpnRevokeAllForUser 的副作用
-	// 导致本测试会话被误判为已吊销（吊销状态存于包级全局 map，需显式重置）
-	dbdata.WebVpnRevokeReset()
-
-	dbdata.Start()
+	testfixture.SetupDB(t)
 
 	// 后端：记录收到的请求头，并按路径返回特定响应
 	backend = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -186,10 +173,6 @@ func setupWebVpnTest(t *testing.T) (backend *httptest.Server, teardown func()) {
 		// 不清会残留在 60s TTL 缓存里，导致后续用例反代连到已关闭端口（502）
 		webvpn.GetManager().Apps().Invalidate()
 		backend.Close()
-		// 先排空异步日志 worker pool 再关库，避免 Stop 关库后残留 worker 读 xdb 竞态
-		dbdata.UserActLogIns.Pool.Release()
-		dbdata.UserActLogIns.Pool = utils.NewWorkerPool(1, 100)
-		dbdata.Stop()
 	}
 	return backend, teardown
 }
@@ -1274,10 +1257,6 @@ func TestPortalLoginOnWebVpnSubdomainSkipsPortalCookie(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
 	ast := assert.New(t)
-
-	if base.GetCfg().WebVpnDomain == "" {
-		t.Skip("WebVPN 未启用，跳过")
-	}
 
 	// 子域 host 下的登录请求
 	req := httptest.NewRequest(http.MethodPost, "/portal/api/login", nil)

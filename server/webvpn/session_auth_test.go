@@ -3,35 +3,34 @@ package webvpn
 import (
 	"net/http"
 	"net/http/httptest"
-	"path"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/wsczx/remlink/admin"
+	"github.com/wsczx/remlink/internal/testfixture"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 )
 
 func setupWebVpnDB(t *testing.T) {
 	t.Helper()
-	base.UpdateCfg(func(c *base.ServerConfig) {
-		c.DbType = "sqlite3"
-		c.DbSource = path.Join(t.TempDir(), "remlink_test.db")
-		c.WebVpnDomain = "wv.example.com"
-		c.JwtSecret = "unit-test-secret"
+	testfixture.SetupDB(t)
+	// 每个用例使用独立库：重置 manager 缓存，避免读到上一个库的会话
+	GetManager().Session().ResetCache()
+	GetManager().Apps().Invalidate()
+	t.Cleanup(func() {
+		GetManager().Session().ResetCache()
+		GetManager().Apps().Invalidate()
 	})
-	dbdata.Start()
 }
 
 // 验证 ClearCookie 清除指令的 Domain
 // 与写入 webvpn_session 的 Domain 逐字节一致（否则旧 cookie 残留）
 func TestSessionClearDomainMatchesIssue(t *testing.T) {
 	setupWebVpnDB(t)
-	defer dbdata.Stop()
 
 	require.NoError(t, dbdata.Add(&dbdata.User{Username: "alice", Status: 1}))
 
@@ -70,7 +69,6 @@ func TestSessionClearDomainMatchesIssue(t *testing.T) {
 // ExchangeGrant 必须返回未兑换（不得凭空造出 WebVPN 会话）
 func TestExchangeGrantMissing(t *testing.T) {
 	setupWebVpnDB(t)
-	defer dbdata.Stop()
 
 	m := GetManager()
 	r := httptest.NewRequest(http.MethodGet, "https://app.wv.example.com/", nil)
@@ -83,7 +81,6 @@ func TestExchangeGrantMissing(t *testing.T) {
 // 门户登出会抬高吊销阈值，签发早于阈值的 grant 必须失效，防止旧 grant 绕过吊销
 func TestExchangeGrantRevokedUser(t *testing.T) {
 	setupWebVpnDB(t)
-	defer dbdata.Stop()
 
 	m := GetManager()
 	require.NoError(t, dbdata.Add(&dbdata.User{Username: "alice", Status: 1}))
@@ -111,7 +108,6 @@ func TestExchangeGrantRevokedUser(t *testing.T) {
 // 只跳过 grant 兑换，仍应使用吊销后签发的有效 portal_session 建立 WebVPN 会话
 func TestExchangeGrantRevokedFallsBackToPortalSession(t *testing.T) {
 	setupWebVpnDB(t)
-	defer dbdata.Stop()
 
 	m := GetManager()
 	require.NoError(t, dbdata.Add(&dbdata.User{Username: "carol", Status: 1}))
@@ -147,7 +143,6 @@ func TestExchangeGrantRevokedFallsBackToPortalSession(t *testing.T) {
 
 func TestExchangeGrantWorksWithoutPortalSessionCookie(t *testing.T) {
 	setupWebVpnDB(t)
-	defer dbdata.Stop()
 
 	m := GetManager()
 	require.NoError(t, dbdata.Add(&dbdata.User{Username: "grant-user", Status: 1}))
@@ -166,7 +161,6 @@ func TestExchangeGrantWorksWithoutPortalSessionCookie(t *testing.T) {
 
 func TestExchangeGrantConcurrentConsume(t *testing.T) {
 	setupWebVpnDB(t)
-	defer dbdata.Stop()
 
 	m := GetManager()
 	require.NoError(t, dbdata.Add(&dbdata.User{Username: "race-user", Status: 1}))
@@ -209,7 +203,6 @@ func TestExchangeGrantConcurrentConsume(t *testing.T) {
 
 func TestExchangeGrantConsumes(t *testing.T) {
 	setupWebVpnDB(t)
-	defer dbdata.Stop()
 
 	m := GetManager()
 	// 用独立用户名，避免受前序踢出测试的吊销阈值影响
