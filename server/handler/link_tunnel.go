@@ -12,11 +12,22 @@ import (
 
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/sessdata"
 )
 
 var (
 	hn string
+)
+
+// CSTP/DTLS 隧道参数（秒）
+const (
+	cstpLeaseDurationSec               = "1209600" // 地址租期
+	cstpIdleTimeoutSec                 = "18000"   // 空闲超时
+	cstpDisconnectedTimeoutSec         = "18000"   // 断开超时
+	cstpSessionTimeoutAlertIntervalSec = "60"      // 超时提醒间隔
+	cstpRekeyTimeSec                   = "86400"   // CSTP 重协商间隔
+	dtlsRekeyTimeSec                   = "86400"   // DTLS 重协商间隔
 )
 
 func init() {
@@ -35,7 +46,7 @@ func HttpAddHeader(w http.ResponseWriter, key string, value string) {
 func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 	if base.GetLogLevel() == base.LogLevelTrace {
 		hd, _ := httputil.DumpRequest(r, true)
-		base.Trace("LinkTunnel: ", string(hd))
+		base.Trace("LinkTunnel: ", utils.RedactSensitive(string(hd)))
 	}
 
 	// 判断session-token的值
@@ -126,7 +137,8 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 	base.Trace("dtlsCiphersuite", dtlsCiphersuite)
 
 	// 返回客户端数据
-	HttpSetHeader(w, "Server", fmt.Sprintf("%s %s", base.APP_NAME, base.APP_VER))
+	// 不下发 Server 头：避免暴露服务端版本指纹（X-CSTP-Server-Name 为 CSTP 协议
+	// HttpSetHeader(w, "Server", fmt.Sprintf("%s %s", base.APP_NAME, base.APP_VER))
 	HttpSetHeader(w, "X-CSTP-Version", "1")
 	HttpSetHeader(w, "X-CSTP-Server-Name", fmt.Sprintf("%s %s", base.APP_NAME, base.APP_VER))
 	HttpSetHeader(w, "X-CSTP-Protocol", "Copyright (c) 2004 Cisco Systems, Inc.")
@@ -255,12 +267,12 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	HttpSetHeader(w, "X-CSTP-Lease-Duration", "1209600") // ip地址租期
+	HttpSetHeader(w, "X-CSTP-Lease-Duration", cstpLeaseDurationSec) // ip地址租期
 	HttpSetHeader(w, "X-CSTP-Session-Timeout", "none")
-	HttpSetHeader(w, "X-CSTP-Session-Timeout-Alert-Interval", "60")
+	HttpSetHeader(w, "X-CSTP-Session-Timeout-Alert-Interval", cstpSessionTimeoutAlertIntervalSec)
 	HttpSetHeader(w, "X-CSTP-Session-Timeout-Remaining", "none")
-	HttpSetHeader(w, "X-CSTP-Idle-Timeout", "18000")
-	HttpSetHeader(w, "X-CSTP-Disconnected-Timeout", "18000")
+	HttpSetHeader(w, "X-CSTP-Idle-Timeout", cstpIdleTimeoutSec)
+	HttpSetHeader(w, "X-CSTP-Disconnected-Timeout", cstpDisconnectedTimeoutSec)
 	HttpSetHeader(w, "X-CSTP-Keep", "true")
 	tunnelAllDNS := "false"
 	if rp.EnableFakeDNS {
@@ -268,9 +280,9 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 	HttpSetHeader(w, "X-CSTP-Tunnel-All-DNS", tunnelAllDNS)
 
-	HttpSetHeader(w, "X-CSTP-Rekey-Time", "86400") // 172800
+	HttpSetHeader(w, "X-CSTP-Rekey-Time", cstpRekeyTimeSec) // 172800
 	HttpSetHeader(w, "X-CSTP-Rekey-Method", "new-tunnel")
-	HttpSetHeader(w, "X-DTLS-Rekey-Time", "86400")
+	HttpSetHeader(w, "X-DTLS-Rekey-Time", dtlsRekeyTimeSec)
 	HttpSetHeader(w, "X-DTLS-Rekey-Method", "new-tunnel")
 
 	HttpSetHeader(w, "X-CSTP-DPD", fmt.Sprintf("%d", cstpDpd))
