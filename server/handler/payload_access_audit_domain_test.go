@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -93,7 +94,7 @@ func TestParseDNSQuery(t *testing.T) {
 }
 
 func TestLogAudit_v4_HTTPS_Domain(t *testing.T) {
-	auditPayload = &AuditPayload{Pool: utils.NewWorkerPool(1, 16), IpAuditMap: utils.NewMap("cmap", 0)}
+	auditPayload = &AuditPayload{Pool: utils.NewWorkerPool(1, 16), IpAuditMap: &sync.Map{}}
 	logBatch = &LogBatch{LogChan: make(chan dbdata.AccessAudit, 16)}
 
 	pkt := buildV4Raw(6, net.ParseIP("203.0.113.5"), net.ParseIP("203.0.113.1"),
@@ -116,7 +117,7 @@ func TestLogAudit_v4_HTTPS_Domain(t *testing.T) {
 }
 
 func TestLogAudit_v6_HTTPS_Domain(t *testing.T) {
-	auditPayload = &AuditPayload{Pool: utils.NewWorkerPool(1, 16), IpAuditMap: utils.NewMap("cmap", 0)}
+	auditPayload = &AuditPayload{Pool: utils.NewWorkerPool(1, 16), IpAuditMap: &sync.Map{}}
 	logBatch = &LogBatch{LogChan: make(chan dbdata.AccessAudit, 16)}
 
 	pkt := buildV6Packet(6, net.ParseIP("2001:db8::2"), net.ParseIP("2001:db8::1"), 20+len(buildTLSClientHello("v6.example.com")))
@@ -136,7 +137,7 @@ func TestLogAudit_v6_HTTPS_Domain(t *testing.T) {
 }
 
 func TestLogAudit_v4_DNS_Domain(t *testing.T) {
-	auditPayload = &AuditPayload{Pool: utils.NewWorkerPool(1, 16), IpAuditMap: utils.NewMap("cmap", 0)}
+	auditPayload = &AuditPayload{Pool: utils.NewWorkerPool(1, 16), IpAuditMap: &sync.Map{}}
 	logBatch = &LogBatch{LogChan: make(chan dbdata.AccessAudit, 16)}
 
 	dns := buildDNSQuery("dns.google.com")
