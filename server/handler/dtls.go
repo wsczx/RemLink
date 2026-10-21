@@ -59,11 +59,13 @@ func startDtls() {
 	// rsa 兼容 open connect
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		panic("DTLS RSA 密钥生成失败: " + err.Error())
+		base.Error("DTLS RSA 密钥生成失败，DTLS 不可用:", err)
+		return
 	}
 	certificate, err := selfsign.SelfSign(priv)
 	if err != nil {
-		panic(err)
+		base.Error("DTLS 证书生成失败，DTLS 不可用:", err)
+		return
 	}
 
 	logf := logging.NewDefaultLoggerFactory()
@@ -90,11 +92,13 @@ func startDtls() {
 
 	addr, err := net.ResolveUDPAddr("udp", base.FormatListenAddr(base.GetCfg().ServerDTLSAddr))
 	if err != nil {
-		panic(err)
+		base.Error("DTLS 监听地址解析失败，DTLS 不可用:", err)
+		return
 	}
 	ln, err := dtls.ListenWithOptions("udp", addr, serverOptions...)
 	if err != nil {
-		panic(err)
+		base.Error("DTLS 监听失败，DTLS 不可用:", err)
+		return
 	}
 
 	base.Info("listen DTLS server", addr)
