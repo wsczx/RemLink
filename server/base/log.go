@@ -177,7 +177,11 @@ func logLevel2Int(l string) int {
 func output(l int, s ...any) {
 	lvl := fmt.Sprintf("[%s] ", levels[l])
 	msg := fmt.Sprintln(s...)
-	_ = baseLogPtr.Load().Output(3, lvl+msg)
+	if lgr := baseLogPtr.Load(); lgr != nil {
+		_ = lgr.Output(3, lvl+msg)
+	} else {
+		fmt.Fprint(os.Stderr, lvl+msg)
+	}
 
 	broadcastSyslogIfSet(l, msg)
 }

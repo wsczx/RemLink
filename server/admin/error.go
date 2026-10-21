@@ -1,7 +1,6 @@
 package admin
 
 const (
-	RespSuccess       = 0
 	RespInternalErr   = 1
 	RespTokenErr      = 2
 	RespUserOrPassErr = 3
