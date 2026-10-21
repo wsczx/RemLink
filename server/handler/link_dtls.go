@@ -106,10 +106,7 @@ func LinkDtls(conn net.Conn, cSess *sessdata.ConnSession) {
 			if n < 2 {
 				continue
 			}
-			// 去除数据头
-			// copy(pl.Data, pl.Data[1:n])
-			// 更新切片长度
-			// pl.Data = pl.Data[:n-1]
+			// 去除 1 字节类型头，取 n-1 字节载荷
 			pl.Data = append(pl.Data[:0], pl.Data[1:n]...)
 			if payloadIn(cSess, pl) {
 				return
@@ -157,15 +154,17 @@ func dtlsWrite(conn net.Conn, dSess *sessdata.DtlsSession, cSess *sessdata.ConnS
 				}
 				putByte(dst)
 			}
-			// 未压缩
+			// 未压缩：在载荷前加 1 字节类型头
 			if !isCompress {
-				// 获取数据长度
-				l := len(pl.Data)
-				// 先扩容 +1
-				pl.Data = pl.Data[:l+1]
-				// 数据后移
-				copy(pl.Data[1:], pl.Data)
-				// 添加头信息
+				// 缓冲区容量不足时丢弃，避免 reslice 越界 panic
+				// （tun/tap MTU 配置超过 2047 的异常场景）
+				if len(pl.Data)+1 > cap(pl.Data) {
+					base.Warn("dtlsWrite 载荷超出缓冲区容量，丢弃:", cSess.Username, cSess.IpAddr)
+					putPayload(pl)
+					continue
+				}
+				pl.Data = pl.Data[:len(pl.Data)+1]
+				copy(pl.Data[1:], pl.Data[:len(pl.Data)-1])
 				pl.Data[0] = pl.PType
 			}
 		} else {
