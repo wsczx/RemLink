@@ -553,3 +553,50 @@ func TestWebAuthSelectGroup_NoPrefillWhenFilterOff(t *testing.T) {
 	ast.Equal("credentials", resp["status"])
 	ast.Nil(resp["username"], "组过滤关闭时不应预填残留用户名（防锁死）")
 }
+
+func TestWebAuthOnPass_NilCtxRejected(t *testing.T) {
+	base.Test()
+	preIpData(t)
+	defer closeIpdata()
+
+	ast := assert.New(t)
+
+	pending := &AuthSession{} // Ctx 为 nil
+	result := &auth.PipelineResult{Username: "u1", GroupName: "g1"}
+	req := httptest.NewRequest("POST", "/+CSCOE+/web-auth/step", nil)
+	w := httptest.NewRecorder()
+
+	webAuthOnPass(w, req, "nil-ctx-state", pending, result)
+
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	ast.Equal("error", resp["status"], "nil Ctx 会话必须显式失败")
+	ast.Nil(pending.Ctx, "不得把 nil Ctx 修复为空 Context（异常态应保持失败）")
+
+	// 不得签发门户 JWT cookie
+	for _, c := range w.Result().Cookies() {
+		ast.NotEqual(portalCookieName, c.Name, "nil Ctx 会话不得签发门户 JWT")
+	}
+}
+
+func TestWebAuthContinue_NilCtxRejected(t *testing.T) {
+	base.Test()
+
+	ast := assert.New(t)
+
+	state := GenerateSessionID()
+	AuthSessionManager.Save(state, &AuthSession{}) // Ctx 为 nil
+
+	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/continue?state="+state, nil)
+	w := httptest.NewRecorder()
+	WebAuthContinue(w, req)
+
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	ast.Equal("error", resp["status"], "nil Ctx 会话必须显式失败")
+	ast.Contains(resp["message"], "已过期")
+
+	// 残留会话应被清理，不可再被驱动
+	_, err := AuthSessionManager.Get(state)
+	ast.Error(err, "被拒的 nil Ctx 会话应被删除")
+}
