@@ -80,9 +80,14 @@ func Start() {
 	// 启动系统日志 WebSocket Hub
 	StartSyslogHub()
 	// 启动审计日志批量写入
-	go logAuditBatch()
+	base.SafeGo(logAuditBatch)
 
-	go admin.StartAdmin()
+	// 管理后台启动失败（如 8800 端口被占）只记录错误，不影响 VPN 数据面
+	go func() {
+		if err := admin.StartAdmin(); err != nil {
+			base.Error("管理后台启动失败:", err)
+		}
+	}()
 	go startTls()
 	go startDtls()
 }
