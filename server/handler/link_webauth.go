@@ -392,6 +392,11 @@ func WebAuthStep(w http.ResponseWriter, r *http.Request) {
 		webAuthError(w, "认证会话已过期")
 		return
 	}
+	if pending.Ctx == nil {
+		AuthSessionManager.Delete(state)
+		webAuthError(w, "认证会话已过期")
+		return
+	}
 
 	var req struct {
 		Username string `json:"username"`
@@ -455,10 +460,6 @@ func WebAuthStep(w http.ResponseWriter, r *http.Request) {
 
 	// 复用已有 Context（恢复场景）或首次场景
 	ctx := pending.Ctx
-	if ctx == nil {
-		ctx = &auth.Context{}
-		pending.Ctx = ctx
-	}
 	ctx.Conn.TLS = certTLS
 	if certTLS == nil {
 		ctx.Conn.TLS = r.TLS
@@ -576,6 +577,11 @@ func webAuthOnPass(w http.ResponseWriter, r *http.Request,
 
 	username := result.Username
 	groupName := result.GroupName
+	if pending.Ctx == nil {
+		base.Error("WebAuth 认证会话状态异常（Ctx 为 nil），state:", state[:min(16, len(state))])
+		webAuthError(w, "认证会话状态异常")
+		return
+	}
 
 	// 更新 pending 会话信息
 	pending.Ctx.Conn.Username = username
@@ -592,9 +598,6 @@ func webAuthOnPass(w http.ResponseWriter, r *http.Request,
 	}
 
 	// 保存完成标记到 SSO 状态
-	if pending.Ctx == nil {
-		pending.Ctx = &auth.Context{}
-	}
 	pending.Ctx.GetSSO().WebAuthCompleted = true
 	pending.Ctx.SSO.WebAuthUsername = username
 	pending.Ctx.SSO.WebAuthNickname = pending.Ctx.Conn.Nickname
@@ -779,6 +782,11 @@ func WebAuthContinue(w http.ResponseWriter, r *http.Request) {
 		webAuthError(w, "认证会话已过期")
 		return
 	}
+	if pending.Ctx == nil {
+		AuthSessionManager.Delete(state)
+		webAuthError(w, "认证会话已过期")
+		return
+	}
 
 	// 锁定检查
 	username := pending.Ctx.Conn.Username
@@ -792,10 +800,6 @@ func WebAuthContinue(w http.ResponseWriter, r *http.Request) {
 	_, _, certTLS := webAuthRecoverCert(pending)
 
 	ctx := pending.Ctx
-	if ctx == nil {
-		ctx = &auth.Context{}
-		pending.Ctx = ctx
-	}
 	ctx.Conn.TLS = certTLS
 	if certTLS == nil {
 		ctx.Conn.TLS = r.TLS
@@ -929,6 +933,11 @@ func WebAuthChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	pending, err := AuthSessionManager.Get(state)
 	if err != nil {
+		webAuthError(w, "认证会话已过期")
+		return
+	}
+	if pending.Ctx == nil {
+		AuthSessionManager.Delete(state)
 		webAuthError(w, "认证会话已过期")
 		return
 	}
