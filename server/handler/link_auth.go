@@ -14,6 +14,7 @@ import (
 	"github.com/wsczx/remlink/auth/authsrv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/sessdata"
 )
 
@@ -30,7 +31,7 @@ func LinkAuth(w http.ResponseWriter, r *http.Request) {
 	if base.GetLogLevel() == base.LogLevelTrace {
 		hd, err := httputil.DumpRequest(r, true)
 		if err == nil {
-			base.Trace("LinkAuth: ", string(hd))
+			base.Trace("LinkAuth: ", utils.RedactSensitive(string(hd)))
 		}
 	}
 

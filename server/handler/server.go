@@ -241,7 +241,7 @@ func initRoute() http.Handler {
 func notFound(w http.ResponseWriter, r *http.Request) {
 	if base.GetLogLevel() == base.LogLevelTrace {
 		hd, _ := httputil.DumpRequest(r, true)
-		base.Trace("NotFound: ", r.RemoteAddr, string(hd))
+		base.Trace("NotFound: ", r.RemoteAddr, utils.RedactSensitive(string(hd)))
 	}
 
 	w.WriteHeader(http.StatusNotFound)
