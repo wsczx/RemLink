@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 func TestLogAudit_v6_UDP(t *testing.T) {
 	auditPayload = &AuditPayload{
 		Pool:       utils.NewWorkerPool(1, 16),
-		IpAuditMap: utils.NewMap("cmap", 0),
+		IpAuditMap: &sync.Map{},
 	}
 	logBatch = &LogBatch{LogChan: make(chan dbdata.AccessAudit, 16)}
 
