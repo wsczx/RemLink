@@ -12,8 +12,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -53,17 +51,6 @@ type githubAsset struct {
 	BrowserDownloadURL string `json:"browser_download_url"`
 	Size               int64  `json:"size"`
 }
-
-type UpgradeStatus struct {
-	Running  bool            `json:"running"`
-	Progress UpgradeProgress `json:"progress"`
-}
-
-var (
-	upgradeRunning  atomic.Bool
-	upgradeProgress UpgradeProgress
-	upgradeProgMux  sync.RWMutex
-)
 
 // 检查最新版本，返回 ReleaseInfo、是否需要更新
 func CheckUpdate(source string) (*ReleaseInfo, bool, error) {
@@ -142,13 +129,6 @@ func getLatestRelease(apiURL string) (*ReleaseInfo, bool, error) {
 // 执行升级：下载 → 替换 → 重启
 func DoUpgrade(info *ReleaseInfo, progressCh chan<- UpgradeProgress) {
 	defer close(progressCh)
-
-	// 保证并发下只有一个升级任务能进入
-	if !upgradeRunning.CompareAndSwap(false, true) {
-		progressCh <- UpgradeProgress{Stage: "error", Error: "已有升级任务在运行"}
-		return
-	}
-	defer func() { upgradeRunning.Store(false) }()
 
 	// 阶段1：下载（更新源由用户配置决定，无备用源回退）
 	sendProgress(progressCh, "downloading", 0, 0, info.Size)
@@ -356,9 +336,6 @@ func sendProgress(ch chan<- UpgradeProgress, stage string, progress int, downloa
 		Downloaded: downloaded,
 		Total:      total,
 	}
-	upgradeProgMux.Lock()
-	upgradeProgress = p
-	upgradeProgMux.Unlock()
 	select {
 	case ch <- p:
 	default:
@@ -371,9 +348,6 @@ func sendError(ch chan<- UpgradeProgress, errMsg string) {
 		Stage: "error",
 		Error: errMsg,
 	}
-	upgradeProgMux.Lock()
-	upgradeProgress = p
-	upgradeProgMux.Unlock()
 	select {
 	case ch <- p:
 	default:

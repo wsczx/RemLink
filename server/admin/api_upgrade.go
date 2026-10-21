@@ -46,7 +46,7 @@ func CheckUpgrade(w http.ResponseWriter, r *http.Request) {
 		"upgrade_source":  info.UpgradeSource,
 		"latest":          info,
 	}
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 func StartUpgrade(w http.ResponseWriter, r *http.Request) {
@@ -103,7 +103,7 @@ func StartUpgrade(w http.ResponseWriter, r *http.Request) {
 
 	progressCh := make(chan base.UpgradeProgress, 10)
 
-	go base.DoUpgrade(info, progressCh)
+	base.SafeGo(func() { base.DoUpgrade(info, progressCh) })
 
 	for p := range progressCh {
 		upgradeMux.Lock()
@@ -128,20 +128,29 @@ func StartUpgrade(w http.ResponseWriter, r *http.Request) {
 func UpgradeStatusHandler(w http.ResponseWriter, r *http.Request) {
 	upgradeMux.Lock()
 	state := upgradeState
+	var (
+		running  bool
+		stage    string
+		progress int
+		errStr   string
+	)
+	if state != nil {
+		running, stage, progress, errStr = state.Running, state.Stage, state.Progress, state.Error
+	}
 	upgradeMux.Unlock()
 
 	if state == nil {
-		RespSucess(w, map[string]any{
+		RespSuccess(w, map[string]any{
 			"running": false,
 			"stage":   "idle",
 		})
 		return
 	}
 
-	RespSucess(w, map[string]any{
-		"running":  state.Running,
-		"stage":    state.Stage,
-		"progress": state.Progress,
-		"error":    state.Error,
+	RespSuccess(w, map[string]any{
+		"running":  running,
+		"stage":    stage,
+		"progress": progress,
+		"error":    errStr,
 	})
 }
