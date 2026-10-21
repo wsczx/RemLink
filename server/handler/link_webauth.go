@@ -699,50 +699,44 @@ func WebAuthSSOCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	code := r.URL.Query().Get("code")
 
-	var username string
-	switch ssoType {
-	case "wxwork":
-		cfg, cErr := dbdata.GetAuthWework(pending.Ctx.Conn.GroupName)
-		if cErr != nil {
-			http.Error(w, "获取企微配置失败", http.StatusInternalServerError)
-			return
-		}
-		var name string
-		username, name, err = cfg.GetWeworkUser(code)
-		pending.Ctx.Conn.Nickname = name
-	case "feishu":
-		cfg, cErr := dbdata.GetAuthFeishu(pending.Ctx.Conn.GroupName)
-		if cErr != nil {
-			http.Error(w, "获取飞书配置失败", http.StatusInternalServerError)
-			return
-		}
-		var name string
-		username, name, err = cfg.GetFeishuUser(code)
-		pending.Ctx.Conn.Nickname = name
-	case "dingtalk":
-		cfg, cErr := dbdata.GetAuthDingtalk(pending.Ctx.Conn.GroupName)
-		if cErr != nil {
-			http.Error(w, "获取钉钉配置失败", http.StatusInternalServerError)
-			return
-		}
-		var userid, name string
-		userid, name, _, err = cfg.GetDingtalkUser(code)
-		pending.Ctx.Conn.Nickname = name
-		username = userid
-	default:
-		http.Error(w, "不支持的 SSO 类型", http.StatusBadRequest)
+	if pending.Ctx == nil {
+		AuthSessionManager.Delete(ssoState)
+		http.Error(w, "认证会话已过期", http.StatusBadRequest)
 		return
 	}
 
-	if err != nil || username == "" {
+	// 获取 SSO 用户
+	cb, cbErr := ssoCallbackFor(ssoType, pending.Ctx.Conn.GroupName)
+	if cbErr != nil {
 		AuthSessionManager.Delete(ssoState)
 		http.Error(w, "获取用户信息失败", http.StatusInternalServerError)
+		return
+	}
+	username, nickname, err := cb.getUser(code)
+	if err != nil {
+		AuthSessionManager.Delete(ssoState)
+		http.Error(w, "获取用户信息失败", http.StatusInternalServerError)
+		return
+	}
+	pending.Ctx.Conn.Nickname = nickname
+	if username == "" {
+		AuthSessionManager.Delete(ssoState)
+		http.Error(w, "获取用户信息失败", http.StatusInternalServerError)
+		return
+	}
+
+	// 部门过滤 + 拒绝名单：在回调阶段完成校验，避免后续管道绕过
+	if aerr := ssoAuthorize(cb, username); aerr != nil {
+		base.Error("WebAuth SSO 访问控制拒绝:", username, aerr)
+		AuthSessionManager.Delete(ssoState)
+		http.Error(w, "用户未通过访问控制校验", http.StatusForbidden)
 		return
 	}
 
 	// 将 SSO 结果写入 WebAuth 会话
 	webPending, werr := AuthSessionManager.Get(webState)
 	if werr != nil {
+		AuthSessionManager.Delete(ssoState)
 		http.Error(w, "认证会话已过期", http.StatusBadRequest)
 		return
 	}

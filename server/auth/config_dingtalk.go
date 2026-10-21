@@ -369,8 +369,8 @@ func (c *DingtalkConfig) getChildDepartmentIDs(contactToken, deptID string) ([]s
 	if err != nil {
 		return nil, fmt.Errorf("获取钉钉子部门列表请求失败: %w", err)
 	}
+	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
 	if err != nil {
 		return nil, fmt.Errorf("读取钉钉子部门列表失败: %w", err)
 	}
@@ -424,8 +424,8 @@ func (c *DingtalkConfig) probeContactPermission(contactToken, deptID string) err
 	if err != nil {
 		return fmt.Errorf("钉钉通讯录权限探针请求失败: %w", err)
 	}
+	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
 	if err != nil {
 		return fmt.Errorf("钉钉通讯录权限探针读取失败: %w", err)
 	}
@@ -503,8 +503,8 @@ func (c *DingtalkConfig) fetchDeptUsersOnce(contactToken, deptID string) ([]Ding
 		if err != nil {
 			return nil, err
 		}
+		defer resp.Body.Close()
 		respBody, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
 		if err != nil {
 			return nil, err
 		}
