@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/auth/authsrv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
-	"github.com/wsczx/remlink/pkg/utils"
 )
 
 func portalSSOGroup(ssoType string) (string, error) {
@@ -66,7 +66,7 @@ func portalSSOLogin(w http.ResponseWriter, r *http.Request, pending *AuthSession
 		return true
 	}
 	// 确保 token 的 portal_groups 非空：SSO 用户（未同步本地）也需携带认证组，
-	if !utils.InArrStr(user.Groups, group) {
+	if !slices.Contains(user.Groups, group) {
 		user.Groups = append(user.Groups, group)
 	}
 	ctx := &auth.Context{
