@@ -274,7 +274,7 @@ func SetGroup(g *Group) error {
 	}
 	if err == nil {
 		// 组配置/状态/名称变更后，组内成员重新签发 WebVPN 会话。异步执行避免阻塞保存响应返回
-		go WebVpnRevokeGroupMembers([]string{oldName})
+		base.SafeGo(func() { WebVpnRevokeGroupMembers([]string{oldName}) })
 	}
 
 	return err
