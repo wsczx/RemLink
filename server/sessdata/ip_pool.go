@@ -12,6 +12,8 @@ import (
 	"github.com/wsczx/remlink/pkg/utils"
 )
 
+const ipPoolUserQueryLimit = 30 // IP 池按用户查询的行数上限（FindWhere 分页）
+
 var (
 	IpPool   = &ipPoolConfig{}
 	ipActive = map[string]bool{}
@@ -308,6 +310,9 @@ func ipInPool(ip net.IP, ipRange *ipPoolConfig) bool {
 	if ipRange == nil {
 		ipRange = GetGroupIpPool(nil) // fallback to global
 	}
+	if ip.To4() == nil {
+		return false
+	}
 	ipLong := utils.Ip2long(ip)
 	if ipLong >= ipRange.IpLongMin && ipLong <= ipRange.IpLongMax {
 		return true
@@ -323,6 +328,13 @@ func AcquireIp(username, macAddr string, uniqueMac bool) (newIp net.IP) {
 // 在指定 IP 范围内获取动态 ip
 func AcquireIpWithRange(username, macAddr string, uniqueMac bool, ipRange *ipPoolConfig) (newIp net.IP) {
 	base.Trace("AcquireIp start:", username, macAddr, uniqueMac)
+	// 由 NewConn 的 LimitClient 回退路径处理，避免连接数泄漏
+	defer func() {
+		if r := recover(); r != nil {
+			base.Error("AcquireIpWithRange panic:", username, macAddr, r)
+			newIp = nil
+		}
+	}()
 	ipPoolMux.Lock()
 	defer func() {
 		ipPoolMux.Unlock()
@@ -393,9 +405,9 @@ func AcquireIpWithRange(username, macAddr string, uniqueMac bool, ipRange *ipPoo
 
 	// 没有获取到mac的情况（按 用户名 + 组 精确匹配优先）
 	ipMaps := []dbdata.IpMap{}
-	err = dbdata.FindWhere(&ipMaps, 30, 1, "username=? AND ip_group=?", username, ipRange.GroupName)
+	err = dbdata.FindWhere(&ipMaps, ipPoolUserQueryLimit, 1, "username=? AND ip_group=?", username, ipRange.GroupName)
 	if err == nil && len(ipMaps) == 0 && ipRange.GroupName != "" {
-		err = dbdata.FindWhere(&ipMaps, 30, 1, "username=? AND ip_group=''", username)
+		err = dbdata.FindWhere(&ipMaps, ipPoolUserQueryLimit, 1, "username=? AND ip_group=''", username)
 	}
 	if err != nil {
 		// 没有查询到数据

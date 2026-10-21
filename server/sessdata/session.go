@@ -412,7 +412,7 @@ func (cs *ConnSession) ratePeriod() {
 		cs.settleTraffic()
 		if exceeded, _ := dbdata.QuotaExceeded(cs.Username, cs.Policy); exceeded {
 			base.Warn("流量配额超限，强制下线:", cs.Username)
-			go CloseSess(cs.Sess.Token, dbdata.UserLogoutQuota) // 异步避免死锁
+			base.SafeGo(func() { CloseSess(cs.Sess.Token, dbdata.UserLogoutQuota) }) // 异步避免死锁
 			return
 		}
 	}
