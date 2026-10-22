@@ -132,7 +132,9 @@ func (ua *UserActLogProcess) Add(u UserActLog, userAgent string, isPortal ...boo
 		}
 		// 调用方已提供设备信息时直接保留（如 WebAuth 失败路径传入了 DeviceType/PlatformVer），无需覆盖
 	}
-	u.RemoteAddr, _, _ = net.SplitHostPort(u.RemoteAddr)
+	if host, _, err := net.SplitHostPort(u.RemoteAddr); err == nil {
+		u.RemoteAddr = host
+	}
 	// 去除 Info 中的用户名前缀和分隔符
 	infoSlice := strings.Split(u.Info, " ")
 	infoLen := len(infoSlice)

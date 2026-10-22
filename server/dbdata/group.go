@@ -239,7 +239,7 @@ func SetGroup(g *Group) error {
 	// 校验 AuthProfile 格式
 	profile, err := auth.ParseAuthProfile(g.AuthProfile)
 	if err != nil {
-		return errors.New("认证配置格式无效: " + err.Error())
+		return fmt.Errorf("认证配置格式无效: %w", err)
 	}
 	// 校验每个步骤
 	for i, step := range profile.Step {
