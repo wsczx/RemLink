@@ -177,53 +177,9 @@ func SAMLError(w http.ResponseWriter, err error) {
     <title>认证失败</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background: #f5f5f5;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            margin: 0;
-            padding: 20px;
-        }
-        .container {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 15px rgba(0,0,0,0.2);
-            padding: 40px;
-            max-width: 450px;
-            width: 100%;
-            text-align: center;
-        }
-        .icon {
-            font-size: 56px;
-            color: #f44336; 
-            margin-bottom: 24px;
-        }
-        h1 {
-            color: #303133;
-            font-size: 24px;
-            margin-bottom: 15px;
-        }
-        .error-message {
-            color: #e6a23c;
-            font-size: 16px;
-            margin-bottom: 20px;
-        }
-        .detail {
-            color: #606266;
-            font-size: 15px;
-            margin-bottom: 25px;
-        }
-        .note {
-            color: #909399;
-            font-size: 13px;
-            margin-top: 30px;
-            border-top: 1px solid #e4e7ed;
-            padding-top: 20px;
-        }
+    <style>` + samlPageCSS + `
+        .icon { color: #f44336; }
+        h1 { font-size: 24px; }
     </style>
 </head>
 <body>

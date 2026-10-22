@@ -205,7 +205,7 @@ var accept_challenge = `<?xml version="1.0" encoding="UTF-8"?>
     </auth>
 </config-auth>`
 
-// ds_domains_xml 动态分流域名配置模板（由 link_tunnel.go 使用）
+// 动态分流域名配置模板
 var ds_domains_xml = `
 <?xml version="1.0" encoding="UTF-8"?>
 <config-auth client="vpn" type="complete" aggregate-auth-version="2">
@@ -223,15 +223,8 @@ var ds_domains_xml = `
 </config-auth>
 `
 
-// samlSuccessHTML SAML 认证成功页面
-var samlSuccessHTML = `
-<!DOCTYPE html>
-<html>
-<head>
-    <title>认证成功 - 请关闭</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
+// SAML 认证成功/失败页共享样式；图标色与 h1 字号按场景覆盖
+const samlPageCSS = `
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             background: #f5f5f5;
@@ -253,13 +246,16 @@ var samlSuccessHTML = `
         }
         .icon {
             font-size: 56px;
-            color: #4CAF50; 
             margin-bottom: 24px;
         }
         h1 {
             color: #303133;
-            font-size: 28px;
             margin-bottom: 15px;
+        }
+        .error-message {
+            color: #e6a23c;
+            font-size: 16px;
+            margin-bottom: 20px;
         }
         .detail {
             color: #606266;
@@ -272,7 +268,18 @@ var samlSuccessHTML = `
             margin-top: 30px;
             border-top: 1px solid #e4e7ed;
             padding-top: 20px;
-        }
+        }`
+
+// SAML 认证成功页面
+var samlSuccessHTML = `<!DOCTYPE html>
+<html>
+<head>
+    <title>认证成功 - 请关闭</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>` + samlPageCSS + `
+        .icon { color: #4CAF50; }
+        h1 { font-size: 28px; }
     </style>
     <script>
         function tryCloseWindow() {
