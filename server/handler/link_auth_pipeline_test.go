@@ -46,7 +46,7 @@ func TestLocalPlusOtp_FullFlow(t *testing.T) {
 
 	group := "local-otp-group"
 	username := "local-otp-user"
-	password := "test12" // 6 字符且不含 OTP，local 步骤不做 OTP 剥离
+	password := "test12"
 	otpSecret := "JBSWY3DPEHPK3PXP"
 
 	profile := auth.GroupAuthProfile{

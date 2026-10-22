@@ -36,7 +36,7 @@ func (a *LDAPAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 	}
 	defer conn.Close()
 
-	sr, err := a.SearchUsers(conn, ctx.Conn.Username, []string{"displayName", "cn", "name"})
+	sr, err := a.SearchUsers(conn, ctx.Conn.Username, []string{"displayName", "cn", "name", "userAccountControl", "accountExpires", "shadowExpire"})
 	if err != nil {
 		return auth.StepFail, fmt.Errorf("LDAP 查询失败: %w", err)
 	}
@@ -59,26 +59,6 @@ func (a *LDAPAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 		ctx.SetInfo("LDAP 认证通过")
 		ctx.Conn.Nickname = ldapDisplayName(sr)
 		return auth.StepPass, nil
-	}
-
-	// 用户已启用 OTP 且非门户登录时，将密码尾 6 位作为动态码剥离后重试 bind
-	ub := ctx.UserInfoLoaded()
-	if ub == nil {
-		LoadUserInfo(ctx)
-		ub = ctx.UserInfoLoaded()
-	}
-	if ub != nil && ub.OtpSecret != "" && !ub.DisableOtp && !ctx.PortalLogin && len(password) > 6 {
-		pl := len(password)
-		strippedPwd := password[:pl-6]
-		otpSuffix := password[pl-6:]
-		if err := conn.Bind(userDN, strippedPwd); err == nil {
-			otp := ctx.GetOTP()
-			otp.Code = otpSuffix
-			base.Debug("LDAP 认证（剥离OTP后缀兜底）: user=", ctx.Conn.Username)
-			ctx.SetInfo("LDAP 认证通过")
-			ctx.Conn.Nickname = ldapDisplayName(sr)
-			return auth.StepPass, nil
-		}
 	}
 
 	base.Warn("LDAP 认证失败: user=", ctx.Conn.Username)

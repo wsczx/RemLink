@@ -1,6 +1,10 @@
 package auth
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/go-ldap/ldap"
+)
 
 func TestLDAPConfig_Defaults(t *testing.T) {
 	c := &LDAPConfig{}
@@ -60,5 +64,38 @@ func TestLDAPConfig_ValidateConfig(t *testing.T) {
 	ok.MemberOf = "ou=vpn,dc=example,dc=com"
 	if err := ok.ValidateConfig(); err != nil {
 		t.Fatalf("带合法 MemberOf 应校验通过，实得: %v", err)
+	}
+}
+
+func TestCheckAccountStatus(t *testing.T) {
+	cases := []struct {
+		name    string
+		uac     string // userAccountControl，空=不设置该属性
+		shadow  string // shadowExpire，空=不设置
+		wantErr bool
+	}{
+		{"正常账号(NORMAL=512)", "512", "", false},
+		{"禁用账号(ACCOUNTDISABLE=2)", "2", "", true},
+		{"锁定账号(LOCKOUT=16)", "16", "", true},
+		{"shadowExpire已停用(1)", "", "1", true},
+		{"无状态属性不误杀", "", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var attrs []*ldap.EntryAttribute
+			if tc.uac != "" {
+				attrs = append(attrs, &ldap.EntryAttribute{Name: "userAccountControl", Values: []string{tc.uac}})
+			}
+			if tc.shadow != "" {
+				attrs = append(attrs, &ldap.EntryAttribute{Name: "shadowExpire", Values: []string{tc.shadow}})
+			}
+			err := CheckAccountStatus(&ldap.SearchResult{Entries: []*ldap.Entry{{Attributes: attrs}}})
+			if tc.wantErr && err == nil {
+				t.Fatalf("场景 %q 应报错但通过", tc.name)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("场景 %q 应通过但报错: %v", tc.name, err)
+			}
+		})
 	}
 }

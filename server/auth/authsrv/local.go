@@ -46,7 +46,7 @@ func (a *LocalAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 	ctx.Conn.Nickname = v.Nickname
 
 	// 先校验密码，再校验组/类型等配置项：避免在校验密码前按组归属泄露用户名是否存在
-	if !verifyLocalPassword(ctx, v) {
+	if !dbdata.VerifyPassword(ctx.Conn.Password, v.PinCode) {
 		return auth.StepFail, fmt.Errorf("用户名或密码错误")
 	}
 
@@ -64,28 +64,4 @@ func (a *LocalAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 	}
 
 	return auth.StepPass, nil
-}
-
-// 验证本地密码：完整密码优先，失败则兜底尝试"密码+OTP后缀"剥离
-func verifyLocalPassword(ctx *auth.Context, v *dbdata.User) bool {
-	tryPassword := func(pwd string) bool {
-		return dbdata.VerifyPassword(pwd, v.PinCode)
-	}
-
-	if tryPassword(ctx.Conn.Password) {
-		return true
-	}
-
-	// 兜底：用户已启用 OTP 且非门户登录时，将密码尾 6 位作为动态码剥离后重试
-	if v.OtpSecret != "" && !v.DisableOtp && !ctx.PortalLogin && len(ctx.Conn.Password) > 6 {
-		pl := len(ctx.Conn.Password)
-		strippedPwd := ctx.Conn.Password[:pl-6]
-		if tryPassword(strippedPwd) {
-			otp := ctx.GetOTP()
-			otp.Code = ctx.Conn.Password[pl-6:]
-			base.Debug("本地认证（剥离OTP后缀兜底）: user=", ctx.Conn.Username)
-			return true
-		}
-	}
-	return false
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -540,6 +541,15 @@ func BatchDeleteClientCert(w http.ResponseWriter, r *http.Request) {
 	RespSuccess(w, msg)
 }
 
+// 将用户名转换为安全的 zip 条目名，防止用户名含路径分隔符导致 Zip Slip 路径遍历
+func clientP12ZipEntryName(username string) string {
+	name := filepath.Base(strings.NewReplacer("\\", "/").Replace(username))
+	if name == "" || name == "." {
+		name = "user"
+	}
+	return name + ".p12"
+}
+
 // 批量下载客户端证书（打包为 ZIP）
 func BatchDownloadClientP12(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -567,7 +577,7 @@ func BatchDownloadClientP12(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		f, err := zipWriter.Create(item.Username + ".p12")
+		f, err := zipWriter.Create(clientP12ZipEntryName(item.Username))
 		if err != nil {
 			continue
 		}
