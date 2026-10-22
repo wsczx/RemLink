@@ -92,7 +92,7 @@ func LinkAuth(w http.ResponseWriter, r *http.Request) {
 	// 空组处理
 	if cr.GroupSelect == "" {
 		if cr.Auth.SsoToken != "" || cr.Type == "init" {
-			base.Trace("允许 SSO 认证请求通过，SsoToken:", cr.Auth.SsoToken, "访问IP", r.RemoteAddr)
+			base.Trace("允许 SSO 认证请求通过，访问IP", r.RemoteAddr)
 		} else if !strings.Contains(userAgent, "openconnect") {
 			w.WriteHeader(http.StatusBadRequest)
 			return

@@ -66,6 +66,18 @@ func TestRedactSensitive(t *testing.T) {
 			want: "<password>***</password>",
 			not:  "",
 		},
+		{
+			name: "DTLS主密钥请求头",
+			in:   "CONNECT / HTTP/1.1\r\nX-Dtls-Master-Secret: deadbeefcafe\r\nHost: vpn\r\n\r\n",
+			want: "X-Dtls-Master-Secret: ***",
+			not:  "deadbeefcafe",
+		},
+		{
+			name: "Cookie 会话头",
+			in:   "GET / HTTP/1.1\r\nCookie: webvpn=sessiontoken123\r\n\r\n",
+			want: "Cookie: ***",
+			not:  "sessiontoken123",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

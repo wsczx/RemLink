@@ -36,7 +36,6 @@ func defaultGroup() {
 	_ = dbdata.SetGroup(&dbdata.Group{Name: "default", Status: 1, PolicyId: 1})
 }
 
-// testStubAuth 桩认证器，用于测试管道构建
 type testStubAuth struct {
 	auth.NopChallenger
 	name string

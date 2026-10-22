@@ -16,6 +16,7 @@
 - 修复 IP-MAC 绑定中非法 IPv4 地址导致客户端每次登录 panic 并耗尽最大连接数、使整机拒绝新连接的问题；入口校验地址合法性并增加防 panic 保护
 - 管理后台改密/停用/重置密码后立即吊销该用户已签发 JWT，避免令牌长期可用
 - trace 级别请求体日志自动脱敏 password/secondary_password/sso_token/otp_secret，防止凭据经日志与 SIEM 扩散
+- trace 级请求日志脱敏扩展至请求头：DTLS 主密钥（X-DTLS-Master-Secret）与会话 Cookie 现一并打码，并移除 SSO token 明文打印，防止开启 trace 调试时凭据外泄
 - 防暴力破解默认白名单收敛为 127.0.0.1 且黑名单判定前置（显式拒绝优先），避免加黑被白名单覆盖
 - 安全响应头补充 Permissions-Policy；管理后台、门户及数据通道响应均不再下发 Server 指纹头
 - 加固：认证会话存储引入来源标记（Kind），仅接受 SSO 流程产生的会话（sso-pending / sso-done / webauth-done），拒绝把 OTP 等待等认证管道会话的 id 当作 SSO token 重放冒用；WebAuth 直建会话分支同样要求会话来源为门户管道全部通过；SSO 回调待验证状态增加 Kind 校验
@@ -23,6 +24,7 @@
 - 修复 LDAP 认证未校验账号状态、导致禁用/锁定/过期账号仍可登录的问题：搜索时现请求 userAccountControl/accountExpires/shadowExpire 并据此拒绝
 - 加固管理后台写接口 CSRF 防护：既无 Origin 也无 Referer 的跨站写请求一律拒绝，防止冒用管理员 Cookie 篡改配置
 - 修复客户端证书批量打包的路径遍历(Zip Slip)：用户名含路径分隔符时 zip 条目名收敛为基名，防止写出任意路径
+- 修复 TAP/Macvtap/Ipvtap 数据面 IPv4 分支缺少最小长度校验、畸形短报文可越界 panic 的问题：读/写协程均补齐 20 字节校验（与 IPv6 分支对称），写协程并增加 panic 恢复，杜绝远程打崩进程与半连接 DoS
 
 ### 修复
 
