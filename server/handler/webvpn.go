@@ -9,6 +9,7 @@ import (
 
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/webvpn"
 )
 
@@ -134,7 +135,7 @@ func webVpnHostPrefix(host string) (string, bool) {
 // 返回当前 WebVPN 子域自身的登录页地址（含端口与协议）
 func webVpnLoginURL(r *http.Request) string {
 	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+	if utils.IsTLS(r) {
 		scheme = "https"
 	}
 	redirect := r.URL.RequestURI()
@@ -463,7 +464,7 @@ func webVpnSameOrigin(r *http.Request) bool {
 }
 
 func requestTLS(r *http.Request) bool {
-	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	return utils.IsTLS(r)
 }
 
 // 记录 WebVPN 请求的审计信息

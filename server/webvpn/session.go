@@ -12,6 +12,7 @@ import (
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/jwt"
+	"github.com/wsczx/remlink/pkg/utils"
 )
 
 type AuthSessionManager struct {
@@ -329,7 +330,7 @@ func (m *AuthSessionManager) ClearGrantCookie(w http.ResponseWriter, r *http.Req
 		Domain:   wildcardDomain(),
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		Secure:   utils.IsTLS(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -350,7 +351,7 @@ func (m *AuthSessionManager) ClearCookie(w http.ResponseWriter, r *http.Request)
 		Domain:   CookieDomain(r.Host),
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		Secure:   utils.IsTLS(r),
 		SameSite: sessionSameSite(r),
 	})
 }
@@ -392,13 +393,13 @@ func (m *AuthSessionManager) cookie(name, token string, r *http.Request) *http.C
 		Path:     "/",
 		Domain:   CookieDomain(r.Host),
 		HttpOnly: true,
-		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		Secure:   utils.IsTLS(r),
 		SameSite: sameSite,
 	}
 }
 
 func sessionSameSite(r *http.Request) http.SameSite {
-	if enabled, _ := r.Context().Value(crossSiteCookieContextKey{}).(bool); enabled && (r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https") {
+	if enabled, _ := r.Context().Value(crossSiteCookieContextKey{}).(bool); enabled && utils.IsTLS(r) {
 		return http.SameSiteNoneMode
 	}
 	return http.SameSiteLaxMode

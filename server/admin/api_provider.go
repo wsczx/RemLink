@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
-	"strconv"
 
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
@@ -59,11 +58,7 @@ func keepProviderSecrets(newP, oldP *dbdata.Provider) {
 // 列出所有 Provider
 func ProviderList(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
-	pageS := r.FormValue("page")
-	page, _ := strconv.Atoi(pageS)
-	if page < 1 {
-		page = 1
-	}
+	page, _ := parsePaging(r)
 	pageSize := dbdata.PageSize
 
 	datas, count, err := dbdata.ProviderList(pageSize, page)

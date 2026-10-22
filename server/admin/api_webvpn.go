@@ -2,7 +2,6 @@ package admin
 
 import (
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gocarina/gocsv"
@@ -20,14 +19,7 @@ func WebVpnDomain(w http.ResponseWriter, r *http.Request) {
 // 返回 WebVPN 应用分页列表
 func WebVpnAppList(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
-	page, _ := strconv.Atoi(r.FormValue("page"))
-	if page < 1 {
-		page = 1
-	}
-	pageSize, _ := strconv.Atoi(r.FormValue("page_size"))
-	if pageSize <= 0 {
-		pageSize = dbdata.PageSize
-	}
+	page, pageSize := parsePaging(r)
 
 	datas, count, err := dbdata.WebVpnAppList(pageSize, page, r.FormValue("name"))
 	if err != nil && !dbdata.CheckErrNotFound(err) {
@@ -48,9 +40,8 @@ func WebVpnAppList(w http.ResponseWriter, r *http.Request) {
 // 返回单个 WebVPN 应用详情
 func WebVpnAppDetail(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
-	id, _ := strconv.Atoi(r.FormValue("id"))
-	if id < 1 {
-		RespError(w, RespParamErr, "Id错误")
+	id, ok := parseID(w, r, "Id错误")
+	if !ok {
 		return
 	}
 
@@ -124,14 +115,7 @@ func WebVpnAppDel(w http.ResponseWriter, r *http.Request) {
 // 返回 WebVPN 访问审计分页列表（支持用户名/应用名/时间范围过滤）
 func WebVpnAuditList(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
-	page, _ := strconv.Atoi(r.FormValue("page"))
-	if page < 1 {
-		page = 1
-	}
-	pageSize, _ := strconv.Atoi(r.FormValue("page_size"))
-	if pageSize <= 0 {
-		pageSize = dbdata.PageSize
-	}
+	page, pageSize := parsePaging(r)
 	search := dbdata.WebVpnAuditSearch{
 		Username: r.FormValue("username"),
 		AppName:  r.FormValue("app_name"),
