@@ -257,64 +257,34 @@ func TestLocalAuth_ExistingOtpCode_WrongPwd(t *testing.T) {
 	assert.Contains(t, err.Error(), "密码错误")
 }
 
-func TestLocalAuth_PasswordWithOTPEmbedded(t *testing.T) {
+func TestLocalAuth_PasswordWithOtpSuffix_NotAccepted(t *testing.T) {
 	preTestData(t)
-	createTestUser("testembed", "testpas0", false)
+	createTestUser("testsuffix", "testpass123", false)
 	la := &LocalAuth{}
 	ctx := &auth.Context{
 		Conn: auth.ConnInfo{
-			Username:  "testembed",
-			Password:  "testpas0" + "123456",
-			GroupName: "default",
-		},
-	}
-	result, err := la.Authenticate(ctx)
-
-	assert.Equal(t, auth.StepPass, result)
-	assert.Nil(t, err)
-	// 兜底剥离后，后 6 位应作为动态码注入 OTP 状态
-	otpCode := ""
-	if ctx.OTP != nil {
-		otpCode = ctx.OTP.Code
-	}
-	assert.Equal(t, "123456", otpCode)
-}
-
-func TestLocalAuth_PasswordWithOTPEmbedded_WrongPwd(t *testing.T) {
-	preTestData(t)
-	createTestUser("testembed2", "testpass123", false)
-	la := &LocalAuth{}
-	ctx := &auth.Context{
-		Conn: auth.ConnInfo{
-			Username:  "testembed2",
-			Password:  "wrongpw_123456", // 密码部分错误
-			GroupName: "default",
-		},
-	}
-	result, err := la.Authenticate(ctx)
-
-	// 剥离后密码仍不匹配 → 完整密码也不匹配 → 失败
-	assert.Equal(t, auth.StepFail, result)
-	assert.NotNil(t, err)
-}
-
-func TestLocalAuth_PortalLogin_NoStrip(t *testing.T) {
-	preTestData(t)
-	// 门户登录不剥离：合并输入应整体作为密码验证，因不匹配而失败
-	createTestUser("testportal", "testpass123", false)
-	la := &LocalAuth{}
-	ctx := &auth.Context{
-		Conn: auth.ConnInfo{
-			Username:  "testportal",
+			Username:  "testsuffix",
 			Password:  "testpass123" + "123456",
 			GroupName: "default",
 		},
-		PortalLogin: true,
 	}
 	result, err := la.Authenticate(ctx)
 
 	assert.Equal(t, auth.StepFail, result)
 	assert.NotNil(t, err)
+	assert.True(t, ctx.OTP == nil || ctx.OTP.Code == "",
+		"local 步骤不得再向 OTP 状态注入动态码")
+
+	ctxOK := &auth.Context{
+		Conn: auth.ConnInfo{
+			Username:  "testsuffix",
+			Password:  "testpass123",
+			GroupName: "default",
+		},
+	}
+	resOK, errOK := la.Authenticate(ctxOK)
+	assert.Equal(t, auth.StepPass, resOK)
+	assert.Nil(t, errOK)
 }
 
 func TestLocalAuth_NilExtra(t *testing.T) {

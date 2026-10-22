@@ -539,7 +539,7 @@ func adminSameOrigin(r *http.Request) bool {
 		u, err := url.Parse(ref)
 		return err == nil && u.User == nil && strings.EqualFold(u.Host, r.Host)
 	}
-	return true
+	return false
 }
 
 func recoverHttp(next http.Handler) http.Handler {
