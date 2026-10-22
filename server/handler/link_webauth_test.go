@@ -18,6 +18,7 @@ import (
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/dbtest"
 )
 
 func createWebAuthSession(_ *testing.T, groupName string) string {
@@ -37,8 +38,7 @@ func createWebAuthSession(_ *testing.T, groupName string) string {
 
 func TestWebAuthSPLogin_Valid(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	base.UpdateCfg(func(c *base.ServerConfig) { c.EnableWebAuth = true })
 
 	state := createWebAuthSession(t, "default")
@@ -81,8 +81,7 @@ func TestWebAuthSPLogin_EmptyState(t *testing.T) {
 
 func TestWebAuthStart_Success(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	base.UpdateCfg(func(c *base.ServerConfig) { c.EnableWebAuth = true })
 
 	pt := &dbdata.Policy{
@@ -167,8 +166,7 @@ func TestWebAuthStart_Disabled(t *testing.T) {
 
 func TestWebAuthSelectGroup_Success(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	ast := assert.New(t)
 
@@ -240,8 +238,7 @@ func TestWebAuthSelectGroup_EmptyState(t *testing.T) {
 
 func TestWebAuthSelectGroup_GroupNotFound(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	state := createWebAuthSession(t, "default")
 
@@ -332,8 +329,7 @@ func TestWebAuthComplete_EmptyState(t *testing.T) {
 
 func TestWebAuthComplete_Success(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	state := createWebAuthSession(t, "default")
 
@@ -408,8 +404,7 @@ func createWebAuthSessionWithCert(t *testing.T, groupName, certCN, certOU string
 // 且不应把证书 CN 写入响应（防用户名锁死）
 func TestWebAuthStart_CertGuardDisabled(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	defer dbdata.InvalidateCertAuthCache()
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.EnableWebAuth = true
@@ -444,8 +439,7 @@ func TestWebAuthStart_CertGuardDisabled(t *testing.T) {
 // 且清空临时写入的证书 CN
 func TestWebAuthStart_CertAutoAuthFallback(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	defer dbdata.InvalidateCertAuthCache()
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.EnableWebAuth = true
@@ -482,8 +476,7 @@ func TestWebAuthStart_CertAutoAuthFallback(t *testing.T) {
 // 组过滤开启：预填已识别用户名，避免重复输入
 func TestWebAuthSelectGroup_GroupFilterPrefill(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.EnableWebAuth = true
 		c.EnableWebAuthGroupFilter = true
@@ -519,8 +512,7 @@ func TestWebAuthSelectGroup_GroupFilterPrefill(t *testing.T) {
 // 组过滤关闭：即使会话残留用户名也不预填，避免输入框锁死
 func TestWebAuthSelectGroup_NoPrefillWhenFilterOff(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.EnableWebAuth = true
 		c.EnableWebAuthGroupFilter = false
@@ -556,8 +548,7 @@ func TestWebAuthSelectGroup_NoPrefillWhenFilterOff(t *testing.T) {
 
 func TestWebAuthOnPass_NilCtxRejected(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	ast := assert.New(t)
 

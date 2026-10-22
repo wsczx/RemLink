@@ -10,7 +10,6 @@ import (
 )
 
 func setupUserAuthTest(t *testing.T) {
-	// 注册认证器（部分路径依赖）
 	for _, name := range []string{"local", "ldap", "radius", "otp", "cert", "saml", "wxwork", "feishu"} {
 		if !auth.Registry.IsRegistered(name) {
 			n := name
@@ -27,7 +26,6 @@ func setupUserAuthTest(t *testing.T) {
 	t.Cleanup(func() { xdb.Close() })
 }
 
-// 新增/更新/类型不匹配/失联清理的基础行为
 func TestSyncExternalUsers_Basic(t *testing.T) {
 	assert := assert.New(t)
 	setupUserAuthTest(t)
@@ -39,37 +37,31 @@ func TestSyncExternalUsers_Basic(t *testing.T) {
 		"u1": {ID: "u1", Name: "用户一", Phone: "13800000001", Email: "u1@x.com"},
 		"u2": {ID: "u2", Name: "用户二", Phone: "13800000002", Email: "u2@x.com"},
 	}
-	// 预置一个同类型的旧用户（将被更新）与一个异类型同名用户（应跳过）
 	old := &User{Type: "wxwork", Username: "u1", Nickname: "旧名", Groups: []string{"g1"}, Status: 1}
 	assert.Nil(Add(old))
 	other := &User{Type: "local", Username: "u2", Nickname: "本地用户", Groups: []string{"g1"}, Status: 1}
 	assert.Nil(Add(other))
-	// 预置一个失联用户（不在 remote 中，应被清理）
 	absent := &User{Type: "wxwork", Username: "gone", Nickname: "失联", Groups: []string{"g1"}, Status: 1}
 	assert.Nil(Add(absent))
 
 	err := syncExternalUsers(g, "wxwork", "企微", remote, true, nil, false)
 	assert.Nil(err)
 
-	// u1 被更新（远端为准）
 	var u1 User
 	assert.Nil(One("username", "u1", &u1))
 	assert.Equal("用户一", u1.Nickname)
 	assert.Equal("13800000001", u1.Phone)
 	assert.False(u1.DisableOtp, "needOTP=true 应启用 OTP（DisableOtp=!needOTP）")
 
-	// u2 类型不匹配 → 跳过，保持本地用户原值
 	var u2 User
 	assert.Nil(One("username", "u2", &u2))
 	assert.Equal("local", u2.Type)
 	assert.Equal("本地用户", u2.Nickname)
 
-	// 失联用户被删除（仅属 g1 一组）
 	var gone User
 	assert.Error(One("username", "gone", &gone), "失联用户应被删除")
 }
 
-// LDAP 语义：本地已填字段不被远端覆盖
 func TestSyncExternalUsers_FillEmptyOnly(t *testing.T) {
 	assert := assert.New(t)
 	setupUserAuthTest(t)
@@ -77,7 +69,6 @@ func TestSyncExternalUsers_FillEmptyOnly(t *testing.T) {
 	g := &Group{Name: "g1"}
 	assert.Nil(Add(g))
 
-	// 本地已有邮箱/手机，远端有不同值
 	local := &User{Type: "ldap", Username: "l1", Nickname: "本地名", Email: "local@x.com", Phone: "13900000000", Groups: []string{"g1"}, Status: 1}
 	assert.Nil(Add(local))
 
@@ -95,7 +86,6 @@ func TestSyncExternalUsers_FillEmptyOnly(t *testing.T) {
 	assert.True(u.DisableOtp, "needOTP=false 应禁用 OTP（DisableOtp=!needOTP）")
 }
 
-// 三方源语义：远端有值即覆盖
 func TestSyncExternalUsers_RemoteWins(t *testing.T) {
 	assert := assert.New(t)
 	setupUserAuthTest(t)
@@ -127,7 +117,7 @@ func TestSyncExternalUsers_RemoteEmptyNoOverwrite(t *testing.T) {
 	local := &User{Type: "wxwork", Username: "w1", Nickname: "旧", Email: "local@x.com", Phone: "13900000000", Groups: []string{"g1"}, Status: 1}
 	assert.Nil(Add(local))
 
-	// 远端仅有 ID/Name（企微/飞书被拒名单用户跳过详情 API 后即此形态）
+	// 远端仅有 ID/Name：模拟被拒名单用户跳过详情 API 的形态
 	remote := map[string]RemoteUser{
 		"w1": {ID: "w1", Name: "新名"},
 	}
@@ -141,7 +131,6 @@ func TestSyncExternalUsers_RemoteEmptyNoOverwrite(t *testing.T) {
 	assert.Equal("新名", u.Nickname, "昵称始终以远端为准")
 }
 
-// 拒绝名单：跳过同步且计入失联清理
 func TestSyncExternalUsers_Blocked(t *testing.T) {
 	assert := assert.New(t)
 	setupUserAuthTest(t)

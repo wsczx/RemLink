@@ -1,28 +1,19 @@
-// 强制改密共享逻辑
-//
-// WebAuth 与门户各自有独立的强制改密 handler（读请求体、校验会话/token 的方式不同），
-// 但「校验密码策略 → 哈希 → 写库（pin_code + 清除 change_pwd）→ 以库为准重载用户信息」
-// 改密码规则只维护一处
-//
-// 设计边界：
-//   - 不负责「续跑管道 / 签发令牌」——各端续跑 API 不同（webAuthRunOrResume / authsrv.Resume），
-//     且门户改密后还要签发门户登录响应，由调用方处理。
-//   - 不校验用户状态 / 外部用户 / 是否已改过——这些是各端会话前置校验，调用方负责。
-//   - 原生管道的强制改密走标准 login 写库流程（forcepwd 步骤仅判定是否需改），不在此函数范围。
+// 强制改密共享逻辑：WebAuth 与门户共用核心操作（校验策略→哈希→写库→重载）
+// 各端自行处理会话前置校验与续跑（两端续跑 API 与签发响应不同）
+// 原生管道的强制改密走标准 login 写库流程，不在此范围
 package handler
 
 import (
-	"github.com/wsczx/remlink/admin"
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/auth/authsrv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/jwt"
 	"github.com/wsczx/remlink/pkg/utils"
 )
 
-// 执行强制改密的核心原子操作：校验密码策略、哈希、写库、重载
-// 返回 error 表示改密失败（策略不合规 / 哈希失败 / 数据库写入失败），调用方据此返回错误响应
-// 成功后将 ctx 内的用户信息以数据库为准重载，供后续续跑管道读取到最新的 ForcePwd=false
+// 执行强制改密核心操作；成功后将 ctx 内用户信息以库为准重载
+// 使续跑管道读到 ForcePwd=false
 func RunForcePwdChange(ctx *auth.Context, username, newPassword string) error {
 	if err := utils.CheckPasswordPolicy(newPassword); err != nil {
 		return err
@@ -36,12 +27,11 @@ func RunForcePwdChange(ctx *auth.Context, username, newPassword string) error {
 		Update(&dbdata.User{PinCode: hashed, ForcePwd: false}); err != nil {
 		return err
 	}
-	// 吊销该用户全部未过期门户 JWT：强制改密意味着原凭据已泄露
-	// 攻击者持旧令牌的会话必须立即失效（改密后续跑签发的新令牌不受影响）
-	if n := admin.RevokeSubjectJwt(username); n > 0 {
+	// 强制改密意味着原凭据已泄露：吊销全部旧 JWT（续跑签发的新令牌不受影响）
+	if n := jwt.RevokeSubjectJwt(username); n > 0 {
 		base.Info("强制改密，已吊销", n, "个有效会话:", username)
 	}
-	// 以数据库为准重载用户信息，使后续续跑管道读到 ForcePwd=false（直接通过 forcepwd 步）
+	// 重载使用户信息读到 ForcePwd=false，续跑管道直接通过该步
 	authsrv.ReloadUserInfo(ctx)
 	return nil
 }

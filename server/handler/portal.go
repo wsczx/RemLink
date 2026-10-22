@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wsczx/remlink/admin"
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/auth/authsrv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/jwt"
 	"github.com/wsczx/remlink/pkg/notify"
 	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/webvpn"
@@ -288,7 +288,7 @@ func PortalChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 吊销该用户全部未过期门户 JWT（含当前会话）
-	if n := admin.RevokeSubjectJwt(user.Username); n > 0 {
+	if n := jwt.RevokeSubjectJwt(user.Username); n > 0 {
 		base.Info("用户改密，已吊销", n, "个有效会话:", user.Username)
 	}
 	portalOK(w, map[string]string{"message": "密码修改成功"})
@@ -585,7 +585,7 @@ func PortalForgotPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jti := fmt.Sprintf("%d_%d", user.Id, time.Now().UnixNano())
-	token, err := admin.SetJwtData(map[string]any{
+	token, err := jwt.SetJwtData(map[string]any{
 		"purpose": "portal_reset_password",
 		"user_id": user.Id,
 		"jti":     jti,
@@ -635,7 +635,7 @@ func PortalResetPasswordVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := admin.GetJwtData(token)
+	data, err := jwt.GetJwtData(token)
 	if err != nil {
 		portalOK(w, map[string]any{"valid": false})
 		return
@@ -694,7 +694,7 @@ func PortalResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := admin.GetJwtData(req.Token)
+	data, err := jwt.GetJwtData(req.Token)
 	if err != nil {
 		portalError(w, "重置链接已过期，请重新申请")
 		return
@@ -742,8 +742,7 @@ func PortalResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 吊销该用户全部未过期门户 JWT
-	if n := admin.RevokeSubjectJwt(user.Username); n > 0 {
+	if n := jwt.RevokeSubjectJwt(user.Username); n > 0 {
 		base.Info("用户重置密码，已吊销", n, "个有效会话:", user.Username)
 	}
 
@@ -989,7 +988,7 @@ func portalIssueLoginResponse(w http.ResponseWriter, r *http.Request, user *dbda
 		// 若 WebVPN 已启用，登录后签发一次性免登授权 webvpn_grant，
 		// 用户在 WebVPN 子域首次访问时凭此兑换正式会话，无需重复登录
 		if base.GetCfg().WebVpnDomain != "" {
-			if jti, jerr := admin.JtiOf(token); jerr == nil {
+			if jti, jerr := jwt.JtiOf(token); jerr == nil {
 				var gerr error
 				webVPNGrant, gerr = webvpn.GetManager().Session().IssueGrant(w, r, user, jti)
 				if gerr != nil {

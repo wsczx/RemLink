@@ -50,8 +50,6 @@ func TestReadJSON(t *testing.T) {
 	})
 }
 
-// B4 回归：readJSON 出错时自身已写好错误响应，调用方不得再写
-// （曾出现"两个 JSON 响应体拼接"，客户端无法解析）
 func TestReadJSONErrorSingleResponse(t *testing.T) {
 	assert := assert.New(t)
 
@@ -61,18 +59,14 @@ func TestReadJSONErrorSingleResponse(t *testing.T) {
 	err := readJSON(w, r, 1<<16, &v)
 	assert.Error(err)
 
-	// 整个响应体必须恰好是一个完整 JSON 对象
 	dec := json.NewDecoder(w.Body)
 	var resp Resp
 	assert.Nil(dec.Decode(&resp))
 	assert.Equal(RespParamErr, resp.Code) // JSON 格式错误归为参数错误
-	// 解码后不得再有多余内容
 	_, err = dec.Token()
 	assert.Error(err, "响应体只允许一个 JSON 对象，不允许拼接第二个")
 }
 
-// B4 回归（端点侧）：真实 handler 走 readJSON 失败路径时
-// 整个响应必须仍是单个 JSON 对象
 func TestReadJSONCallerNoDoubleWrite(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -150,7 +144,6 @@ func TestParsePaging(t *testing.T) {
 	})
 }
 
-// 验证泛型 Detail/Del 辅助（需 DB，走临时 sqlite）
 func TestDetailByIDDelByID(t *testing.T) {
 	assert := assert.New(t)
 	base.Test()
@@ -164,7 +157,6 @@ func TestDetailByIDDelByID(t *testing.T) {
 	dbdata.Start()
 	defer dbdata.Stop()
 
-	// 造一条策略记录
 	p := dbdata.Policy{Name: "helper-test-policy", Status: 1}
 	assert.Nil(dbdata.Add(&p))
 
@@ -198,7 +190,6 @@ func TestDetailByIDDelByID(t *testing.T) {
 		})
 		assert.True(called, "onDeleted 回调应被执行")
 
-		// 验证已删除
 		var check dbdata.Policy
 		assert.Error(dbdata.One("Id", p2.Id, &check))
 	})

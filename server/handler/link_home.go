@@ -8,6 +8,7 @@ import (
 	"github.com/wsczx/remlink/admin"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/jwt"
 )
 
 func LinkHome(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +53,7 @@ func LinkOtpQr(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	idS := r.FormValue("id")
 	jwtToken := r.FormValue("jwt")
-	data, err := admin.GetJwtData(jwtToken)
+	data, err := jwt.GetJwtData(jwtToken)
 	if err != nil || idS != fmt.Sprint(data["id"]) {
 		w.WriteHeader(http.StatusForbidden)
 		return

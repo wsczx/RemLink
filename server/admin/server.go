@@ -20,7 +20,6 @@ import (
 var UiData embed.FS
 
 // 开启服务
-// 管理后台由 goroutine 启动，监听失败（如端口被占）
 func StartAdmin() error {
 	r := mux.NewRouter()
 	r.Use(recoverHttp, authMiddleware, handlers.CompressHandler)

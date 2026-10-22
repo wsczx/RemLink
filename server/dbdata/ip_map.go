@@ -34,7 +34,6 @@ func SetIpMap(v *IpMap) error {
 	if ip := net.ParseIP(v.IpAddr); ip == nil || ip.To4() == nil {
 		return errors.New("IP错误：仅支持 IPv4 地址")
 	}
-	// IpAddr6 可选；非空时必须是合法 IPv6
 	if v.IpAddr6 != "" {
 		if ip6 := net.ParseIP(v.IpAddr6); ip6 == nil || ip6.To4() != nil {
 			return errors.New("IPv6 地址错误")

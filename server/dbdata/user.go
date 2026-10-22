@@ -93,7 +93,6 @@ func SetUser(v *User) error {
 	return err
 }
 
-// 判断两个组名切片是否集合相等
 func sameGroups(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

@@ -1,4 +1,4 @@
-package testfixture
+package dbtest
 
 import (
 	"path"
@@ -9,15 +9,10 @@ import (
 	"github.com/wsczx/remlink/pkg/utils"
 )
 
-// 初始化一个独立的临时 sqlite 测试库并启动数据库，注册 t.Cleanup 在用例
-// 结束时停止。每个用例使用独立 TempDir，互不污染
-// 配置快照恢复、异步日志 worker 排空、吊销阈值复位
-//
-// 注意： 改写全局配置与全局 DB（base cfg / dbdata.xdb / 各包级
-// 单例），禁止在调用方中使用 t.Parallel()；同包内测试应串行执行
+// 为每个用例初始化独立临时 sqlite 库，t.Cleanup 自动收尾
+// 注意：改写全局配置与 DB，禁止调用方使用 t.Parallel()
 func SetupDB(t *testing.T) {
 	t.Helper()
-	// 配置快照：用例内的 UpdateCfg 改动只在本用例生效，避免向后泄漏
 	snapshot := *base.GetCfg()
 	t.Cleanup(func() { base.SetCfgForTest(&snapshot) })
 
@@ -31,7 +26,7 @@ func SetupDB(t *testing.T) {
 	ResetRevocations()
 	dbdata.Start()
 	t.Cleanup(func() {
-		// 先排空异步日志 worker 再关库，避免残留 worker 读已关闭的库
+		// 先排空 worker 再关库，避免残留 worker 读已关闭的库
 		dbdata.UserActLogIns.Pool.Release()
 		dbdata.UserActLogIns.Pool = utils.NewWorkerPool(1, 100)
 		// 用例可能抬高整用户吊销阈值，复位避免影响后续用例

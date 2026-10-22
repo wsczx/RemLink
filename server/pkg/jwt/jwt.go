@@ -1,4 +1,4 @@
-package admin
+package jwt
 
 import (
 	"errors"
@@ -12,36 +12,32 @@ import (
 	"github.com/wsczx/remlink/pkg/utils"
 )
 
-// 已吊销的 JWT jti => 过期时间(unix)，登出/改密时写入，GetJwtData 校验时查询
-// 条目在原 JWT 过期后即无保留意义，吊销时顺带懒清理，避免集合无限增长
+// 已吊销的 JWT jti => 过期时间，GetJwtData 校验时查询，过期条目懒清理
 var (
 	jwtMu      sync.Mutex
 	jwtRevoked = make(map[string]int64)
 )
 
-// 已签发登录 JWT 的主体索引：jti => 主体+过期时间
-// 用于按主体批量吊销（改密/停用/删用户）
+// 已签发登录 JWT 的主体索引：jti => 主体+过期时间，用于按主体批量吊销
 var (
 	jwtIssuedMu sync.Mutex
 	jwtIssued   = make(map[string]jwtIssuedRecord)
 )
 
 type jwtIssuedRecord struct {
-	Subject   string // 吊销主体：admin_user 或 portal_user 的值
+	Subject   string
 	ExpiresAt int64
 }
 
-// 登记数超过该值时触发一次过期清理（摊销 O(1)，避免索引无限增长）
 const jwtIssuedPurgeThreshold = 10000
 
-// JWT 有效期常量（秒），集中管理避免散落字面量
 const (
 	JwtAdminLoginTTLSec     = 3600 * 3      // 管理员登录 JWT：3 小时
 	JwtUserResetTTLSec      = 3600 * 24 * 3 // 用户重置/通知 JWT：3 天
 	JwtRevokeFallbackTTLSec = 3600 * 24     // 吊销时未知过期时间则保留 24 小时
 )
 
-// 吊销指定 jti 的 JWT，expiresAt 为该 JWT 的过期时间（用于清理，0 表示未知则保留 24h）
+// 吊销指定 jti，expiresAt 为该 JWT 过期时间（0 表示未知则保留 24h）
 func RevokeJwt(jti string, expiresAt int64) {
 	if jti == "" {
 		return
@@ -51,7 +47,6 @@ func RevokeJwt(jti string, expiresAt int64) {
 		expiresAt = now + JwtRevokeFallbackTTLSec
 	}
 	jwtMu.Lock()
-	// 剔除已过期条目
 	for k, exp := range jwtRevoked {
 		if exp < now {
 			delete(jwtRevoked, k)
@@ -77,8 +72,8 @@ func RevokeJwtToken(tokenString string) {
 	}
 }
 
-// 登记已签发的登录 JWT（按主体索引），供改密/停用时批量吊销
-// 仅登录令牌需要登记；otp_token、重置令牌等短期挑战令牌不登记
+// 登记已签发的登录 JWT（按主体索引），供改密/停用时批量吊销；
+// 仅登录令牌需要登记，短期挑战令牌不登记
 func RegisterJwt(subject, tokenString string) {
 	if subject == "" || tokenString == "" {
 		return
@@ -102,7 +97,6 @@ func RegisterJwt(subject, tokenString string) {
 	jwtIssuedMu.Lock()
 	jwtIssued[jti] = jwtIssuedRecord{Subject: subject, ExpiresAt: int64(exp)}
 	if len(jwtIssued) > jwtIssuedPurgeThreshold {
-		// 登记量超阈值时清理一次过期条目
 		now := time.Now().Unix()
 		for k, rec := range jwtIssued {
 			if rec.ExpiresAt < now {
@@ -113,9 +107,7 @@ func RegisterJwt(subject, tokenString string) {
 	jwtIssuedMu.Unlock()
 }
 
-// 批量吊销某主体（管理员/门户用户）全部未过期的 JWT
-// 用于改密、停用、重置密码、删除用户等场景。返回吊销数量
-// 注意：会连同当前会话一并吊销（无法区分"当前"与"被窃"令牌）
+// 批量吊销某主体全部未过期 JWT（含当前会话，无法区分"当前"与"被窃"令牌）
 func RevokeSubjectJwt(subject string) int {
 	if subject == "" {
 		return 0
@@ -147,18 +139,15 @@ func RevokeSubjectJwt(subject string) int {
 }
 
 func SetJwtData(data map[string]any, expiresAt int64) (string, error) {
-	// 用于支持单条 JWT 吊销
 	jti := utils.RandomRunes(16)
 	jwtData := jwt.MapClaims{"exp": expiresAt, "jti": jti, "iat": time.Now().Unix()}
 	maps.Copy(jwtData, data)
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwtData)
 
-	// 使用密钥获取完整的编码令牌字符串
-	tokenString, err := token.SignedString([]byte(base.GetCfg().JwtSecret))
-	return tokenString, err
+	return token.SignedString([]byte(base.GetCfg().JwtSecret))
 }
 
-// 从 JWT 字符串解析 jti（用于单条/全量吊销），解析失败返回空串
+// 从 JWT 字符串解析 jti（用于吊销），解析失败返回空串
 func JtiOf(tokenString string) (string, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
 		return []byte(base.GetCfg().JwtSecret), nil
@@ -192,7 +181,7 @@ func UsernameOf(tokenString string) (string, error) {
 
 func GetJwtData(jwtToken string) (map[string]any, error) {
 	token, err := jwt.Parse(jwtToken, func(token *jwt.Token) (any, error) {
-		// 签发侧固定使用 HS256，验证侧强制只接受 HS256
+		// 签发侧固定 HS256，验证侧强制只接受 HS256
 		if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
 			return nil, fmt.Errorf("不支持的签名算法: %v", token.Header["alg"])
 		}
@@ -211,7 +200,6 @@ func GetJwtData(jwtToken string) (map[string]any, error) {
 		return nil, errors.New("data is parse err")
 	}
 
-	// 吊销校验：被吊销的 JWT 即使未过期也拒绝
 	if jti, _ := claims["jti"].(string); jti != "" {
 		jwtMu.Lock()
 		_, revoked := jwtRevoked[jti]

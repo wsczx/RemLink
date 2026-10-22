@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/skip2/go-qrcode"
-	"github.com/wsczx/remlink/admin"
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/jwt"
 	"github.com/wsczx/remlink/sessdata"
 	"github.com/xlzd/gotp"
 )
@@ -25,7 +25,7 @@ func portalCheckLocalPassword(user *dbdata.User, password string) error {
 }
 
 func portalIssueToken(user *dbdata.User) (string, error) {
-	token, err := admin.SetJwtData(map[string]any{
+	token, err := jwt.SetJwtData(map[string]any{
 		"portal_user_id": user.Id,
 		"portal_user":    user.Username,
 		"portal_type":    user.Type,
@@ -35,7 +35,7 @@ func portalIssueToken(user *dbdata.User) (string, error) {
 		return "", err
 	}
 	// 用户改密/停用/删号时可批量吊销其全部未过期 JWT
-	admin.RegisterJwt(user.Username, token)
+	jwt.RegisterJwt(user.Username, token)
 	return token, nil
 }
 
@@ -44,7 +44,7 @@ func portalCurrentUser(r *http.Request) (*dbdata.User, bool) {
 	if err != nil || cookie.Value == "" {
 		return nil, false
 	}
-	data, err := admin.GetJwtData(cookie.Value)
+	data, err := jwt.GetJwtData(cookie.Value)
 	if err != nil {
 		return nil, false
 	}

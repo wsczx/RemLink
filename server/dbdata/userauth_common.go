@@ -18,19 +18,10 @@ type RemoteUser struct {
 	Email string
 }
 
-// 将外部认证源拉取到的用户同步到本地数据库（四源共用骨架）
-// 新增/更新/跳过计数与日志、拒绝名单、失联用户清理
-//
-// 参数差异点：
-//   - userType: 用户类型标识（wxwork/feishu/dingtalk/ldap）
-//   - sourceName: 中文源名（日志用，如"企微"）
-//   - needOTP: 该组是否要求 OTP（决定 DisableOtp）
-//   - isBlocked: 拒绝名单判断（LDAP 无此概念，传 nil）
-//   - fillEmptyOnly: true=仅填充本地空字段（LDAP 语义，保留本地编辑）
-//     false=远端有值即覆盖（三方源语义，远端为准）
-//
-// 注意：拉取为空的检查由各源自行完成（各源判据不同：三方源看归一化 map，
-// LDAP 看过滤前的原始搜索结果），不在本函数内
+// 将外部认证源用户同步到本地库（四源共用）
+// needOTP 决定 DisableOtp；isBlocked 为拒绝名单判断（LDAP 传 nil）
+// fillEmptyOnly=true 仅填本地空字段（LDAP），false 远端有值即覆盖（三方源语义）
+// 拉取为空的检查由各源自行完成（各源判据不同）
 func syncExternalUsers(g *Group, userType, sourceName string,
 	remote map[string]RemoteUser, needOTP bool,
 	isBlocked func(string) bool, fillEmptyOnly bool) error {
@@ -39,7 +30,6 @@ func syncExternalUsers(g *Group, userType, sourceName string,
 	var added, updated, skipped int
 	for _, ru := range remote {
 		syncedUsers[ru.ID] = true
-		// 拒绝名单：不同步到本地，跳过后续新增/更新
 		if isBlocked != nil && isBlocked(ru.ID) {
 			base.Debug(sourceName, "同步跳过拒绝用户:", ru.ID)
 			skipped++
@@ -85,7 +75,6 @@ func syncExternalUsers(g *Group, userType, sourceName string,
 			u.OtpSecret = gotp.RandomSecret(32)
 		}
 		if fillEmptyOnly {
-			// LDAP 语义：本地已填写的字段不覆盖（保留本地编辑）
 			if u.Email == "" {
 				u.Email = ru.Email
 			}
@@ -93,7 +82,6 @@ func syncExternalUsers(g *Group, userType, sourceName string,
 				u.Phone = ru.Phone
 			}
 		} else {
-			// 三方源语义：远端有值即覆盖（远端为准）
 			if ru.Email != "" {
 				u.Email = ru.Email
 			}
@@ -112,7 +100,6 @@ func syncExternalUsers(g *Group, userType, sourceName string,
 	}
 	base.Info(sourceName+"用户同步完成，组:", g.Name, " 新增:", added, " 更新:", updated, " 跳过:", skipped)
 
-	// 清理已不在远端目录中的本地用户
 	return cleanupAbsentExternalUsers(g, userType, sourceName, syncedUsers, isBlocked)
 }
 

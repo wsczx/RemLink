@@ -65,6 +65,9 @@ func preData(tmpDir string) {
 }
 
 func cleardata(tmpDir string) {
+	// 先排空异步日志 worker 再关库，避免残留 worker 写已关闭的库
+	dbdata.UserActLogIns.Pool.Release()
+	dbdata.UserActLogIns.Pool = utils.NewWorkerPool(1, 100)
 	_ = dbdata.Stop()
 	tmpDb := path.Join(tmpDir, "test.db")
 	os.Remove(tmpDb)

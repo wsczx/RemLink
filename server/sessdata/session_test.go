@@ -3,7 +3,6 @@ package sessdata
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/wsczx/remlink/base"
@@ -24,8 +23,6 @@ func TestConnSession(t *testing.T) {
 	tmp := t.TempDir()
 	preData(tmp)
 	defer cleardata(tmp)
-
-	time.Sleep(time.Second * 10)
 
 	sess := NewSession("")
 	sess.Username = "user-test"
@@ -60,7 +57,4 @@ func TestConnSession(t *testing.T) {
 	ast.Equal(cmpName, "")
 
 	cSess.Close()
-
-	// 等待日志执行完成
-	time.Sleep(time.Second * 10)
 }

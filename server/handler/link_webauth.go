@@ -124,16 +124,8 @@ func WebAuthStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state := r.URL.Query().Get("state")
-	if state == "" {
-		webAuthError(w, "缺少认证参数")
-		return
-	}
-
-	// 校验 state 有效
-	pending, err := AuthSessionManager.Get(state)
-	if err != nil {
-		webAuthError(w, "认证会话已过期")
+	pending, state, ok := webAuthPending(w, r)
+	if !ok {
 		return
 	}
 
@@ -186,15 +178,8 @@ func WebAuthStart(w http.ResponseWriter, r *http.Request) {
 
 // 选定组并执行认证管道。首步非 SSO 时返回凭据输入界面
 func WebAuthSelectGroup(w http.ResponseWriter, r *http.Request) {
-	state := r.URL.Query().Get("state")
-	if state == "" {
-		webAuthError(w, "缺少认证参数")
-		return
-	}
-
-	pending, err := AuthSessionManager.Get(state)
-	if err != nil {
-		webAuthError(w, "认证会话已过期")
+	pending, state, ok := webAuthPending(w, r)
+	if !ok {
 		return
 	}
 
@@ -321,14 +306,8 @@ func filterGroupsByUser(rawGroups []string, user *dbdata.User) []string {
 
 // 在选组前先收集用户名，按 User.Groups 过滤后返回可选组列表。仅支持「本地用户认证」
 func WebAuthIdentify(w http.ResponseWriter, r *http.Request) {
-	state := r.URL.Query().Get("state")
-	if state == "" {
-		webAuthError(w, "缺少认证参数")
-		return
-	}
-	pending, err := AuthSessionManager.Get(state)
-	if err != nil {
-		webAuthError(w, "认证会话已过期")
+	pending, state, ok := webAuthPending(w, r)
+	if !ok {
 		return
 	}
 
@@ -381,15 +360,8 @@ func WebAuthIdentify(w http.ResponseWriter, r *http.Request) {
 // 提交认证凭据或验证码，推进管道
 // 根据管道状态自动选择首次执行（Authenticate）或恢复执行（Resume）
 func WebAuthStep(w http.ResponseWriter, r *http.Request) {
-	state := r.URL.Query().Get("state")
-	if state == "" {
-		webAuthError(w, "缺少认证参数")
-		return
-	}
-
-	pending, err := AuthSessionManager.Get(state)
-	if err != nil {
-		webAuthError(w, "认证会话已过期")
+	pending, state, ok := webAuthPending(w, r)
+	if !ok {
 		return
 	}
 	if pending.Ctx == nil {
@@ -705,7 +677,6 @@ func WebAuthSSOCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 获取 SSO 用户
 	cb, cbErr := ssoCallbackFor(ssoType, pending.Ctx.Conn.GroupName)
 	if cbErr != nil {
 		AuthSessionManager.Delete(ssoState)
@@ -765,15 +736,8 @@ func WebAuthSSOCallback(w http.ResponseWriter, r *http.Request) {
 
 // SSO 回调后恢复管道
 func WebAuthContinue(w http.ResponseWriter, r *http.Request) {
-	state := r.URL.Query().Get("state")
-	if state == "" {
-		webAuthError(w, "缺少认证参数")
-		return
-	}
-
-	pending, err := AuthSessionManager.Get(state)
-	if err != nil {
-		webAuthError(w, "认证会话已过期")
+	pending, state, ok := webAuthPending(w, r)
+	if !ok {
 		return
 	}
 	if pending.Ctx == nil {
@@ -852,15 +816,8 @@ func webAuthRecoverCert(pending *AuthSession) (cn, ou string, tlsState *tls.Conn
 
 // 重新发送短信验证码
 func WebAuthSmsResend(w http.ResponseWriter, r *http.Request) {
-	state := r.URL.Query().Get("state")
-	if state == "" {
-		webAuthError(w, "缺少认证参数")
-		return
-	}
-
-	pending, err := AuthSessionManager.Get(state)
-	if err != nil {
-		webAuthError(w, "认证会话已过期")
+	pending, state, ok := webAuthPending(w, r)
+	if !ok {
 		return
 	}
 
@@ -874,8 +831,7 @@ func WebAuthSmsResend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 重新发送验证码
-	_, err = authsrv.SendSmsCode(phone)
-	if err != nil {
+	if _, err := authsrv.SendSmsCode(phone); err != nil {
 		webAuthError(w, err.Error())
 		return
 	}
@@ -904,6 +860,21 @@ func webAuthError(w http.ResponseWriter, msg string) {
 	})
 }
 
+// 读取并校验 WebAuth 认证会话调用方直接 return
+func webAuthPending(w http.ResponseWriter, r *http.Request) (*AuthSession, string, bool) {
+	state := r.URL.Query().Get("state")
+	if state == "" {
+		webAuthError(w, "缺少认证参数")
+		return nil, "", false
+	}
+	pending, err := AuthSessionManager.Get(state)
+	if err != nil {
+		webAuthError(w, "认证会话已过期")
+		return nil, "", false
+	}
+	return pending, state, true
+}
+
 // 返回 SAML XML 中 sso-v2-browser-mode 的值
 // 手机端强制使用内置浏览器（外部浏览器的 localhost:29786 回调在手机上不可用）
 func webAuthBrowserMode(r *http.Request) string {
@@ -920,14 +891,8 @@ func webAuthBrowserMode(r *http.Request) string {
 // 处理 WebAuth 强制改密提交（POST /web-auth/change_password）
 // 校验强度并更新密码、清除 ForcePwd 后续跑管道（forcepwd 步直接通过，继续后续 otp 等步骤）
 func WebAuthChangePassword(w http.ResponseWriter, r *http.Request) {
-	state := r.URL.Query().Get("state")
-	if state == "" {
-		webAuthError(w, "缺少认证参数")
-		return
-	}
-	pending, err := AuthSessionManager.Get(state)
-	if err != nil {
-		webAuthError(w, "认证会话已过期")
+	pending, state, ok := webAuthPending(w, r)
+	if !ok {
 		return
 	}
 	if pending.Ctx == nil {

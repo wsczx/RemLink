@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wsczx/remlink/admin"
-	"github.com/wsczx/remlink/internal/testfixture"
+	_ "github.com/wsczx/remlink/auth/authsrv" // 触发认证器 init 注册
+	"github.com/wsczx/remlink/pkg/dbtest"
+	"github.com/wsczx/remlink/pkg/jwt"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,7 +18,7 @@ import (
 
 func setupWebVpnDB(t *testing.T) {
 	t.Helper()
-	testfixture.SetupDB(t)
+	dbtest.SetupDB(t)
 	// 每个用例使用独立库：重置 manager 缓存，避免读到上一个库的会话
 	GetManager().Session().ResetCache()
 	GetManager().Apps().Invalidate()
@@ -120,11 +121,14 @@ func TestExchangeGrantRevokedFallsBackToPortalSession(t *testing.T) {
 	grant := findCookie(t, grantResp, grantCookieName)
 	require.NotNil(t, grant, "应写出 grant cookie")
 	m.Session().RevokeUser("carol")
-	// 吊销阈值按 Unix 秒记录，确保门户会话的 iat 严格晚于阈值
-	time.Sleep(1100 * time.Millisecond)
+	// 吊销阈值按 Unix 秒记录：等待跨秒，确保门户会话的 iat 严格晚于阈值
+	sec := time.Now().Unix()
+	for time.Now().Unix() == sec {
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	// 吊销后重新签发门户会话；它代表仍有效的门户登录态
-	portalToken, err := admin.SetJwtData(map[string]any{
+	portalToken, err := jwt.SetJwtData(map[string]any{
 		"portal_user": "carol",
 		"portal_type": "local",
 	}, time.Now().Add(time.Hour).Unix())
@@ -164,9 +168,9 @@ func TestExchangeGrantConcurrentConsume(t *testing.T) {
 
 	m := GetManager()
 	require.NoError(t, dbdata.Add(&dbdata.User{Username: "race-user", Status: 1}))
-	portalToken, err := admin.SetJwtData(map[string]any{}, time.Now().Add(time.Hour).Unix())
+	portalToken, err := jwt.SetJwtData(map[string]any{}, time.Now().Add(time.Hour).Unix())
 	require.NoError(t, err)
-	portalJTI, err := admin.JtiOf(portalToken)
+	portalJTI, err := jwt.JtiOf(portalToken)
 	require.NoError(t, err)
 	grantResp := httptest.NewRecorder()
 	_, err = m.Session().IssueGrant(grantResp, httptest.NewRequest(http.MethodGet, "https://portal.example.com/", nil), &dbdata.User{Username: "race-user"}, portalJTI)
@@ -209,9 +213,9 @@ func TestExchangeGrantConsumes(t *testing.T) {
 	require.NoError(t, dbdata.Add(&dbdata.User{Username: "bob", Status: 1}))
 
 	// 签发门户会话，再用其 jti 绑定 grant
-	portalToken, err := admin.SetJwtData(map[string]any{"portal_user": "bob"}, time.Now().Add(time.Hour).Unix())
+	portalToken, err := jwt.SetJwtData(map[string]any{"portal_user": "bob"}, time.Now().Add(time.Hour).Unix())
 	require.NoError(t, err)
-	portalJTI, err := admin.JtiOf(portalToken)
+	portalJTI, err := jwt.JtiOf(portalToken)
 	require.NoError(t, err)
 	w0 := httptest.NewRecorder()
 	r0 := httptest.NewRequest(http.MethodGet, "https://portal.example.com/", nil)

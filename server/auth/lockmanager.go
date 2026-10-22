@@ -200,9 +200,8 @@ func (m *LockManager) Success(username, ipaddr string) {
 	m.clearChallenge(username, ipaddr)
 }
 
-// 阶段成功（首因子通过、进入二次挑战）：仅清除首因子阶段的失败计数
-// 不清除挑战阶段计数。挑战阶段失败走 ChallengeFail 独立计数，防止攻击者
-// 已知口令时通过反复重跑登录流程无限重置 OTP 尝试
+// 阶段成功（首因子通过、进入二次挑战）：仅清首因子计数，不清挑战计数——
+// 防已知密码者反复登录无限重置 OTP 尝试
 func (m *LockManager) StageSuccess(username, ipaddr string) {
 	m.update(username, ipaddr, true)
 }
