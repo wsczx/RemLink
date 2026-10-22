@@ -11,11 +11,7 @@ import (
 
 func SetAuditList(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
-	pageS := r.FormValue("page")
-	page, _ := strconv.Atoi(pageS)
-	if page < 1 {
-		page = 1
-	}
+	page, _ := parsePaging(r)
 	var datas []dbdata.AccessAudit
 	session := dbdata.GetAuditSession(r.Form)
 	count, err := dbdata.FindAndCount(session, &datas, dbdata.PageSize, page)
@@ -130,11 +126,7 @@ func auditAccessProtocolName(protocol, accessProto uint8) string {
 
 func UserActLogList(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
-	pageS := r.FormValue("page")
-	page, _ := strconv.Atoi(pageS)
-	if page < 1 {
-		page = 1
-	}
+	page, _ := parsePaging(r)
 	var datas []dbdata.UserActLog
 	session := dbdata.UserActLogIns.GetSession(r.Form)
 	count, err := dbdata.FindAndCount(session, &datas, dbdata.PageSize, page)
@@ -171,11 +163,7 @@ func UserActLogList(w http.ResponseWriter, r *http.Request) {
 // 管理员操作日志分页查询
 func AdminOpLogList(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
-	pageS := r.FormValue("page")
-	page, _ := strconv.Atoi(pageS)
-	if page < 1 {
-		page = 1
-	}
+	page, _ := parsePaging(r)
 	var datas []dbdata.AdminOpLog
 	session := dbdata.GetAdminOpLogSession(r.Form)
 	count, err := dbdata.FindAndCount(session, &datas, dbdata.PageSize, page)

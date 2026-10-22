@@ -26,6 +26,7 @@ import (
 	"github.com/wsczx/remlink/auth/authsrv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/utils"
 )
 
 // WebAuth 入口引导态（管道运行前）文案集中定义
@@ -596,7 +597,7 @@ func webAuthOnPass(w http.ResponseWriter, r *http.Request,
 			Value:    token,
 			Path:     "/",
 			HttpOnly: true,
-			Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+			Secure:   utils.IsTLS(r),
 			SameSite: http.SameSiteLaxMode,
 		})
 	}

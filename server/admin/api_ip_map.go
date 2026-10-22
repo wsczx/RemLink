@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/wsczx/remlink/dbdata"
@@ -12,11 +11,7 @@ import (
 
 func UserIpMapList(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
-	pageS := r.FormValue("page")
-	page, _ := strconv.Atoi(pageS)
-	if page < 1 {
-		page = 1
-	}
+	page, _ := parsePaging(r)
 
 	var pageSize = dbdata.PageSize
 

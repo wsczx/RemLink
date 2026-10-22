@@ -981,7 +981,7 @@ func portalIssueLoginResponse(w http.ResponseWriter, r *http.Request, user *dbda
 				Path:     "/",
 				Domain:   "",
 				HttpOnly: true,
-				Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+				Secure:   utils.IsTLS(r),
 				SameSite: http.SameSiteLaxMode,
 			})
 		}

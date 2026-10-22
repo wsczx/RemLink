@@ -477,7 +477,7 @@ func Logout(w http.ResponseWriter, r *http.Request) {
 
 // 判断请求是否通过 TLS/HTTPS 传输
 func isTLS(r *http.Request) bool {
-	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	return utils.IsTLS(r)
 }
 
 // 从请求头、表单或 Cookie 中提取 JWT token
