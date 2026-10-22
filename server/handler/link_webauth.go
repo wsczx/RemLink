@@ -575,6 +575,7 @@ func webAuthOnPass(w http.ResponseWriter, r *http.Request,
 	pending.Ctx.SSO.WebAuthUsername = username
 	pending.Ctx.SSO.WebAuthNickname = pending.Ctx.Conn.Nickname
 	pending.Ctx.SSO.WebAuthGroup = groupName
+	pending.Kind = AuthKindWebAuth // 标记门户管道已全部通过
 	AuthSessionManager.Save(state, pending)
 
 	// 签发门户 JWT cookie（浏览器端可直接访问 /ui/#/portal）

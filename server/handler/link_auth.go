@@ -295,14 +295,26 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 		}
 	}
 
+	// SSO token 仅能兑换 SSO 流程产生的会话
+	// 拒绝把 OTP-pending 等认证管道会话的 id 当作 SSO token 重放冒用
+	switch samlSession.Kind {
+	case AuthKindSSODone, AuthKindSSOPending, AuthKindWebAuth:
+		// 合法来源
+	default:
+		base.Error("SSO token 指向非 SSO 会话，已拒绝: kind=", samlSession.Kind)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
 	// 强制改密会话
 	if samlSession.ForcePwd {
 		resumeAuthSession(w, r, samlSession)
 		return
 	}
 
-	// WebAuth完成直接创建会话
-	if samlSession.Ctx != nil && samlSession.Ctx.SSO != nil && samlSession.Ctx.SSO.WebAuthCompleted {
+	// WebAuth完成直接创建会话（要求会话确为 WebAuth 流程完成，防止管道会话冒用）
+	if samlSession.Kind == AuthKindWebAuth && samlSession.Ctx != nil &&
+		samlSession.Ctx.SSO != nil && samlSession.Ctx.SSO.WebAuthCompleted {
 		username := samlSession.Ctx.SSO.WebAuthUsername
 		groupName := samlSession.Ctx.SSO.WebAuthGroup
 		nickname := samlSession.Ctx.SSO.WebAuthNickname
