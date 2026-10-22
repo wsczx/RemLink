@@ -2,19 +2,17 @@ package authsrv
 
 import (
 	"encoding/json"
-	"path"
 	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/wsczx/remlink/auth"
-	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
-	"github.com/wsczx/remlink/pkg/utils"
+	"github.com/wsczx/remlink/pkg/dbtest"
 )
 
 func preTestData(t *testing.T) {
-	base.Test()
+	dbtest.SetupDB(t)
 
 	// 注册所需认证器（防止 Pipeline 构建时找不到）
 	for _, name := range []string{"local", "ldap", "radius", "otp", "cert", "saml", "wxwork", "feishu"} {
@@ -26,32 +24,10 @@ func preTestData(t *testing.T) {
 		}
 	}
 
-	tmpDb := path.Join(t.TempDir(), "remlink_methods_test.db")
-	base.UpdateCfg(func(c *base.ServerConfig) {
-		c.DbType = "sqlite3"
-		c.DbSource = tmpDb
-		c.Ipv4CIDR = "192.168.3.0/24"
-		c.Ipv4Gateway = "192.168.3.1"
-		c.Ipv4Start = "192.168.3.100"
-		c.Ipv4End = "192.168.3.150"
-		c.MaxClient = 100
-		c.MaxUserClient = 3
-		c.IpLease = 5
-	})
-
-	dbdata.Start()
-
-	ensureDefaultGroup()
-
-	// 注册清理：停止 DB 连接，释放 worker pool
-	t.Cleanup(func() {
-		_ = dbdata.Stop()
-		dbdata.UserActLogIns.Pool.Release()
-		dbdata.UserActLogIns.Pool = utils.NewWorkerPool(1, 100)
-	})
+	defaultGroup()
 }
 
-func ensureDefaultGroup() {
+func defaultGroup() {
 	groups := dbdata.GetGroupNames()
 	if slices.Contains(groups, "default") {
 		return
