@@ -33,7 +33,7 @@ func SetUser(v *User) error {
 	}
 	v.PinCode = planPass
 
-	if v.OtpSecret == "" {
+	if v.Id == 0 && v.OtpSecret == "" {
 		v.OtpSecret = gotp.RandomSecret(32)
 	}
 
@@ -74,6 +74,16 @@ func SetUser(v *User) error {
 	isUpdate := v.Id > 0 && One("Id", v.Id, &old) == nil
 	pwdChanged := !isUpdate || v.PinCode != old.PinCode
 	groupsChanged := isUpdate && !sameGroups(v.Groups, old.Groups)
+
+	// Set 用 AllCols 更新整行，编辑时必须回填表单不传的字段，否则计数字段被清零、OTP 被重生成
+	if isUpdate {
+		v.TrafficUsed = old.TrafficUsed
+		v.TrafficResetAt = old.TrafficResetAt
+		v.CreatedAt = old.CreatedAt
+		if v.OtpSecret == "" {
+			v.OtpSecret = old.OtpSecret
+		}
+	}
 
 	v.UpdatedAt = time.Now()
 	if v.Id > 0 {
