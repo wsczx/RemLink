@@ -57,7 +57,7 @@ func (c *LDAPConfig) ValidateConfig() error {
 		return fmt.Errorf("管理员密码不能为空")
 	}
 	if c.BaseDn == "" || !validateDN(c.BaseDn) {
-		return fmt.Errorf("Base DN 格式有误")
+		return fmt.Errorf("base DN 格式有误")
 	}
 	if c.ObjectClass == "" {
 		return fmt.Errorf("用户对象类不能为空")

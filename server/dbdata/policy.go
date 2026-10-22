@@ -120,7 +120,7 @@ func SetPolicy(p *Policy) error {
 			}
 			ipMask, ipNet, err := parseIpNet(v.Val)
 			if err != nil {
-				return errors.New("RouteInclude 错误" + err.Error())
+				return fmt.Errorf("RouteInclude 错误%w", err)
 			}
 			if strings.Split(ipMask, "/")[0] != ipNet.IP.String() {
 				return errors.New("RouteInclude 错误: " + fmt.Sprintf("网络地址错误，建议： %s 改为 %s", v.Val, ipNet))
@@ -137,7 +137,7 @@ func SetPolicy(p *Policy) error {
 		if v.Val != "" {
 			ipMask, ipNet, err := parseIpNet(v.Val)
 			if err != nil {
-				return errors.New("RouteExclude 错误" + err.Error())
+				return fmt.Errorf("RouteExclude 错误%w", err)
 			}
 			if strings.Split(ipMask, "/")[0] != ipNet.IP.String() {
 				return errors.New("RouteExclude 错误: " + fmt.Sprintf("网络地址错误，建议： %s 改为 %s", v.Val, ipNet))
@@ -154,7 +154,7 @@ func SetPolicy(p *Policy) error {
 		if v.Val != "" {
 			_, ipNet, err := parseIpNet(v.Val)
 			if err != nil {
-				return errors.New("GroupLinkAcl 错误" + err.Error())
+				return fmt.Errorf("GroupLinkAcl 错误%w", err)
 			}
 			v.IpNet = ipNet
 
@@ -181,18 +181,18 @@ func SetPolicy(p *Policy) error {
 						rp := strings.Split(pt, "-")
 						portfrom, err := strconv.ParseUint(rp[0], 10, 16)
 						if err != nil {
-							return errors.New("端口:" + rp[0] + " 格式错误, " + err.Error())
+							return fmt.Errorf("端口:%s 格式错误, %w", rp[0], err)
 						}
 						portto, err := strconv.ParseUint(rp[1], 10, 16)
 						if err != nil {
-							return errors.New("端口:" + rp[1] + " 格式错误, " + err.Error())
+							return fmt.Errorf("端口:%s 格式错误, %w", rp[1], err)
 						}
 						if portfrom > portto {
 							return errors.New("端口范围错误: 起始端口 " + rp[0] + " 不能大于结束端口 " + rp[1])
 						}
 					} else {
 						if _, err := strconv.ParseUint(pt, 10, 16); err != nil {
-							return errors.New("端口:" + pt + " 格式错误, " + err.Error())
+							return fmt.Errorf("端口:%s 格式错误, %w", pt, err)
 						}
 					}
 				}
@@ -230,11 +230,11 @@ func SetPolicy(p *Policy) error {
 	}
 	err = CheckDomainNames(p.DsIncludeDomains)
 	if err != nil {
-		return errors.New("包含域名有误：" + err.Error())
+		return fmt.Errorf("包含域名有误：%w", err)
 	}
 	err = CheckDomainNames(p.DsExcludeDomains)
 	if err != nil {
-		return errors.New("排除域名有误：" + err.Error())
+		return fmt.Errorf("排除域名有误：%w", err)
 	}
 	if isDefRoute && p.DsIncludeDomains != "" {
 		return errors.New("默认路由, 不允许设置\"包含域名\", 请重新配置")
@@ -268,11 +268,11 @@ func SetPolicy(p *Policy) error {
 		}
 		err = CheckFakeDNSDomains(p.FakeDNSInclude)
 		if err != nil {
-			return errors.New("FakeDNS 包含域名有误：" + err.Error())
+			return fmt.Errorf("FakeDNS 包含域名有误：%w", err)
 		}
 		err = CheckFakeDNSDomains(p.FakeDNSExclude)
 		if err != nil {
-			return errors.New("FakeDNS 排除域名有误：" + err.Error())
+			return fmt.Errorf("FakeDNS 排除域名有误：%w", err)
 		}
 	} else {
 		// 禁用时清空
@@ -325,9 +325,11 @@ func clearTrafficResetAt(policyId int) {
 	}
 
 	for username := range usernames {
-		_, _ = xdb.Where("username=?", username).
+		if _, err := xdb.Where("username=?", username).
 			Cols("traffic_reset_at").
-			Update(&User{})
+			Update(&User{}); err != nil {
+			base.Error("清除流量重置标记失败:", username, err)
+		}
 	}
 }
 
@@ -449,18 +451,22 @@ func QuotaExceeded(username string, p *Policy) (bool, int64) {
 		next := nextTrafficReset(p.TrafficReset, now)
 		if !next.IsZero() {
 			// 乐观锁：仅当 traffic_reset_at 仍为 nil 时更新
-			_, _ = xdb.Where("username=? AND traffic_reset_at IS NULL", username).
+			if _, err := xdb.Where("username=? AND traffic_reset_at IS NULL", username).
 				Cols("traffic_reset_at").
-				Update(&User{TrafficResetAt: &next})
+				Update(&User{TrafficResetAt: &next}); err != nil {
+				base.Error("初始化流量重置时间失败:", username, err)
+			}
 		}
 	} else if now.After(*u.TrafficResetAt) {
 		// 周期到达：重置计数并设置下一次重置时间
 		next := nextTrafficReset(p.TrafficReset, now)
 		if !next.IsZero() {
 			// 乐观锁：仅当 traffic_reset_at 仍为旧值时更新，避免与 AddTrafficUsed 产生 lost update
-			_, _ = xdb.Where("username=? AND traffic_reset_at=?", username, u.TrafficResetAt.Format("2006-01-02 15:04:05")).
+			if _, err := xdb.Where("username=? AND traffic_reset_at=?", username, u.TrafficResetAt.Format("2006-01-02 15:04:05")).
 				Cols("traffic_used", "traffic_reset_at").
-				Update(&User{TrafficUsed: 0, TrafficResetAt: &next})
+				Update(&User{TrafficUsed: 0, TrafficResetAt: &next}); err != nil {
+				base.Error("重置流量计数失败:", username, err)
+			}
 		}
 		return false, 0
 	}
