@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wsczx/remlink/admin"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/jwt"
 )
 
 type AuthSessionManager struct {
@@ -75,7 +75,7 @@ func (m *AuthSessionManager) Issue(w http.ResponseWriter, r *http.Request, user 
 		issuedAt = now.Unix()
 	}
 	expiresAt := now.Add(m.sessionTTL()).Unix()
-	token, err := admin.SetJwtData(map[string]any{
+	token, err := jwt.SetJwtData(map[string]any{
 		"webvpn_user":   user.Username,
 		"webvpn_type":   user.Type,
 		"webvpn_groups": user.Groups,
@@ -91,7 +91,7 @@ func (m *AuthSessionManager) Issue(w http.ResponseWriter, r *http.Request, user 
 // 签发绑定门户会话的 WebVPN 免登授权
 func (m *AuthSessionManager) IssueGrant(w http.ResponseWriter, r *http.Request, user *dbdata.User, portalJTI string) (string, error) {
 	expiresAt := time.Now().Add(grantTTLSec * time.Second).Unix()
-	token, err := admin.SetJwtData(map[string]any{
+	token, err := jwt.SetJwtData(map[string]any{
 		"webvpn_grant_user": user.Username,
 		"webvpn_grant_type": user.Type,
 		"webvpn_grant_jti":  portalJTI, // 绑定门户会话，门户登出后该 grant 也应随之失效
@@ -117,7 +117,7 @@ func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Reques
 		m.grantMu.Lock()
 		defer m.grantMu.Unlock()
 
-		data, err := admin.GetJwtData(grantValue)
+		data, err := jwt.GetJwtData(grantValue)
 		if err != nil {
 			// JWT 解析失败、过期或已吊销均是确定失效，避免每次请求重复兑换
 			m.ClearGrantCookie(w, r)
@@ -151,7 +151,7 @@ func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Reques
 					token, err := m.Issue(w, r, user, 0)
 					if err == nil {
 						// JWT 本身不可变；兑换成功后吊销其 jti，防止复制的 grant 重放
-						admin.RevokeJwtToken(grantValue)
+						jwt.RevokeJwtToken(grantValue)
 						m.ClearGrantCookie(w, r)
 						return token, user, true
 					}
@@ -183,7 +183,7 @@ func (m *AuthSessionManager) portalSessionData(r *http.Request) (map[string]any,
 	if err != nil || c.Value == "" {
 		return nil, false
 	}
-	data, err := admin.GetJwtData(c.Value)
+	data, err := jwt.GetJwtData(c.Value)
 	if err != nil {
 		return nil, false
 	}
@@ -230,7 +230,7 @@ func (m *AuthSessionManager) CurrentUser(r *http.Request) (*dbdata.User, bool) {
 
 // 解析并校验 WebVPN 会话 token，返回当前用户（供测试与内部复用）
 func (m *AuthSessionManager) UserFromToken(token string) (*dbdata.User, bool) {
-	data, err := admin.GetJwtData(token)
+	data, err := jwt.GetJwtData(token)
 	if err != nil {
 		return nil, false
 	}
@@ -284,7 +284,7 @@ func (m *AuthSessionManager) Renew(w http.ResponseWriter, r *http.Request) (bool
 	if err != nil || c.Value == "" {
 		return false, nil
 	}
-	data, err := admin.GetJwtData(c.Value)
+	data, err := jwt.GetJwtData(c.Value)
 	if err != nil {
 		return false, nil
 	}
@@ -313,9 +313,9 @@ func (m *AuthSessionManager) RevokeCurrent(r *http.Request) {
 	if err != nil || c.Value == "" {
 		return
 	}
-	if jti, jerr := admin.JtiOf(c.Value); jerr == nil {
-		if data, e := admin.GetJwtData(c.Value); e == nil {
-			admin.RevokeJwt(jti, jwtInt64(data, "exp"))
+	if jti, jerr := jwt.JtiOf(c.Value); jerr == nil {
+		if data, err := jwt.GetJwtData(c.Value); err == nil {
+			jwt.RevokeJwt(jti, jwtInt64(data, "exp"))
 		}
 	}
 }

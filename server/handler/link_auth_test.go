@@ -12,12 +12,12 @@ import (
 
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/dbtest"
 )
 
 func TestLinkAuth_AuthCert(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	body := `<?xml version="1.0" encoding="UTF-8"?><config-auth client="vpn" type="auth-reply"><auth><username>test</username><password>test</password></auth><group-select>default</group-select></config-auth>`
 

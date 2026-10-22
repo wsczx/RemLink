@@ -9,12 +9,7 @@ import (
 	"github.com/wsczx/remlink/dbdata"
 )
 
-// 读取并解析 JSON 请求体（带大小上限）
-// 调用方判错后直接 return，不再写响应
-//
-//	if err := readJSON(w, r, 1<<16, v); err != nil {
-//	    return
-//	}
+// 读取并解析 JSON 请求体（带大小上限）；出错时已自行写错误响应，调用方直接 return
 func readJSON(w http.ResponseWriter, r *http.Request, maxLen int64, v any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, maxLen)
 	defer r.Body.Close()
@@ -31,11 +26,6 @@ func readJSON(w http.ResponseWriter, r *http.Request, maxLen int64, v any) error
 }
 
 // 解析表单 id 参数。非法时已写好错误响应，返回 (0, false)
-//
-//	id, ok := parseID(w, r, "Id错误")
-//	if !ok {
-//	    return
-//	}
 func parseID(w http.ResponseWriter, r *http.Request, errMsg string) (int, bool) {
 	_ = r.ParseForm()
 	id, _ := strconv.Atoi(r.FormValue("id"))
@@ -59,7 +49,6 @@ func parsePaging(r *http.Request) (page, pageSize int) {
 	return page, pageSize
 }
 
-// 按 id 查询单条记录并响应
 func detailByID[T any](w http.ResponseWriter, r *http.Request, errMsg string) {
 	id, ok := parseID(w, r, errMsg)
 	if !ok {
@@ -73,8 +62,7 @@ func detailByID[T any](w http.ResponseWriter, r *http.Request, errMsg string) {
 	RespSuccess(w, data)
 }
 
-// 按 id 删除记录：先查出完整记录（供 onDeleted 审计使用）
-// 删除成功后执行 onDeleted 回调（可空，用于吊销/清理/审计等收尾动作）
+// 按 id 删除记录：先查出完整记录供 onDeleted 回调（可空）使用
 func delByID[T any](w http.ResponseWriter, r *http.Request, errMsg string, onDeleted func(*T)) {
 	id, ok := parseID(w, r, errMsg)
 	if !ok {

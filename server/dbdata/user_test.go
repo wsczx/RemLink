@@ -11,13 +11,9 @@ func TestRemoveGroupFromUsers(t *testing.T) {
 	preIpData(t)
 	defer closeIpdata()
 
-	// u0：目标组在列表首位
 	u0 := User{Type: "local", Username: "rgf-u0", Groups: []string{"todelete", "keep0"}, Status: 1}
-	// u1：目标组在列表次位
 	u1 := User{Type: "local", Username: "rgf-u1", Groups: []string{"keep1", "todelete"}, Status: 1}
-	// u2：目标组在列表次位但用户下标为 2
 	u2 := User{Type: "local", Username: "rgf-u2", Groups: []string{"keep2", "todelete"}, Status: 1}
-	// u3：不含目标组，应完全不动
 	u3 := User{Type: "local", Username: "rgf-u3", Groups: []string{"other"}, Status: 1}
 	for _, u := range []*User{&u0, &u1, &u2, &u3} {
 		ast.Nil(Add(u))
@@ -36,8 +32,7 @@ func TestRemoveGroupFromUsers(t *testing.T) {
 	check("rgf-u3", []string{"other"})
 }
 
-// 目标组是用户唯一组时，清理后 Groups 为空（delByID 回调依赖此路径
-// 触发 Delete(&localUser)，而非留下空组名残留）
+// 唯一组被移除后 Groups 为空，delByID 回调据此删除用户而非留空组名残留
 func TestRemoveGroupFromUsers_LastGroup(t *testing.T) {
 	ast := assert.New(t)
 	preIpData(t)

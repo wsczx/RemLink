@@ -17,6 +17,7 @@ import (
 	"github.com/skip2/go-qrcode"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/jwt"
 	"github.com/wsczx/remlink/pkg/notify"
 	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/sessdata"
@@ -154,10 +155,7 @@ func UserSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 密码处理：
-	//   - 新建且未填密码：随机生成（并按需邮件下发）
-	//   - 修改且未填密码：保持原密码不变
-	//   - 填了密码：校验复杂度，视为密码变更
+	// 密码：新建未填→随机生成；修改未填→保持原密码；显式填写→校验复杂度并视为变更
 	pwdChanged := false
 	if data.PinCode == "" {
 		var exist dbdata.User
@@ -198,7 +196,7 @@ func UserSet(w http.ResponseWriter, r *http.Request) {
 	}
 	// 密码变更或停用时吊销门户 JWT
 	if pwdChanged || data.Status != 1 {
-		if n := RevokeSubjectJwt(data.Username); n > 0 {
+		if n := jwt.RevokeSubjectJwt(data.Username); n > 0 {
 			base.Info("用户口令/状态变更，已吊销", n, "个门户会话:", data.Username)
 		}
 	}
@@ -207,15 +205,13 @@ func UserSet(w http.ResponseWriter, r *http.Request) {
 
 func UserDel(w http.ResponseWriter, r *http.Request) {
 	delByID(w, r, "用户id错误", func(user *dbdata.User) {
-		// 删除用户后，令其已签发的 WebVPN 会话立即失效，避免旧会话在有效期内仍可访问
+		// 断开在线会话、吊销门户 JWT、清除 WebVPN 会话
 		if err := dbdata.WebVpnRevokeUser(user.Username); err != nil {
 			base.Error("用户删除成功但 WebVPN 会话吊销持久化失败:", user.Username, err)
 		}
-		// 吊销该用户全部未过期门户 JWT
-		if n := RevokeSubjectJwt(user.Username); n > 0 {
+		if n := jwt.RevokeSubjectJwt(user.Username); n > 0 {
 			base.Info("用户已删除，已吊销", n, "个门户会话:", user.Username)
 		}
-		// 断开该用户在线的 VPN 会话
 		sessdata.CloseUserSessions(user.Username, dbdata.UserLogoutAdmin)
 		dbdata.AdminLog("用户管理", user.Username, "删除了用户", r.RemoteAddr)
 	})
@@ -489,9 +485,9 @@ func userAccountMail(user *dbdata.User) error {
 	htmlBody = fmt.Sprintf(htmlBody, dataOther.AccountMail)
 
 	// token有效期3天
-	expiresAt := time.Now().Unix() + JwtUserResetTTLSec
+	expiresAt := time.Now().Unix() + jwt.JwtUserResetTTLSec
 	jwtData := map[string]any{"id": user.Id}
-	tokenString, err := SetJwtData(jwtData, expiresAt)
+	tokenString, err := jwt.SetJwtData(jwtData, expiresAt)
 	if err != nil {
 		return err
 	}

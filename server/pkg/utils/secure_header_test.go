@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-// 验证安全头加固（渗透测试报告项）
 // 无 Server 指纹头、CSP 不含 unsafe-eval、包含 Permissions-Policy
 func TestSetSecureHeader(t *testing.T) {
 	w := httptest.NewRecorder()

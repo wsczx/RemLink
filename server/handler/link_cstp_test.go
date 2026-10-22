@@ -31,15 +31,12 @@ func TestValidCstpDataLen(t *testing.T) {
 	}
 }
 
-// 验证复用缓冲区被清零：
-// 防止跨会话残留数据被越界长度字段读出（H-1 防御）
+// 复用缓冲区必须清零，防跨会话残留数据泄出（H-1）
 func TestPutPayloadZeroesBuffer(t *testing.T) {
 	pl := getPayload()
-	// 填充毒丸数据，模拟上一个会话的明文流量
 	for i := range pl.Data {
 		pl.Data[i] = 0xAA
 	}
-	// 模拟使用后 reslice 到较小长度再归还
 	pl.Data = pl.Data[:100]
 	putPayload(pl)
 

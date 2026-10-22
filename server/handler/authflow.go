@@ -105,9 +105,9 @@ func (f *Flow) dispatch(w http.ResponseWriter, r *http.Request, result *auth.Pip
 	}
 }
 
-// 挑战阶段锁定计数决策：返回 true 表示按阶段成功清首因子计数，false 表示按挑战失败累加
-// 规则：① 挑战码错误（原地踏步，IsChallengeRetry）计挑战失败；② 非挑战重试但无活动挑战（异常态）也计挑战失败；③ 其余（正常进入挑战）仅清首因子计数
-// 挑战失败走 ChallengeFail 独立计数：首因子成功不清除，防止已知口令者反复重跑认证流程重置 OTP 尝试
+// 挑战阶段锁定计数决策：true=阶段成功（仅清首因子计数）
+// false=挑战失败（独立计数）。挑战码错误或无活动挑战计失败；正常进入挑战仅清首因子——
+// 防已知口令者反复重跑认证重置 OTP 尝试
 func (f *Flow) pendingLockDecision(result *auth.PipelineResult) bool {
 	if result.IsChallengeRetry() {
 		return false

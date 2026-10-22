@@ -45,7 +45,6 @@ var ssoCallbacks = map[string]func(groupName string) (ssoCallback, error){
 	},
 }
 
-// 按 SSO 类型取回调适配器
 func ssoCallbackFor(ssoType, groupName string) (ssoCallback, error) {
 	resolve, ok := ssoCallbacks[ssoType]
 	if !ok {
@@ -68,9 +67,8 @@ func ssoAuthorize(cb ssoCallback, userID string) error {
 	return nil
 }
 
-// 处理 SSO 回调的公共流程
-// 参数校验 → state 校验（防重放/IP 绑定）→ 换取用户 → 部门过滤 →
-// 拒绝名单 → 完成登录
+// 处理 SSO 回调公共流程：参数校验 → state 校验（防重放/IP 绑定）→
+// 换取用户 → 访问控制 → 完成登录
 func ssoCallbackHandler(w http.ResponseWriter, r *http.Request, ssoType, name string) {
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
@@ -109,8 +107,6 @@ func ssoCallbackHandler(w http.ResponseWriter, r *http.Request, ssoType, name st
 
 	finishSAMLOAuth(w, r, state, ssoType, userID, pending)
 }
-
-// ---- 各源适配器 ----
 
 type wxworkSSOCallback struct {
 	cfg *dbdata.AuthWXwork

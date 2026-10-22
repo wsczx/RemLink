@@ -17,6 +17,7 @@ import (
 	"github.com/wsczx/remlink/auth/authsrv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/jwt"
 	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/xlzd/gotp"
 )
@@ -36,7 +37,7 @@ func Login(w http.ResponseWriter, r *http.Request) {
 
 	// 防暴力破解：检查是否已被锁定
 	if !lm.Check(adminUser, r.RemoteAddr) {
-		RespError(w, 1, "登录过于频繁，请稍后再试")
+		RespError(w, RespInternalErr, "登录过于频繁，请稍后再试")
 		base.Error(adminUser, "管理员登录被锁定:", r.RemoteAddr)
 		dbdata.UserActLogIns.Add(dbdata.UserActLog{Username: adminUser, RemoteAddr: r.RemoteAddr, Status: dbdata.UserAuthFail, Info: "账号已被锁定，请稍后重试", Client: dbdata.UserAdminClient, IsLockedFail: true}, r.UserAgent())
 		return
@@ -55,9 +56,9 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	if base.GetCfg().AdminOtp != "" {
 		// 密码验证成功，仅清除密码阶段的失败计数；OTP 阶段使用独立计数
 		lm.StageSuccess(adminUser, r.RemoteAddr)
-		otpToken, err := SetJwtData(map[string]any{"otp_user": adminUser}, time.Now().Unix()+300)
+		otpToken, err := jwt.SetJwtData(map[string]any{"otp_user": adminUser}, time.Now().Unix()+300)
 		if err != nil {
-			RespError(w, 1, err)
+			RespError(w, RespInternalErr, err)
 			return
 		}
 		RespSuccess(w, map[string]any{
@@ -90,7 +91,7 @@ func LoginOTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 验证 otp_token
-	data, err := GetJwtData(req.OtpToken)
+	data, err := jwt.GetJwtData(req.OtpToken)
 	if err != nil {
 		RespError(w, RespTokenErr)
 		base.Error("otp_token 验证失败:", err)
@@ -176,7 +177,7 @@ func ChangeAdminPassword(w http.ResponseWriter, r *http.Request) {
 	base.Info("管理员密码已修改")
 
 	// 吊销该管理员全部未过期 JWT（含当前会话），攻击者持旧令牌的会话立即失效
-	if n := RevokeSubjectJwt(base.GetCfg().AdminUser); n > 0 {
+	if n := jwt.RevokeSubjectJwt(base.GetCfg().AdminUser); n > 0 {
 		base.Info("管理员改密，已吊销", n, "个有效会话")
 	}
 
@@ -414,11 +415,11 @@ func generateAdminOTPQrBase64(issuer, adminUser, secret string) (string, error) 
 
 // 签发管理员登录 JWT token
 func issueLoginJWT(w http.ResponseWriter, r *http.Request, adminUser string) {
-	expiresAt := time.Now().Unix() + JwtAdminLoginTTLSec
+	expiresAt := time.Now().Unix() + jwt.JwtAdminLoginTTLSec
 	jwtData := map[string]any{"admin_user": adminUser}
-	tokenString, err := SetJwtData(jwtData, expiresAt)
+	tokenString, err := jwt.SetJwtData(jwtData, expiresAt)
 	if err != nil {
-		RespError(w, 1, err)
+		RespError(w, RespInternalErr, err)
 		return
 	}
 
@@ -428,8 +429,7 @@ func issueLoginJWT(w http.ResponseWriter, r *http.Request, adminUser string) {
 	data["expires_at"] = expiresAt
 	data["admin_temp"] = base.GetCfg().AdminTemp
 
-	// 登记主体索引：管理员改密时可批量吊销其全部未过期 JWT
-	RegisterJwt(adminUser, tokenString)
+	jwt.RegisterJwt(adminUser, tokenString)
 
 	ck := &http.Cookie{
 		Name:     "jwt",
@@ -447,7 +447,7 @@ func issueLoginJWT(w http.ResponseWriter, r *http.Request, adminUser string) {
 // 验证当前登录态，返回管理员用户名
 func AuthCheck(w http.ResponseWriter, r *http.Request) {
 	jwtToken := getJwt(r)
-	data, err := GetJwtData(jwtToken)
+	data, err := jwt.GetJwtData(jwtToken)
 	if err != nil || base.GetCfg().AdminUser != fmt.Sprint(data["admin_user"]) {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
@@ -461,7 +461,7 @@ func AuthCheck(w http.ResponseWriter, r *http.Request) {
 func Logout(w http.ResponseWriter, r *http.Request) {
 	// 吊销当前 JWT，避免登出后令牌仍可用于管理后台
 	if cc, err := r.Cookie("jwt"); err == nil && cc.Value != "" {
-		RevokeJwtToken(cc.Value)
+		jwt.RevokeJwtToken(cc.Value)
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     "jwt",
@@ -512,7 +512,7 @@ func authMiddleware(next http.Handler) http.Handler {
 
 		// 进行登陆鉴权
 		jwtToken := getJwt(r)
-		data, err := GetJwtData(jwtToken)
+		data, err := jwt.GetJwtData(jwtToken)
 		if err != nil || base.GetCfg().AdminUser != fmt.Sprint(data["admin_user"]) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return

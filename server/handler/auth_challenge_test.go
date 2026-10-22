@@ -8,6 +8,7 @@ import (
 	"github.com/wsczx/remlink/auth/authsrv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/dbtest"
 	"github.com/wsczx/remlink/pkg/utils"
 )
 
@@ -18,14 +19,13 @@ func newChallengeCtx(username string) *auth.Context {
 // 启动测试数据库（复用 preIpData，避免 ToXML 调 GetGroupNamesNormal 时空引擎）
 func setupChallengeTestDB(t *testing.T) {
 	t.Helper()
-	preIpData(t)
+	dbtest.SetupDB(t)
 }
 
 // 三端挑战字段对齐：同一份 ChallengeView 经 ToXML / ToWebAuthJSON / ToPortalJSON
 // 序列化后，类型语义 / 提示文案 / 脱敏手机号应保持一致，防止某一端悄悄丢字段
 func TestChallengeView_ThreeWayAlignment(t *testing.T) {
 	setupChallengeTestDB(t)
-	defer closeIpdata()
 
 	view := &ChallengeView{
 		Type:        auth.ChallengeSMS,
@@ -73,8 +73,7 @@ func TestMaskPhone(t *testing.T) {
 // RunForcePwdChange：校验策略 + 哈希 + 写库清除 ForcePwd + 重载
 func TestRunForcePwdChange(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	username := "forcepwd-unit"
 	_ = dbdata.Del(&dbdata.User{Username: username})

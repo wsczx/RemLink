@@ -178,7 +178,7 @@ func (i *IPT) setupGlobalNAT(h *iptables.IPTables, vpnCIDR, masterDev string, in
 		return err
 	}
 
-	// FORWARD 规则：有状态放行（回包 established/related + 来自 VPN 网段的出站）
+	// FORWARD 有状态放行，避免无条件 ACCEPT 把客户端暴露给外部入站
 	// 避免无条件 `-j ACCEPT` 把客户端暴露给外部入站
 	forwardRules := [][]string{
 		{"-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"},

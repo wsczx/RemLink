@@ -283,9 +283,7 @@ func TestCheckUserIPLock(t *testing.T) {
 	})
 }
 
-// 验证挑战阶段（OTP 等二次验证）独立计数
-// 首因子成功（StageSuccess）不清除挑战计数，防止已知口令的攻击者
-// 通过反复重跑登录流程无限重置 OTP 尝试（M-1）
+// 挑战阶段独立计数：StageSuccess 不清挑战计数，防已知口令者重置 OTP 尝试（M-1）
 func TestChallengeLockIndependent(t *testing.T) {
 	resetLockManager()
 	base.Test()
@@ -295,29 +293,23 @@ func TestChallengeLockIndependent(t *testing.T) {
 	username := "otpuser"
 	ipaddr := "192.168.1.20:12345"
 
-	// 首因子成功进入挑战：不清挑战计数（此时无计数）
 	lm.StageSuccess(username, ipaddr)
 	assert.True(t, lm.Check(username, ipaddr), "进入挑战时不应锁定")
 
-	// 挑战失败 4 次（未达阈值 5）
 	for range 4 {
 		lm.ChallengeFail(username, ipaddr)
 	}
 	assert.True(t, lm.Check(username, ipaddr), "未达阈值不应锁定")
 
-	// 攻击者反复重跑登录流程：StageSuccess 不清除挑战计数
 	lm.StageSuccess(username, ipaddr)
 	lm.StageSuccess(username, ipaddr)
 
-	// 第 5 次挑战失败 → 锁定
 	lm.ChallengeFail(username, ipaddr)
 	assert.False(t, lm.Check(username, ipaddr), "挑战失败达阈值应锁定")
 
-	// 锁定期间继续 StageSuccess 也无法解锁（闭合攻击循环）
 	lm.StageSuccess(username, ipaddr)
 	assert.False(t, lm.Check(username, ipaddr), "锁定期间 StageSuccess 不应解锁")
 
-	// LockInfo 应展示挑战阶段锁定
 	found := false
 	for _, info := range lm.LockInfo() {
 		if info.Description == "挑战阶段锁定" && info.Username == username {
@@ -326,12 +318,10 @@ func TestChallengeLockIndependent(t *testing.T) {
 	}
 	assert.True(t, found, "LockInfo 应展示挑战阶段锁定")
 
-	// UnlockUserIP 应能解锁
 	lm.UnlockUserIP(username, ipaddr)
 	assert.True(t, lm.Check(username, ipaddr), "UnlockUserIP 应清除挑战锁定")
 }
 
-// 验证完整登录成功才清除挑战计数
 func TestChallengeLockClearedByFullSuccess(t *testing.T) {
 	resetLockManager()
 	base.Test()

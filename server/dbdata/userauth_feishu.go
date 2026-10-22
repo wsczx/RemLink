@@ -78,7 +78,7 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 		}
 	}
 
-	// 明细补全 + 手机号去 +86 前缀
+	// 飞书明细手机号带 +86 国际前缀，需去除
 	for id, ru := range remote {
 		if isBlocked(id) {
 			continue

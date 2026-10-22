@@ -175,8 +175,7 @@ func cstpWrite(conn net.Conn, _ *bufio.ReadWriter, cSess *sessdata.ConnSession) 
 			if !isCompress {
 				// 在载荷前加 8 字节 CSTP 头（magic+长度+类型+unknown）
 				hdrLen := len(plHeader)
-				// 缓冲区容量不足时丢弃，避免 reslice 越界 panic
-				// （tun/tap MTU 配置超过 2040 的异常场景）
+				// 容量不足则丢弃，防 reslice 越界 panic（MTU 超 2040 的异常配置）
 				if len(pl.Data)+hdrLen > cap(pl.Data) {
 					base.Warn("cstpWrite 载荷超出缓冲区容量，丢弃:", cSess.Username, cSess.IpAddr)
 					putPayload(pl)
@@ -210,14 +209,9 @@ func cstpWrite(conn net.Conn, _ *bufio.ReadWriter, cSess *sessdata.ConnSession) 
 	}
 }
 
-// 校验 CSTP DATA 头部声明的数据长度是否合法
-// 三条规则：
-//  1. dataLen 不能为 0（会使 pl.Data 变为空切片，下游 payloadIn 读 pl.Data[0] 越界崩溃）；
-//  2. 8+dataLen 不能超过缓冲区上限（比较须转 int：uint16 下 8+dataLen 在
-//     dataLen≥65528 时回绕成小值，会绕过上限检查）；
-//  3. 8+dataLen 不能超过本次实际读到的字节数 n——否则
-//     append(pl.Data[:0], pl.Data[8:8+dataLen]...) 会把复用缓冲区中其它会话的
-//     残留数据一并拷入载荷，造成跨会话明文数据泄露。
+// 校验 DATA 头声明长度：dataLen 为 0 时下游读 pl.Data[0] 越界
+// 8+dataLen 须转 int 比较（uint16 在 dataLen≥65528 时回绕会绕过上限）
+// 且不得超过实读字节数 n，否则复用缓冲区中其它会话的残留数据会泄入载荷
 func validCstpDataLen(dataLen uint16, n int) bool {
 	if dataLen == 0 || 8+int(dataLen) > BufferSize {
 		return false

@@ -7,15 +7,14 @@ import (
 	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
-	"path"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/dbtest"
 	"github.com/wsczx/remlink/pkg/security"
-	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/xlzd/gotp"
 )
 
@@ -99,8 +98,7 @@ func TestLinkAuthOtp(t *testing.T) {
 
 	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
 
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	dns := []dbdata.ValData{{Val: "8.8.8.8"}}
 	pt := dbdata.Policy{Name: "otp-test-policy", Status: 1, ClientDns: dns}
@@ -160,7 +158,7 @@ func TestLinkAuthOtp(t *testing.T) {
 		req.AddCookie(&http.Cookie{Name: "auth-session-id", Value: sessionID})
 		w := httptest.NewRecorder()
 
-		LinkAuth_otp(w, req)
+		LinkAuthOtp(w, req)
 
 		ast.Equal(http.StatusOK, w.Code)
 		_, err := AuthSessionManager.Get(sessionID)
@@ -183,7 +181,7 @@ func TestLinkAuthOtp(t *testing.T) {
 		req.AddCookie(&http.Cookie{Name: "auth-session-id", Value: sessionID + "2"})
 		w := httptest.NewRecorder()
 
-		LinkAuth_otp(w, req)
+		LinkAuthOtp(w, req)
 
 		ast.Equal(http.StatusOK, w.Code)
 		// OTP 错误返回 StepPending 重试（tpl_otp 渲染），包含 "动态码错误" 提示
@@ -206,7 +204,7 @@ func TestLinkAuthOtp(t *testing.T) {
 		req.AddCookie(&http.Cookie{Name: "auth-session-id", Value: "invalid-session"})
 		w := httptest.NewRecorder()
 
-		LinkAuth_otp(w, req)
+		LinkAuthOtp(w, req)
 
 		ast.Equal(http.StatusUnauthorized, w.Code)
 	})
@@ -224,7 +222,7 @@ func TestLinkAuthOtp(t *testing.T) {
 		req := httptest.NewRequest("POST", "/otp-verification", bytes.NewReader(reqBody))
 		w := httptest.NewRecorder()
 
-		LinkAuth_otp(w, req)
+		LinkAuthOtp(w, req)
 
 		ast.Equal(http.StatusUnauthorized, w.Code)
 	})
@@ -235,8 +233,7 @@ func TestHandleSsoTokenPreservesIdentityForOtpPending(t *testing.T) {
 	ast := assert.New(t)
 
 	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	pt := &dbdata.Policy{
 		Name:      "sso-otp-test-policy",
@@ -329,8 +326,7 @@ func TestCreateSession(t *testing.T) {
 	base.Test()
 	ast := assert.New(t)
 
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	other := &dbdata.SettingOther{Banner: "测试横幅内容", BannerEnable: true}
 	err := dbdata.SettingSave(other)
@@ -388,35 +384,4 @@ func TestCreateSession(t *testing.T) {
 
 	ast.Equal(http.StatusOK, w2.Code)
 	ast.NotContains(w2.Body.String(), "测试横幅内容")
-}
-
-func preIpData(t *testing.T) {
-	base.Test()
-
-	// 每个测试独立的临时数据库，消除跨测试污染
-	tmpDb := path.Join(t.TempDir(), "remlink_otp_test.db")
-
-	base.UpdateCfg(func(c *base.ServerConfig) {
-		c.DbType = "sqlite3"
-		c.DbSource = tmpDb
-		c.Ipv4CIDR = "192.168.3.0/24"
-		c.Ipv4Gateway = "192.168.3.1"
-		c.Ipv4Start = "192.168.3.100"
-		c.Ipv4End = "192.168.3.150"
-		c.MaxClient = 100
-		c.MaxUserClient = 3
-		c.IpLease = 5
-	})
-
-	// 启动数据库
-	dbdata.Start()
-}
-
-func closeIpdata() {
-	// 释放异步日志 worker pool（UserActLogIns 使用 grpool 异步写 DB）
-	dbdata.UserActLogIns.Pool.Release()
-	dbdata.UserActLogIns.Pool = utils.NewWorkerPool(1, 100)
-	// 关闭全局数据库
-	_ = dbdata.Stop()
-	// DB 文件由 t.TempDir() 自动清理，无需手动 os.Remove
 }
