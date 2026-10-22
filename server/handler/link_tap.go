@@ -169,6 +169,9 @@ func allTapWrite(ifce LinkDriver, cSess *sessdata.ConnSession) {
 		ndpdis.Add(cSess.IpAddr6, cSess.MacHw)
 	}
 	defer func() {
+		if err := recover(); err != nil {
+			base.Error("tapWrite panic", err)
+		}
 		base.Debug("LinkTap return", cSess.IpAddr)
 		if cSess.IpAddr6 != nil {
 			ndpdis.Delete(cSess.IpAddr6)
@@ -224,6 +227,10 @@ func allTapWrite(ifce LinkDriver, cSess *sessdata.ConnSession) {
 				break
 			}
 
+			// IPv4 头至少 20 字节
+			if len(pl.Data) < 20 {
+				continue
+			}
 			ipSrc := waterutil.IPv4Source(pl.Data)
 			if !ipSrc.Equal(cSess.IpAddr) {
 				// 非分配给客户端ip，直接丢弃
@@ -364,6 +371,9 @@ func allTapRead(ifce LinkDriver, cSess *sessdata.ConnSession) {
 		case ethernet.IPv4:
 			// 发送IP数据
 			data = frame.Payload()
+			if len(data) < 20 {
+				continue
+			}
 
 			ip_dst := waterutil.IPv4Destination(data)
 			if !ip_dst.Equal(cSess.IpAddr) {

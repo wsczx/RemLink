@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/go-ldap/ldap"
@@ -64,6 +65,61 @@ func TestLDAPConfig_ValidateConfig(t *testing.T) {
 	ok.MemberOf = "ou=vpn,dc=example,dc=com"
 	if err := ok.ValidateConfig(); err != nil {
 		t.Fatalf("带合法 MemberOf 应校验通过，实得: %v", err)
+	}
+}
+
+// username 来自未认证的 POST / 登录请求，进入过滤器前必须转义，
+// 否则注入的 * ) ( 可改变 & 合取结构、取消 memberOf 限制（CWE-90）
+func TestLDAPConfig_SearchFilter(t *testing.T) {
+	c := &LDAPConfig{
+		BaseDn:      "dc=example,dc=com",
+		ObjectClass: "person",
+		SearchAttr:  "sAMAccountName",
+		MemberOf:    "ou=vpn,dc=example,dc=com",
+	}
+
+	cases := []struct {
+		name     string
+		username string
+		expected string
+	}{
+		{"普通用户名原样通过", "zhangsan",
+			"(&(objectClass=person)(sAMAccountName=zhangsan)(memberOf:=ou=vpn,dc=example,dc=com))"},
+		{"注入通配符", "*",
+			"(&(objectClass=person)(sAMAccountName=\\2a)(memberOf:=ou=vpn,dc=example,dc=com))"},
+		{"注入永真条件", "zhangsan)(objectClass=*",
+			"(&(objectClass=person)(sAMAccountName=zhangsan\\29\\28objectClass=\\2a)(memberOf:=ou=vpn,dc=example,dc=com))"},
+		{"注入取反条件", "zhangsan)(!(memberOf=ou=vpn,dc=example,dc=com",
+			"(&(objectClass=person)(sAMAccountName=zhangsan\\29\\28!\\28memberOf=ou=vpn,dc=example,dc=com)(memberOf:=ou=vpn,dc=example,dc=com))"},
+		{"注入或运算", "a)(|(uid=",
+			"(&(objectClass=person)(sAMAccountName=a\\29\\28|\\28uid=)(memberOf:=ou=vpn,dc=example,dc=com))"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			filter := c.SearchFilter(tc.username)
+			if filter != tc.expected {
+				t.Fatalf("SearchFilter(%q) = %q, want %q", tc.username, filter, tc.expected)
+			}
+			if _, err := ldap.CompileFilter(filter); err != nil {
+				t.Fatalf("转义后的过滤器应可编译，实得错误: %v", err)
+			}
+			// 受限组合取项必须仍在
+			if !strings.Contains(filter, "(memberOf:=ou=vpn,dc=example,dc=com)") {
+				t.Fatalf("memberOf 合取项丢失: %q", filter)
+			}
+		})
+	}
+
+	// 空用户名走存在断言分支（用户同步路径）
+	empty := c.SearchFilter("")
+	if want := "(&(objectClass=person)(sAMAccountName=*)(memberOf:=ou=vpn,dc=example,dc=com))"; empty != want {
+		t.Fatalf("SearchFilter(\"\") = %q, want %q", empty, want)
+	}
+
+	// 未配置 MemberOf 时不追加合取项
+	noMember := &LDAPConfig{ObjectClass: "person", SearchAttr: "sAMAccountName"}
+	if want := "(&(objectClass=person)(sAMAccountName=zhangsan))"; noMember.SearchFilter("zhangsan") != want {
+		t.Fatalf("SearchFilter() 无 MemberOf = %q, want %q", noMember.SearchFilter("zhangsan"), want)
 	}
 }
 
