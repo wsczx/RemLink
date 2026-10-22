@@ -289,6 +289,7 @@ func TestSsoToken_WithOtp_PreservesIdentity(t *testing.T) {
 
 	ssoToken := "sso-token-for-otp-test"
 	AuthSessionManager.Save(ssoToken, &AuthSession{
+		Kind: AuthKindSSODone,
 		Ctx: &auth.Context{
 			Conn: auth.ConnInfo{Username: username, GroupName: group},
 			SSO: &auth.SSOState{

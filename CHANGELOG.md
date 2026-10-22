@@ -18,6 +18,7 @@
 - trace 级别请求体日志自动脱敏 password/secondary_password/sso_token/otp_secret，防止凭据经日志与 SIEM 扩散
 - 防暴力破解默认白名单收敛为 127.0.0.1 且黑名单判定前置（显式拒绝优先），避免加黑被白名单覆盖
 - 安全响应头补充 Permissions-Policy；管理后台、门户及数据通道响应均不再下发 Server 指纹头
+- 加固：认证会话存储引入来源标记（Kind），仅接受 SSO 流程产生的会话（sso-pending / sso-done / webauth-done），拒绝把 OTP 等待等认证管道会话的 id 当作 SSO token 重放冒用；WebAuth 直建会话分支同样要求会话来源为门户管道全部通过；SSO 回调待验证状态增加 Kind 校验
 
 ### 修复
 

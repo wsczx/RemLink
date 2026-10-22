@@ -172,6 +172,8 @@ func handleChallengeResult(w http.ResponseWriter, r *http.Request,
 	// 保存断点信息到 Ctx，供下次 Resume 恢复
 	flow.savePendingState()
 
+	sessionData.Kind = AuthKindPipeline // 标记为认证管道会话（含 OTP/RADIUS/SMS 等待断点）
+
 	if isResume {
 		// 恢复场景：更新已有会话
 		AuthSessionManager.Save(sessionData.SessionID, sessionData)
