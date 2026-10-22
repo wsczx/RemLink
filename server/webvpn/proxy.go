@@ -33,24 +33,28 @@ func NewReverseProxy(app *dbdata.WebVpnApp, originalHost string) (*httputil.Reve
 	proxy := &httputil.ReverseProxy{
 		// 后端为自签/内网证书时跳过 TLS 校验（仅当后端是 https 且应用开启 SkipVerify）
 		Transport: backendTransport(app.SkipVerify && target.Scheme == "https"),
-		Director: func(req *http.Request) {
-			req.Header.Del("X-Forwarded-For")
-			req.Header.Del("X-Forwarded-Proto")
-			req.Header.Del("X-Forwarded-Host")
-			req.Header.Del("X-Real-IP")
-			req.Header.Del("X-RemLink-WebVpn")
-
-			req.URL.Scheme = target.Scheme
-			req.URL.Host = target.Host
-			if app.HostRewrite != "" {
-				req.Host = app.HostRewrite
-			} else {
-				req.Host = target.Host
+		Rewrite: func(r *httputil.ProxyRequest) {
+			// 丢弃客户端传入的转发头，由反代统一重设，避免伪造
+			r.Out.Header.Del("X-Forwarded-For")
+			r.Out.Header.Del("X-Forwarded-Proto")
+			r.Out.Header.Del("X-Forwarded-Host")
+			r.Out.Header.Del("X-Real-IP")
+			r.Out.Header.Del("X-RemLink-WebVpn")
+			// 用真实客户端 IP 重写 XFF
+			if ip, _, err := net.SplitHostPort(r.In.RemoteAddr); err == nil {
+				r.Out.Header.Set("X-Forwarded-For", ip)
 			}
-			req.Header.Set("X-Forwarded-Proto", "https")
-			req.Header.Set("X-Forwarded-Host", originalHost)
-			req.Header.Set("Cookie", StripRemLinkCookies(req.Cookies()))
-			req.Header.Set("X-RemLink-WebVpn", "1")
+
+			r.SetURL(target)
+			if app.HostRewrite != "" {
+				r.Out.Host = app.HostRewrite
+			} else {
+				r.Out.Host = target.Host
+			}
+			r.Out.Header.Set("X-Forwarded-Proto", "https")
+			r.Out.Header.Set("X-Forwarded-Host", originalHost)
+			r.Out.Header.Set("Cookie", StripRemLinkCookies(r.Out.Cookies()))
+			r.Out.Header.Set("X-RemLink-WebVpn", "1")
 		},
 		ModifyResponse: func(resp *http.Response) error {
 			scrubBackendCORSHeaders(resp.Header)
