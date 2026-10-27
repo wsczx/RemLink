@@ -220,7 +220,7 @@ func SetIPv4Config(w http.ResponseWriter, r *http.Request) {
 		Ipv4Start   string `json:"ipv4_start"`
 		Ipv4End     string `json:"ipv4_end"`
 	}
-	if err := readJSON(w, r, 1<<16, req); err != nil {
+	if err := readJSON(w, r, 1<<16, &req); err != nil {
 		return
 	}
 
@@ -318,7 +318,7 @@ func SetRestart(w http.ResponseWriter, r *http.Request) {
 	RespSuccess(w, map[string]any{
 		"message": "restart scheduled",
 	})
-	go func() {
+	base.SafeGo(func() {
 		time.Sleep(time.Second)
 		// 重启前清理所有后端防火墙规则并关闭数据库
 		sessdata.CleanupAllNatRules()
@@ -336,7 +336,7 @@ func SetRestart(w http.ResponseWriter, r *http.Request) {
 			restarting = false
 			restartMux.Unlock()
 		}
-	}()
+	})
 }
 
 // 返回各表行数，供前端展示并决定排除哪些大表
@@ -604,7 +604,7 @@ func SetDbSwitch(w http.ResponseWriter, r *http.Request) {
 		"message":       "数据库切换成功，即将重启",
 		"needs_restart": true,
 	})
-	go func() {
+	base.SafeGo(func() {
 		time.Sleep(time.Second)
 		sessdata.CleanupAllNatRules()
 		if sessdata.GlobalFakeDNSManager != nil {
@@ -618,7 +618,7 @@ func SetDbSwitch(w http.ResponseWriter, r *http.Request) {
 			base.Error("db switch restart err:", err)
 			cleanup()
 		}
-	}()
+	})
 }
 
 // 清理残留的 macvtap 网卡（lvtap 前缀）
