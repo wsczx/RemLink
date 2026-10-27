@@ -591,3 +591,103 @@ func TestWebAuthContinue_NilCtxRejected(t *testing.T) {
 	_, err := AuthSessionManager.Get(state)
 	ast.Error(err, "被拒的 nil Ctx 会话应被删除")
 }
+
+// WebAuth SSO 回调必须拒绝跨组冒用
+func TestWebAuthSSOCallbackRejectsCrossGroup(t *testing.T) {
+	base.Test()
+	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
+	dbtest.SetupDB(t)
+	ast := assert.New(t)
+
+	// 注册测试用 SSO 源；按组名返回回调，便于断言访问控制用的是哪一组配置
+	ssoCallbacks["testxgroup"] = func(groupName string) (ssoCallback, error) {
+		return &stubSSOCallbackX{group: groupName}, nil
+	}
+	defer delete(ssoCallbacks, "testxgroup")
+
+	const remote = "10.9.9.9:5555"
+
+	// A 组的 sso_state：授权结果将按 A 组配置做部门/拒绝名单校验
+	ssoState := "sso-state-group-a"
+	AuthSessionManager.Save(ssoState, &AuthSession{
+		Kind: AuthKindSSOPending,
+		Ctx: &auth.Context{
+			Conn: auth.ConnInfo{GroupName: "group-a", RemoteAddr: remote},
+			SSO:  &auth.SSOState{Type: "testxgroup", From: "web_auth", ClientIP: remote},
+		},
+	})
+
+	// B 组的 WebAuth 管道会话（攻击目标）
+	webState := "web-state-group-b"
+	AuthSessionManager.Save(webState, &AuthSession{
+		Kind: AuthKindPipeline,
+		Ctx: &auth.Context{
+			WebAuth: true,
+			Conn:    auth.ConnInfo{GroupName: "group-b", RemoteAddr: remote},
+		},
+	})
+
+	req := httptest.NewRequest("GET",
+		"/web-auth/sso-callback?web_state="+webState+"&sso_state="+ssoState+"&code=fake", nil)
+	req.RemoteAddr = remote
+	w := httptest.NewRecorder()
+	WebAuthSSOCallback(w, req)
+
+	// 必须拒绝，且不得把 B 组会话标记为已认证
+	ast.Equal(http.StatusBadRequest, w.Code, "跨组回调必须被拒绝")
+
+	webPending, err := AuthSessionManager.Get(webState)
+	ast.NoError(err)
+	ast.False(webPending.Ctx.SSO != nil && webPending.Ctx.SSO.Authenticated,
+		"跨组回调不得把目标会话标记为已认证")
+
+	// sso_state 应被消费，防重放
+	_, err = AuthSessionManager.Get(ssoState)
+	ast.Error(err, "sso_state 应在拒绝后被清理")
+}
+
+// sso_state 必须是 SSO 待回调会话，其它来源（如 OTP 等待的管道会话）不得复用
+func TestWebAuthSSOCallbackRejectsNonSsoState(t *testing.T) {
+	base.Test()
+	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
+	dbtest.SetupDB(t)
+	ast := assert.New(t)
+
+	const remote = "10.9.9.9:5555"
+
+	// 把「等待 OTP」的管道会话 id 当作 sso_state 重放
+	pipelineState := "pipeline-otp-pending"
+	AuthSessionManager.Save(pipelineState, &AuthSession{
+		Kind: AuthKindPipeline,
+		Ctx: &auth.Context{
+			Conn: auth.ConnInfo{GroupName: "group-a", RemoteAddr: remote},
+		},
+	})
+	webState := "web-state-for-nonsso"
+	AuthSessionManager.Save(webState, &AuthSession{
+		Kind: AuthKindPipeline,
+		Ctx:  &auth.Context{Conn: auth.ConnInfo{GroupName: "group-a", RemoteAddr: remote}},
+	})
+
+	req := httptest.NewRequest("GET",
+		"/web-auth/sso-callback?web_state="+webState+"&sso_state="+pipelineState+"&code=fake", nil)
+	req.RemoteAddr = remote
+	w := httptest.NewRecorder()
+	WebAuthSSOCallback(w, req)
+
+	ast.Equal(http.StatusBadRequest, w.Code, "非 SSO 来源的 sso_state 必须被拒绝")
+
+	// 被冒用的管道会话不得被消费/删除
+	_, err := AuthSessionManager.Get(pipelineState)
+	ast.NoError(err, "被冒用的管道会话不应被消费")
+}
+
+type stubSSOCallbackX struct{ group string }
+
+func (s *stubSSOCallbackX) getUser(code string) (string, string, error) {
+	return "attacker", "攻击者", nil
+}
+
+func (s *stubSSOCallbackX) checkDept(userID string) error { return nil }
+
+func (s *stubSSOCallbackX) isBlocked(userID string) bool { return false }

@@ -31,6 +31,9 @@ type jwtIssuedRecord struct {
 
 const jwtIssuedPurgeThreshold = 10000
 
+var jwtNotBefore = time.Now().Unix()
+var jwtNotBeforeExemptClaims = []string{"webvpn_user"}
+
 const (
 	JwtAdminLoginTTLSec     = 3600 * 3      // 管理员登录 JWT：3 小时
 	JwtUserResetTTLSec      = 3600 * 24 * 3 // 用户重置/通知 JWT：3 天
@@ -205,6 +208,19 @@ func GetJwtData(jwtToken string) (map[string]any, error) {
 		_, revoked := jwtRevoked[jti]
 		jwtMu.Unlock()
 		if revoked {
+			return nil, errors.New("JWT 已吊销")
+		}
+	}
+
+	exempt := false
+	for _, key := range jwtNotBeforeExemptClaims {
+		if v, _ := claims[key].(string); v != "" {
+			exempt = true
+			break
+		}
+	}
+	if !exempt {
+		if iat, _ := claims["iat"].(float64); int64(iat) < jwtNotBefore {
 			return nil, errors.New("JWT 已吊销")
 		}
 	}

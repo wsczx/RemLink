@@ -35,6 +35,34 @@ func defaultGroup() {
 	_ = dbdata.SetPolicy(&dbdata.Policy{Name: "test-policy", Status: 1, ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}}})
 	_ = dbdata.SetGroup(&dbdata.Group{Name: "default", Status: 1, PolicyId: 1})
 }
+func TestAuthenticate_PassesForGroupWithoutLocalRecord(t *testing.T) {
+	preTestData(t)
+
+	auth.Registry.Register("test_noop_group", func() auth.Authenticator {
+		return &testStubAuth{name: "test_noop_group"}
+	})
+
+	groupB := &dbdata.Group{
+		Name:        "group-b",
+		Status:      1,
+		PolicyId:    1,
+		AuthProfile: json.RawMessage(`{"step":[{"type":"test_noop_group"}]}`),
+	}
+	assert.NoError(t, dbdata.SetGroup(groupB))
+
+	// 该用户在本地库中没有任何记录
+	ctx := &auth.Context{
+		Conn: auth.ConnInfo{
+			Username:  "external-user",
+			Password:  "testpass123",
+			GroupName: "group-b",
+		},
+	}
+	result := Authenticate(ctx)
+
+	assert.Equal(t, auth.StepPass, result.Result)
+	assert.NoError(t, result.Err)
+}
 
 type testStubAuth struct {
 	auth.NopChallenger
