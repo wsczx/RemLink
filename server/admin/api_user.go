@@ -44,11 +44,11 @@ func UserList(w http.ResponseWriter, r *http.Request) {
 	var args []any
 	if len(prefix) > 0 {
 		fuzzy := "%" + prefix + "%"
-		wheres = append(wheres, "(username LIKE ? OR nickname LIKE ? OR email LIKE ? OR type LIKE ?)")
+		wheres = append(wheres, "(username LIKE ? OR nickname LIKE ? OR email LIKE ? OR "+dbdata.QuoteIdent("type")+" LIKE ?)")
 		args = append(args, fuzzy, fuzzy, fuzzy, fuzzy)
 	}
 	if userType != "" {
-		wheres = append(wheres, "type = ?")
+		wheres = append(wheres, dbdata.QuoteIdent("type")+" = ?")
 		args = append(args, userType)
 	}
 	if status != "" {

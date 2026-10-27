@@ -36,6 +36,7 @@
 - 后台与门户接口请求体非法（JSON 格式错误）不再重复写 JSON，错误码由「系统异常(1)」调整为「参数错误(4)」；删除不存在记录由「返回成功」改为「返回错误」
 - 后台异步任务（用户同步、会话吊销等）异常由 SafeGo 兜底记录堆栈，不再崩溃进程；WebAuth/SSO 异常会话显式拒绝
 - 修复 LINK_MASTER_DEV 配置主网卡下拉框误报、ldap 空密码防爆失效、DTLS/后台监听失败崩溃等问题
+- 修复 PostgreSQL 兼容问题：用户列表统计与筛选的裸 SQL 使用未加引号的 `type`/`user` 保留字，导致 PostgreSQL、SQL Server 报错「column "type" does not exist」、门户后台拉取用户列表失败
 
 ## v0.19.0-beta
 
