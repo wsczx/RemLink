@@ -7,6 +7,25 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestPathAllowedRejectsDotSegment(t *testing.T) {
+	ast := assert.New(t)
+
+	// 穿越尝试：字符串前缀匹配可通过，但含 ".." / "." 段
+	ast.False(pathAllowed("/api/../../admin", "/api"), "含 .. 的路径必须拒绝")
+	ast.False(pathAllowed("/api/./admin", "/api"), "含 . 的路径必须拒绝")
+	ast.False(pathAllowed("/../etc", "/"), "根前缀同样必须拒绝 ..")
+	ast.False(pathAllowed("/..", "/api"), "越出根目录必须拒绝")
+
+	// 正常路径不受影响（含尾部斜杠）
+	ast.True(pathAllowed("/api", "/api"))
+	ast.True(pathAllowed("/api/", "/api"), "尾部斜杠应放行")
+	ast.True(pathAllowed("/api/users", "/api"))
+	ast.True(pathAllowed("/anything/deep", "/"))
+
+	// 未配置前缀 → 拒绝
+	ast.False(pathAllowed("/api", ""))
+}
+
 func TestScrubBackendCORSHeaders(t *testing.T) {
 	header := make(http.Header)
 	header.Set("Access-Control-Allow-Origin", "*")

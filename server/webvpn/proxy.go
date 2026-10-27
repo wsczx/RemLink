@@ -101,6 +101,11 @@ func pathAllowed(path, prefix string) bool {
 	if prefix == "" {
 		return false
 	}
+	for seg := range strings.SplitSeq(path, "/") {
+		if seg == ".." || seg == "." {
+			return false
+		}
+	}
 	if prefix != "/" {
 		prefix = strings.TrimRight(prefix, "/")
 	}
