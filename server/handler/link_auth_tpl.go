@@ -155,7 +155,7 @@ var auth_otp = `<?xml version="1.0" encoding="UTF-8"?>
         <title>OTP 动态码验证</title>
         <message>请输入您的 OTP 动态码</message>
         {{if .Error}}
-        <error id="otp-verification" param1="{{.Error}}" param2="">验证失败:  %s</error>
+        <error id="otp-verification" param1="{{.Error}}" param2="">验证失败: {{.Error}}</error>
         {{end}}		
         <form method="post" action="/otp-verification">
             <input type="password" name="secondary_password" label="OTPCode:"/>
