@@ -22,6 +22,53 @@ func TestJwtData(t *testing.T) {
 	assert.Equal(dataN["key"], "value")
 }
 
+func TestJwtNotBefore(t *testing.T) {
+	assert := assert.New(t)
+	base.SetCfgForTest(&base.ServerConfig{JwtSecret: "dsfasfdfsadfasdfasd3sdaf"})
+
+	orig := jwtNotBefore
+	defer func() { jwtNotBefore = orig }()
+
+	now := time.Now().Unix()
+	token, err := SetJwtData(map[string]any{"key": "value"}, now+3600)
+	assert.Nil(err)
+	_, err = GetJwtData(token)
+	assert.Nil(err, "本次启动后签发的令牌应通过")
+
+	jwtNotBefore = now + 1
+	_, err = GetJwtData(token)
+	assert.Error(err, "早于本次启动签发的令牌应被拒绝")
+	assert.Contains(err.Error(), "已吊销")
+
+	jwtNotBefore = now
+	newToken, err := SetJwtData(map[string]any{"key": "value"}, now+3600)
+	assert.Nil(err)
+	_, err = GetJwtData(newToken)
+	assert.Nil(err, "重启后新签发的令牌应通过")
+}
+
+func TestJwtNotBeforeExemptsWebVpnSession(t *testing.T) {
+	assert := assert.New(t)
+	base.SetCfgForTest(&base.ServerConfig{JwtSecret: "dsfasfdfsadfasdfasd3sdaf"})
+
+	orig := jwtNotBefore
+	defer func() { jwtNotBefore = orig }()
+
+	token, err := SetJwtData(map[string]any{
+		"webvpn_user":   "vpnuser",
+		"webvpn_groups": []string{"default"},
+	}, time.Now().Add(time.Hour).Unix())
+	assert.Nil(err)
+
+	jwtNotBefore = time.Now().Unix() + 1
+	_, err = GetJwtData(token)
+	assert.Nil(err, "WebVPN 会话令牌不应受启动 cutoff 影响")
+
+	RevokeJwtToken(token)
+	_, err = GetJwtData(token)
+	assert.Error(err, "jti 级吊销对 WebVPN 会话令牌仍生效")
+}
+
 // 改密/停用/删号后，该主体全部未过期 JWT 立即失效，且不影响其他主体（M-3）
 func TestRevokeSubjectJwt(t *testing.T) {
 	assert := assert.New(t)

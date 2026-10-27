@@ -75,8 +75,17 @@ func resumeAuthSession(w http.ResponseWriter, r *http.Request,
 	// 需从当前请求重新注入
 	ctx.Conn.TLS = r.TLS
 	ctx.Conn.RemoteAddr = r.RemoteAddr
-	// 重新加载用户信息，用户在断点期间可能已改密或清除强制改密标记
-	authsrv.ReloadUserInfo(ctx)
+	// 重新加载用户信息并复核状态，用户在断点期间可能已被改密、禁用或设为过期
+	if err := authsrv.ReloadAndCheckUser(ctx); err != nil {
+		result := &auth.PipelineResult{
+			Result:    auth.StepFail,
+			Err:       err,
+			Username:  ctx.Conn.Username,
+			GroupName: ctx.Conn.GroupName,
+		}
+		handlePipelineResult(w, r, result, sess)
+		return
+	}
 
 	state := auth.PipelineState{
 		StepIdx:     sess.Ctx.StepIdx(),

@@ -609,7 +609,7 @@ func PortalForgotPassword(w http.ResponseWriter, r *http.Request) {
 	if err := dbdata.SettingGet(smtpCfg); err != nil || smtpCfg.Host == "" {
 		base.Warn("用户门户SMTP未配置，跳过发送重置邮件:", user.Username)
 	} else {
-		go func() {
+		base.SafeGo(func() {
 			if err := notify.GetNotify().SendEmail(notify.Message{
 				Subject: "RemLink 密码重置",
 				To:      user.Email,
@@ -617,7 +617,7 @@ func PortalForgotPassword(w http.ResponseWriter, r *http.Request) {
 			}); err != nil {
 				base.Error("用户门户发送重置邮件失败:", user.Username, err)
 			}
-		}()
+		})
 	}
 
 	portalOK(w, map[string]string{"message": "如果账号匹配，重置邮件已发送"})
@@ -865,6 +865,11 @@ func portalResumeAuth(w http.ResponseWriter, sessionID, code string, r *http.Req
 	ctx.GetOTP().Code = code
 	ctx.GetRADIUS().ChallengeCode = code
 	ctx.GetSMS().Code = code
+
+	// 复核用户状态：用户在断点期间可能已被禁用或设为过期
+	if err := authsrv.ReloadAndCheckUser(ctx); err != nil {
+		return portalAuthError(err.Error())
+	}
 
 	state := auth.PipelineState{
 		StepIdx:     sess.Ctx.StepIdx(),

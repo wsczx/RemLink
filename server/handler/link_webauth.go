@@ -19,6 +19,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 
@@ -49,6 +50,7 @@ func handlerWebAuth(w http.ResponseWriter, r *http.Request, cr *ClientRequest, u
 	certTLS := r.TLS
 
 	pending := &AuthSession{
+		Kind:       AuthKindPipeline, // WebAuth 门户认证管道会话（含 OTP/RADIUS/SMS 等待断点）
 		UserActLog: ua,
 		Ctx: &auth.Context{
 			WebAuth: true,
@@ -493,6 +495,10 @@ func webAuthDispatch(w http.ResponseWriter, r *http.Request,
 // 从已保存会话恢复管道（Resume）分发
 func webAuthResumeDispatch(w http.ResponseWriter, r *http.Request,
 	state string, pending *AuthSession, username string) {
+	if err := authsrv.ReloadAndCheckUser(pending.Ctx); err != nil {
+		webAuthError(w, err.Error())
+		return
+	}
 	flow := newWebAuthFlow(state, pending, username)
 	flow.Resume(w, r, auth.PipelineState{
 		StepIdx:     pending.Ctx.StepIdx(),
@@ -625,11 +631,13 @@ func webAuthBuildSSOURL(r *http.Request, ssoType, groupName, webAuthState string
 	// 生成 SSO 子状态，关联回当前 WebAuth 会话
 	ssoState := GenerateSessionID()
 	pending := &AuthSession{
+		Kind: AuthKindSSOPending, // 标记为 SSO 待回调会话，防止其它类型会话被当作 sso_state 使用
 		Ctx: &auth.Context{
 			Conn: auth.ConnInfo{GroupName: groupName},
 			SSO: &auth.SSOState{
-				Type: ssoType,
-				From: "web_auth",
+				Type:     ssoType,
+				From:     "web_auth",
+				ClientIP: r.RemoteAddr, // 发起登录与回调须来自同一客户端 IP
 			},
 		},
 	}
@@ -665,6 +673,31 @@ func WebAuthSSOCallback(w http.ResponseWriter, r *http.Request) {
 		base.Error("WebAuth SSO 非法 state")
 		http.Error(w, "认证会话已过期", http.StatusBadRequest)
 		return
+	}
+
+	// 仅接受 SSO 待回调会话，防止其它类型会话（如管道会话）被当作 sso_state 使用
+	if pending.Kind != AuthKindSSOPending || pending.Ctx.SSO == nil {
+		base.Error("WebAuth SSO state 类型非法")
+		http.Error(w, "认证会话已过期", http.StatusBadRequest)
+		return
+	}
+	// 防重放：已认证过的 state 不得再次使用
+	if pending.Ctx.SSO.Authenticated {
+		base.Error("WebAuth SSO state 已被使用（疑似重放）")
+		AuthSessionManager.Delete(ssoState)
+		http.Error(w, "认证会话已过期", http.StatusBadRequest)
+		return
+	}
+	// 发起登录与回调须来自同一客户端 IP，否则拒绝冒用
+	if ip := pending.Ctx.SSO.ClientIP; ip != "" {
+		want, _, _ := net.SplitHostPort(ip)
+		got, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if want != "" && got != "" && want != got {
+			base.Error("WebAuth SSO state 来源 IP 不匹配:", want, got)
+			AuthSessionManager.Delete(ssoState)
+			http.Error(w, "认证会话来源异常", http.StatusForbidden)
+			return
+		}
 	}
 
 	ssoType := ""
@@ -708,7 +741,10 @@ func WebAuthSSOCallback(w http.ResponseWriter, r *http.Request) {
 
 	// 将 SSO 结果写入 WebAuth 会话
 	webPending, werr := AuthSessionManager.Get(webState)
-	if werr != nil {
+	if werr != nil || webPending == nil || webPending.Ctx == nil ||
+		webPending.Kind != AuthKindPipeline ||
+		webPending.Ctx.Conn.GroupName != pending.Ctx.Conn.GroupName {
+		base.Error("WebAuth SSO 回调目标会话非法（疑似跨组冒用）: webState=", webState)
 		AuthSessionManager.Delete(ssoState)
 		http.Error(w, "认证会话已过期", http.StatusBadRequest)
 		return
