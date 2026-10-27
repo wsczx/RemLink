@@ -67,45 +67,17 @@ func UserList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var allDatas []dbdata.User
-	if len(wheres) > 0 {
-		where := strings.Join(wheres, " AND ")
-		err = dbdata.FindWhere(&allDatas, 0, 0, where, args...)
-	} else {
-		err = dbdata.Find(&allDatas, 0, 0)
+	if group != "" {
+		wheres = append(wheres, "groups LIKE ? ESCAPE '\\'")
+		args = append(args, "%\""+dbdata.EscapeLike(group)+"\"%")
 	}
-	if err != nil && !dbdata.CheckErrNotFound(err) {
+
+	where := strings.Join(wheres, " AND ")
+	count = dbdata.FindWhereCount(&dbdata.User{}, where, args...)
+	if err = dbdata.FindWhere(&datas, pageSize, page, where, args...); err != nil && !dbdata.CheckErrNotFound(err) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	if allDatas == nil {
-		allDatas = []dbdata.User{}
-	}
-
-	if group != "" {
-		groupMembers, gerr := dbdata.UsersInGroups([]string{group})
-		if gerr != nil {
-			RespError(w, RespInternalErr, gerr)
-			return
-		}
-		memberSet := make(map[string]bool, len(groupMembers))
-		for _, u := range groupMembers {
-			memberSet[u.Username] = true
-		}
-		filtered := allDatas[:0]
-		for _, u := range allDatas {
-			if memberSet[u.Username] {
-				filtered = append(filtered, u)
-			}
-		}
-		allDatas = filtered
-	}
-
-	count = len(allDatas)
-	// 内存分页
-	start := min((page-1)*pageSize, count)
-	end := min(start+pageSize, count)
-	datas = allDatas[start:end]
 
 	// 确保空结果返回 [] 而非 null
 	if datas == nil {

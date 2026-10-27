@@ -152,11 +152,16 @@ func (ua *UserActLogProcess) Add(u UserActLog, userAgent string, isPortal ...boo
 	u.PlatformVersion = substr(u.PlatformVersion, 0, 128)
 	u.Info = substr(u.Info, 0, 255)
 
-	UserActLogIns.Pool.JobQueue <- func() {
+	// 异步落库：队列满时丢弃本条
+	select {
+	case UserActLogIns.Pool.JobQueue <- func() {
 		err := Add(u)
 		if err != nil {
 			base.Error("Add UserActLog error: ", err)
 		}
+	}:
+	default:
+		base.Warn("UserActLog 队列已满，丢弃本条审计日志: ", u.Username)
 	}
 }
 
