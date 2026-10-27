@@ -2,12 +2,17 @@ package dbdata
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 
 	"xorm.io/xorm"
 )
 
 const PageSize = 10
+
+func QuoteIdent(name string) string {
+	return GetXdb().Quote(name)
+}
 
 var ErrNotFound = errors.New("ErrNotFound")
 
@@ -124,14 +129,16 @@ type UserStats struct {
 
 func UserStatsWhere(where string, args ...any) (UserStats, error) {
 	var s UserStats
-	sql := `SELECT
+	t := QuoteIdent("type")
+	u := QuoteIdent("user")
+	sql := fmt.Sprintf(`SELECT
 		COUNT(*) AS total,
-		SUM(CASE WHEN type = 'local' THEN 1 ELSE 0 END) AS local,
-		SUM(CASE WHEN type = 'ldap' THEN 1 ELSE 0 END) AS ldap,
-		SUM(CASE WHEN type != 'local' THEN 1 ELSE 0 END) AS external,
+		SUM(CASE WHEN %s = 'local' THEN 1 ELSE 0 END) AS local,
+		SUM(CASE WHEN %s = 'ldap' THEN 1 ELSE 0 END) AS ldap,
+		SUM(CASE WHEN %s != 'local' THEN 1 ELSE 0 END) AS external,
 		SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS active,
 		SUM(CASE WHEN status != 1 THEN 1 ELSE 0 END) AS disable
-	FROM user`
+		FROM %s`, t, t, t, u)
 	if where != "" {
 		sql += " WHERE " + where
 	}

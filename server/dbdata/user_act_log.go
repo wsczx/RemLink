@@ -298,7 +298,7 @@ func (ua *UserActLogProcess) GetSession(values url.Values) *xorm.Session {
 	session := xdb.Where("1=1")
 	if v := values.Get("username"); v != "" {
 		fuzzy := "%" + v + "%"
-		session.And("username IN (SELECT username FROM user WHERE username LIKE ? OR nickname LIKE ?)", fuzzy, fuzzy)
+		session.And("username IN (SELECT username FROM "+QuoteIdent("user")+" WHERE username LIKE ? OR nickname LIKE ?)", fuzzy, fuzzy)
 	}
 	if values.Get("sdate") != "" {
 		session.And("created_at >= ?", values.Get("sdate")+" 00:00:00")

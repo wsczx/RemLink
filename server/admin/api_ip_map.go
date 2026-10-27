@@ -28,7 +28,7 @@ func UserIpMapList(w http.ResponseWriter, r *http.Request) {
 	}
 	if v := strings.TrimSpace(r.FormValue("username")); v != "" {
 		fuzzy := "%" + v + "%"
-		conditions = append(conditions, "(username LIKE ? OR username IN (SELECT username FROM user WHERE nickname LIKE ?))")
+		conditions = append(conditions, "(username LIKE ? OR username IN (SELECT username FROM "+dbdata.QuoteIdent("user")+" WHERE nickname LIKE ?))")
 		args = append(args, fuzzy, fuzzy)
 	}
 	if v := strings.TrimSpace(r.FormValue("group")); v != "" {
