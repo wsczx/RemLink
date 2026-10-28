@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/songgao/water/waterutil"
@@ -18,6 +19,14 @@ var (
 	rePortsAll  = regexp.MustCompile(`^\d{1,5}(-\d{1,5})?(,\d{1,5}(-\d{1,5})?)*$`)
 	rePortRange = regexp.MustCompile(`^\d{1,5}-\d{1,5}$`)
 )
+
+// 按用户名隔离流量记录锁，避免 SQLite 单写者锁下并发写丢失更新；不同用户互不阻塞
+var trafficMu sync.Map
+
+func userTrafficMu(username string) *sync.Mutex {
+	m, _ := trafficMu.LoadOrStore(username, &sync.Mutex{})
+	return m.(*sync.Mutex)
+}
 
 // 根据 ID 加载策略并预处理所有字段
 func LoadPolicyById(id int) (*Policy, error) {
@@ -482,6 +491,9 @@ func ResetTrafficUsed(username string, p *Policy) error {
 	if next.IsZero() {
 		return nil
 	}
+	mu := userTrafficMu(username)
+	mu.Lock()
+	defer mu.Unlock()
 	_, err := xdb.Where("username=?", username).
 		Cols("traffic_used", "traffic_reset_at").
 		Update(&User{TrafficUsed: 0, TrafficResetAt: &next})
@@ -493,6 +505,9 @@ func AddTrafficUsed(username string, delta int64) {
 	if delta <= 0 {
 		return
 	}
+	mu := userTrafficMu(username)
+	mu.Lock()
+	defer mu.Unlock()
 	var lastErr error
 	for attempt := range 5 {
 		_, err := xdb.Exec("UPDATE user SET traffic_used = traffic_used + ? WHERE username = ?", delta, username)
