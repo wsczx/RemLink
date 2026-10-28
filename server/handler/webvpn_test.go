@@ -59,15 +59,15 @@ func TestWebVpnPreflightRejectsUnsafeOrigins(t *testing.T) {
 }
 
 func TestWebVpnPreflightAllowsConfiguredOrigin(t *testing.T) {
-	r := httptest.NewRequest(http.MethodOptions, "https://dev-erp-backend.wg.maizuo.com/activity/api", nil)
-	r.Host = "dev-erp-backend.wg.maizuo.com"
-	r.Header.Set("Origin", "https://erp-dev.wg.maizuo.com")
+	r := httptest.NewRequest(http.MethodOptions, "https://app1.wv.example.com/activity/api", nil)
+	r.Host = "app1.wv.example.com"
+	r.Header.Set("Origin", "https://app2.wv.example.com")
 	r.Header.Set("Access-Control-Request-Method", http.MethodGet)
 	r.Header.Set("Access-Control-Request-Headers", "sess-auth-token, content-type")
 	w := httptest.NewRecorder()
-	webVpnHandlePreflight(w, r, &dbdata.WebVpnApp{AllowCrossSite: true, CorsAllowedOrigins: []string{"https://erp-dev.wg.maizuo.com"}})
+	webVpnHandlePreflight(w, r, &dbdata.WebVpnApp{AllowCrossSite: true, CorsAllowedOrigins: []string{"https://app2.wv.example.com"}})
 	assert.Equal(t, http.StatusNoContent, w.Code)
-	assert.Equal(t, "https://erp-dev.wg.maizuo.com", w.Header().Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, "https://app2.wv.example.com", w.Header().Get("Access-Control-Allow-Origin"))
 	assert.Equal(t, "true", w.Header().Get("Access-Control-Allow-Credentials"))
 	assert.Equal(t, "sess-auth-token, content-type", w.Header().Get("Access-Control-Allow-Headers"))
 }
@@ -947,6 +947,42 @@ func TestWebVpnHandlerSubdomainNonWhitelistProxy(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handled := WebVpnHandler(rec, req)
 	ast.True(handled, "子域非白名单路径应由 WebVpnHandler 转交代理")
+}
+
+func TestWebVpnHandlerPortalHostUIServedLocally(t *testing.T) {
+	_, teardown := setupWebVpnTest(t) // WebVpnDomain = wv.example.com
+	defer teardown()
+	ast := assert.New(t)
+
+	token := issueWebVpnTokenForTest(t, "alice", nil, time.Now().Unix(), time.Now().Add(3*time.Hour).Unix())
+	hosts := []string{"wv.example.com", "portal.wv.example.com"} // 根域 / 未命中应用的子域
+	for _, host := range hosts {
+		req := httptest.NewRequest(http.MethodGet, "https://"+host+"/ui/static/js/app.js", nil)
+		req.Host = host
+		req.AddCookie(&http.Cookie{Name: webVpnSessionCookie, Value: token})
+		rec := httptest.NewRecorder()
+		handled := WebVpnHandler(rec, req)
+		ast.False(handled, "门户主机 %s 的 /ui/ 应 delegate 回主路由，不应被当应用反代", host)
+		ast.NotContains(rec.Body.String(), "应用不存在", "门户主机 %s 不应报“应用不存在”", host)
+	}
+}
+
+func TestWebVpnHandlerAppHostUIProxied(t *testing.T) {
+	_, teardown := setupWebVpnTest(t)
+	defer teardown()
+	ast := assert.New(t)
+
+	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", path: "/ui/dashboard"})
+	handled := WebVpnHandler(rec, req)
+	ast.True(handled, "命中应用的子域 /ui/ 应由 WebVpnHandler 反代")
+
+	backendSeen.Lock()
+	got := backendSeen.last
+	backendSeen.Unlock()
+	ast.NotNil(got, "后端应收到 /ui/dashboard 请求")
+	if got != nil {
+		ast.Equal("/ui/dashboard", got.URL.Path, "路径应原样透传至后端")
+	}
 }
 
 // 主域名的 /portal/api/* 不被拦截，delegate 回主路由

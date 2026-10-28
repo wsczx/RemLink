@@ -126,7 +126,10 @@ func LinkAuth(w http.ResponseWriter, r *http.Request) {
 	// init 请求处理
 	if cr.Type == "init" {
 		// OpenConnect 不支持 WebAuth SAML 流程，走标准 init
-		if base.GetCfg().EnableWebAuth && !strings.Contains(userAgent, "openconnect") {
+		if base.GetCfg().EnableWebAuth &&
+			strings.Contains(userAgent, "anyconnect") &&
+			!strings.Contains(userAgent, "openconnect") &&
+			!strings.Contains(userAgent, "open anyconnect") {
 			handlerWebAuth(w, r, cr, ua)
 			return
 		}
