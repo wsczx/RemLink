@@ -4,7 +4,10 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "32 5 * * 1"
-  pull_request:
+#  push:
+#    branches: [ "main", "dev" ]
+#  pull_request:
+#    branches: [ "main", "dev" ]
 
 jobs:
   analyze:
