@@ -1,32 +1,31 @@
 name: release
 
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       build_tag:
-        description: "Tag to build(留空则从main最新提交构建)"
+        description: "Tag to build（留空则从触发事件的 ref 构建）"
         required: false
         default: ""
       enable_latest_tag:
-        description: "Enable latest tag for docker image"
+        description: "是否为 docker 镜像打 latest 标签"
         required: false
         type: boolean
         default: false
-  #push:
-  #  tags:
-  #    - "v0.*"
-  #    - "v1.*"
+
+permissions:
+  contents: write
 
 jobs:
   Build:
     name: build-binary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       TZ: Asia/Shanghai
     steps:
-      - name: Hello world
-        run: uname -a
-
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.build_tag || github.ref_name }}
@@ -52,7 +51,6 @@ jobs:
         with:
           username: wsczx
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          logout: true
 
       - name: Pre bash
         shell: bash
@@ -68,11 +66,6 @@ jobs:
             *) is_prerelease=false ;;
           esac
           echo "APP_PRERELEASE=$is_prerelease" >> $GITHUB_ENV
-
-          echo $appVer > version_info
-          echo $commitId >> version_info
-          echo $GITHUB_REF >> version_info
-          echo $GITHUB_REF_NAME >> version_info
 
       - name: Extract changelog for current version
         id: changelog
@@ -107,7 +100,7 @@ jobs:
           echo "$section" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Build and push
+      - name: Build and push docker image
         uses: docker/build-push-action@v6
         with:
           push: true
@@ -121,16 +114,16 @@ jobs:
             commitId=${{ env.commitId }}
           tags: |
             wsczx/remlink:${{ env.APP_VER }}
-            ${{ ((github.event.inputs.enable_latest_tag == true || github.event.inputs.enable_latest_tag == 'true') && env.APP_PRERELEASE == 'false') && 'wsczx/remlink:latest' || '' }}
+            ${{ ((github.event_name == 'push' || github.event.inputs.enable_latest_tag == true || github.event.inputs.enable_latest_tag == 'true') && env.APP_PRERELEASE == 'false') && 'wsczx/remlink:latest' || '' }}
 
-      - name: Build deploy binary
+      - name: Build deploy binary (extract from image)
         shell: bash
         run: bash scripts/release.sh
 
-      - name: Release to public repo (wsczx/RemLink)
+      - name: Release to GitHub (wsczx/RemLink)
         uses: ncipollo/release-action@v1
         with:
-          token: ${{ secrets.CUSTOM_GITHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           owner: wsczx
           repo: RemLink
           tag: v${{ env.APP_VER }}
@@ -142,5 +135,52 @@ jobs:
           prerelease: ${{ env.APP_PRERELEASE }}
           body: ${{ steps.changelog.outputs.body }}
 
-#  Docker:
-#    name: build-docker
+      # 同步 Release 到 Gitee 镜像
+      # 预发布版跳过；未配置 GITEE_TOKEN secret 时自动跳过
+      - name: Sync release to Gitee mirror
+        if: env.APP_PRERELEASE == 'false'
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          CHANGELOG_BODY: ${{ steps.changelog.outputs.body }}
+          REL_VER: ${{ env.APP_VER }}
+          REL_COMMIT: ${{ env.commitId }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          if [ -z "${GITEE_TOKEN:-}" ]; then
+            echo "提示：未配置 GITEE_TOKEN secret，跳过 Gitee 镜像同步"
+            exit 0
+          fi
+          REPO="wsczx/RemLink"
+          GITEE_API="https://gitee.com/api/v5/repos/${REPO}"
+          TAG="v${REL_VER}"
+          echo "$CHANGELOG_BODY" > /tmp/gitee_body.md
+
+          # 删除同名旧 release
+          old_id=$(curl -s "${GITEE_API}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}" \
+            | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2 || true)
+          if [ -n "$old_id" ]; then
+            curl -s -X DELETE "${GITEE_API}/releases/${old_id}?access_token=${GITEE_TOKEN}" >/dev/null || true
+          fi
+
+          # 建 release（tag 不存在时 Gitee 会基于 target_commitish 自动打 tag）
+          resp=$(curl -s -X POST "${GITEE_API}/releases" \
+            -d "access_token=${GITEE_TOKEN}" \
+            -d "target_commitish=${REL_COMMIT}" \
+            --data-urlencode "tag_name=${TAG}" \
+            --data-urlencode "name=RemLink v${REL_VER}" \
+            --data-urlencode "body@/tmp/gitee_body.md")
+          release_id=$(echo "$resp" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2 || true)
+
+          if [ -z "$release_id" ]; then
+            echo "警告：Gitee release 创建失败，跳过镜像同步。响应: $resp"
+            exit 0
+          fi
+
+          shopt -s nullglob
+          for f in artifact-dist/*; do
+            echo "    上传 $(basename "$f") 到 Gitee..."
+            curl -sf -X POST "${GITEE_API}/releases/${release_id}/attach_files?access_token=${GITEE_TOKEN}" \
+              -F "file=@${f}" >/dev/null || echo "警告：$(basename "$f") 上传 Gitee 失败"
+          done
+          echo "==> Gitee 镜像: https://gitee.com/${REPO}/releases/tag/${TAG}"
