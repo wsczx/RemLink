@@ -9,17 +9,17 @@ import (
 
 // 覆盖吊销阈值持久化后跨内存重置仍能使旧会话失效
 func TestWebVpnCorsAllowedOrigins(t *testing.T) {
-	app := &WebVpnApp{AllowCrossSite: true, CorsAllowedOrigins: []string{"https://erp-dev.wg.maizuo.com"}}
+	app := &WebVpnApp{AllowCrossSite: true, CorsAllowedOrigins: []string{"https://app2.wv.example.com"}}
 	cases := []struct {
 		origin string
 		want   bool
 	}{
-		{"https://erp-dev.wg.maizuo.com", true},
-		{"https://ERP-DEV.wG.MAIZUO.COM", true},
-		{"https://erp-dev.wg.maizuo.com/evil", false},
-		{"https://erp-dev.wg.maizuo.com.attacker.com", false},
-		{"http://erp-dev.wg.maizuo.com", false},
-		{"https://other.wg.maizuo.com", false},
+		{"https://app2.wv.example.com", true},
+		{"https://APP2.wv.example.com", true},
+		{"https://app2.wv.example.com/evil", false},
+		{"https://app2.wv.example.com.attacker.com", false},
+		{"http://app2.wv.example.com", false},
+		{"https://other.wv.example.com", false},
 	}
 	for _, tc := range cases {
 		assert.Equal(t, tc.want, WebVpnCorsOriginAllowed(app, tc.origin), "Origin=%s", tc.origin)
