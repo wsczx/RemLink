@@ -370,15 +370,13 @@ func TestInitIPList_IsInIPList(t *testing.T) {
 	})
 }
 
-// 验证黑名单优先级高于白名单（M-5）
-// 同一 IP 同时出现在两个名单时，显式拒绝优先，避免"加黑"被白名单覆盖无视
-func TestBlacklistPriorityOverWhitelist(t *testing.T) {
+func TestWhitelistPriorityOverBlacklist(t *testing.T) {
 	resetLockManager()
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{
 		AntiBruteForce: true,
 		IPWhiteList:    "10.0.0.1,192.168.1.0/24",
-		IPBlackList:    "10.0.0.1",
+		IPBlackList:    "10.0.0.1,10.0.0.2",
 		MaxBanCount:    5,
 	})
 
@@ -386,8 +384,10 @@ func TestBlacklistPriorityOverWhitelist(t *testing.T) {
 	lm.LoadIPList(IPWhiteList, base.GetCfg().IPWhiteList)
 	lm.LoadIPList(IPBlackList, base.GetCfg().IPBlackList)
 
-	// 同时在白/黑名单：黑名单胜出，Check 拒绝
-	assert.False(t, lm.Check("user1", "10.0.0.1:12345"), "黑白名单同时命中时黑名单应优先")
+	assert.True(t, lm.Check("user1", "10.0.0.1:12345"), "黑白名单同时命中时白名单应优先")
+
+	// 仅在黑名单：拒绝
+	assert.False(t, lm.Check("user1", "10.0.0.2:12345"), "仅黑名单命中应拒绝")
 
 	// 仅在白名单：放行
 	assert.True(t, lm.Check("user1", "192.168.1.50:12345"), "仅白名单命中应放行")

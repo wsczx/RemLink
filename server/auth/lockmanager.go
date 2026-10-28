@@ -146,13 +146,13 @@ func (m *LockManager) Check(username, ipaddr string) bool {
 		return false
 	}
 
-	// 黑名单优先于白名单：显式拒绝优先，避免管理员"加黑"被白名单覆盖无视
+	// 白名单优先于黑名单
+	if m.InList(ip, IPWhiteList) {
+		return true
+	}
 	if m.InList(ip, IPBlackList) {
 		m.warnRateLimited(warnKeyBlacklist+ip, func() { base.Warn("IP", ip, "在黑名单中，拒绝访问") })
 		return false
-	}
-	if m.InList(ip, IPWhiteList) {
-		return true
 	}
 
 	if !base.GetCfg().AntiBruteForce {
