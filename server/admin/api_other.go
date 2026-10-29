@@ -90,6 +90,35 @@ func SetOtherSmtpEdit(w http.ResponseWriter, r *http.Request) {
 	dbdata.AdminLog("系统设置", "SMTP配置", "修改了SMTP配置", r.RemoteAddr)
 }
 
+func SetOtherSmtpTest(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		To string `json:"to"`
+	}
+	if err := readJSON(w, r, 1<<21, &req); err != nil {
+		return
+	}
+	if req.To == "" {
+		RespError(w, RespParamErr, errors.New("测试邮箱不能为空"))
+		return
+	}
+
+	smtpCfg := &dbdata.SettingSmtp{}
+	if err := dbdata.SettingGet(smtpCfg); err != nil {
+		RespError(w, RespInternalErr, errors.New("SMTP配置未找到"))
+		return
+	}
+	if smtpCfg.Host == "" {
+		RespError(w, RespParamErr, errors.New("SMTP服务未配置"))
+		return
+	}
+
+	if err := notify.SendEmailTest(smtpCfg, req.To); err != nil {
+		RespError(w, RespInternalErr, err)
+		return
+	}
+	RespSuccess(w, "邮件发送成功")
+}
+
 func SetOther(w http.ResponseWriter, r *http.Request) {
 	data := &dbdata.SettingOther{}
 	setOtherGet(data, w)
