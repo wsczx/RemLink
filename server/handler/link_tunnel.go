@@ -86,6 +86,7 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 	// 出口ip
 	exportIp4 := r.Header.Get("X-Cstp-Remote-Address-Ip4")
 	mobile := r.Header.Get("X-Cstp-License")
+	// mobile := cSess.Sess.Os == 4 || cSess.Sess.Os == 5
 
 	// 设置 mtu
 	if cSess.Mtu == 0 {
@@ -130,6 +131,7 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 		Info:            connInfo,
 		DeviceType:      sess.DeviceType,
 		PlatformVersion: sess.PlatformVersion,
+		Os:              sess.Os,
 	}, cSess.UserAgent)
 
 	// 检测密码套件

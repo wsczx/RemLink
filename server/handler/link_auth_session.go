@@ -173,6 +173,7 @@ func CreateSession(w http.ResponseWriter, authSession *AuthSession) {
 	sess.UserAgent = ctx.Conn.UserAgent
 	sess.DeviceType = ua.DeviceType
 	sess.PlatformVersion = ua.PlatformVersion
+	sess.Os = ua.Os
 	sess.RemoteAddr = ctx.Conn.RemoteAddr
 	sess.UniqueMac = true
 	macHw, err := net.ParseMAC(oriMac)

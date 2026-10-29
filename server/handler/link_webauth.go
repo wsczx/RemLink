@@ -60,7 +60,7 @@ func handlerWebAuth(w http.ResponseWriter, r *http.Request, cr *ClientRequest, u
 				UserAgent:   cr.UserAgent,
 				MacAddr:     cr.MacAddressList.MacAddress,
 				DeviceID:    cr.DeviceId.UniqueIdGlobal,
-				DeviceType:  cr.DeviceId.DeviceType,
+				DeviceType:  cr.DeviceId.Type(),
 				PlatformVer: cr.DeviceId.PlatformVersion,
 				TLS:         certTLS,
 			},
