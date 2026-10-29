@@ -50,6 +50,21 @@
               </el-form>
             </div>
 
+            <!-- 测试发送 -->
+            <div class="setting-card">
+              <div class="setting-card-title"><i class="el-icon-s-promotion"></i> 测试发送</div>
+              <el-form label-width="110px" class="email-form">
+                <el-form-item label="测试邮箱">
+                  <el-input v-model="smtpTestTo" placeholder="如 test@example.com" style="width:240px"
+                    size="small"></el-input>
+                  <el-button size="small" type="primary" icon="el-icon-s-promotion" :loading="smtpTestLoading"
+                    @click="testEmail" style="margin-left:10px">
+                    发送测试
+                  </el-button>
+                </el-form-item>
+              </el-form>
+            </div>
+
             <div class="setting-actions">
               <el-button type="primary" icon="el-icon-check" @click="submitForm('dataSmtp')">保存设置</el-button>
               <el-button icon="el-icon-refresh" @click="resetForm('dataSmtp')">重置</el-button>
@@ -619,6 +634,8 @@ export default {
       ],
       smsTestPhone: "",
       smsTestLoading: false,
+      smtpTestTo: "",
+      smtpTestLoading: false,
       certMailTemplateLoading: false,
       rules: {
         host: { required: true, message: "请输入服务器地址", trigger: "blur" },
@@ -754,6 +771,25 @@ export default {
         this.$message.error("请求失败");
       }).finally(() => {
         this.smsTestLoading = false;
+      });
+    },
+    testEmail() {
+      if (!this.smtpTestTo) {
+        this.$message.warning("请输入测试邮箱");
+        return;
+      }
+      this.smtpTestLoading = true;
+      axios.post("/set/other/smtp/test", { to: this.smtpTestTo }).then((resp) => {
+        var rdata = resp.data;
+        if (rdata.code === 0) {
+          this.$message.success("测试邮件发送成功");
+        } else {
+          this.$message.error(rdata.msg);
+        }
+      }).catch(() => {
+        this.$message.error("请求失败");
+      }).finally(() => {
+        this.smtpTestLoading = false;
       });
     },
     getAuditLog() {
