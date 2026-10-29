@@ -12,6 +12,8 @@
 - 修复 openconnect（Linux/Windows）操作系统显示为 Unknown 的问题
 - 修复 openconnect 客户端类型被误识别为 AnyConnect 的问题
 - 修复 openconnect 版本号识别为空的问题
+- 修复：Trace 日志中解析后的请求结构体仍以明文打印用户密码、二次密码、SSO token、OTP 密钥的问题
+- 修复：历史系统日志（按天查询）丢失多行日志的问题
 
 ### 调整
 
