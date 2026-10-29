@@ -48,7 +48,7 @@ func CheckUpgrade(w http.ResponseWriter, r *http.Request) {
 		"upgrade_source":  info.UpgradeSource,
 		"latest":          info,
 	}
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 // 后台执行升级：下载/替换/重启，并同步进度到全局 upgradeState（非阻塞）
@@ -111,7 +111,7 @@ func handleUpgradeStart(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, err.Error())
 		return
 	}
-	RespSucess(w, map[string]any{"message": "upgrade scheduled", "version": version})
+	RespSuccess(w, map[string]any{"message": "upgrade scheduled", "version": version})
 }
 
 // 本机升级（SSE 流式）：复用 triggerUpgrade 触发后台升级，再轮询全局状态推流
@@ -155,20 +155,29 @@ func StartUpgrade(w http.ResponseWriter, r *http.Request) {
 func UpgradeStatusHandler(w http.ResponseWriter, r *http.Request) {
 	upgradeMux.Lock()
 	state := upgradeState
+	var (
+		running  bool
+		stage    string
+		progress int
+		errStr   string
+	)
+	if state != nil {
+		running, stage, progress, errStr = state.Running, state.Stage, state.Progress, state.Error
+	}
 	upgradeMux.Unlock()
 
 	if state == nil {
-		RespSucess(w, map[string]any{
+		RespSuccess(w, map[string]any{
 			"running": false,
 			"stage":   "idle",
 		})
 		return
 	}
 
-	RespSucess(w, map[string]any{
-		"running":  state.Running,
-		"stage":    state.Stage,
-		"progress": state.Progress,
-		"error":    state.Error,
+	RespSuccess(w, map[string]any{
+		"running":  running,
+		"stage":    stage,
+		"progress": progress,
+		"error":    errStr,
 	})
 }

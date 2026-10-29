@@ -85,7 +85,9 @@ func ForcePwdPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	t, _ := template.New("force_pwd").Parse(forcePwdPageHTML)
-	_ = t.Execute(w, map[string]string{"State": state})
+	if err := t.Execute(w, map[string]string{"State": state}); err != nil {
+		base.Error("渲染强制改密页面失败:", err)
+	}
 }
 
 // 处理改密提交（POST /+CSCOE+/force-pwd/submit）
@@ -147,7 +149,9 @@ func forcePwdMessage(w http.ResponseWriter, msg, state string, success bool) {
 	w.WriteHeader(http.StatusOK)
 	if state != "" {
 		t, _ := template.New("force_pwd_err").Parse(forcePwdPageHTML)
-		_ = t.Execute(w, map[string]string{"State": state, "Error": msg})
+		if err := t.Execute(w, map[string]string{"State": state, "Error": msg}); err != nil {
+			base.Error("渲染强制改密错误页失败:", err)
+		}
 		return
 	}
 	iconColor, iconChar, title := "linear-gradient(135deg,#67c23a,#85ce61)", "&#10003;", "操作完成"

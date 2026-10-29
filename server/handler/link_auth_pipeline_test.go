@@ -16,6 +16,7 @@ import (
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/dbtest"
 	"github.com/wsczx/remlink/pkg/security"
 	"github.com/xlzd/gotp"
 )
@@ -41,12 +42,11 @@ func createTestPolicyGroup(t *testing.T, groupName string, authProfile json.RawM
 func TestLocalPlusOtp_FullFlow(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	group := "local-otp-group"
 	username := "local-otp-user"
-	password := "test12" // 6 字符且不含 OTP，local 步骤不做 OTP 剥离
+	password := "test12"
 	otpSecret := "JBSWY3DPEHPK3PXP"
 
 	profile := auth.GroupAuthProfile{
@@ -100,8 +100,7 @@ func TestLocalPlusOtp_FullFlow(t *testing.T) {
 func TestLocalPlusOtp_WrongPassword(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	group := "local-wrong-group"
 	username := "wrong-pass-user"
@@ -128,8 +127,7 @@ func TestLocalPlusOtp_WrongPassword(t *testing.T) {
 func TestCertPlusOtp_CertPassesThenOtpChallenge(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	group := "cert-otp-group"
 	username := "cert-user"
@@ -167,8 +165,7 @@ func TestCertPlusOtp_CertPassesThenOtpChallenge(t *testing.T) {
 func TestCertPlusOtp_NoTLS_ImmediateFail(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	group := "cert-notls-group"
 	profile := auth.GroupAuthProfile{Step: []auth.AuthMethodConfig{{Type: "cert"}, {Type: "otp"}}}
@@ -189,8 +186,7 @@ func TestCertPlusOtp_NoTLS_ImmediateFail(t *testing.T) {
 func TestResume_InvalidSessionCookie(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	// → 回退首次认证 → 组不存在
 	body := buildAuthReplyBody("anyone", "", "notexist-group", "123456")
@@ -206,8 +202,7 @@ func TestResume_InvalidSessionCookie(t *testing.T) {
 func TestResume_ExpiredSession(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	group := "expired-session-group"
 	username := "expired-user"
@@ -247,8 +242,7 @@ func TestResume_ExpiredSession(t *testing.T) {
 
 func TestLinkAuth_Init_ReturnsLoginForm(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	group := "init-test-group"
 	createTestPolicyGroup(t, group, nil)
@@ -266,8 +260,7 @@ func TestLinkAuth_Init_ReturnsLoginForm(t *testing.T) {
 func TestSsoToken_WithOtp_PreservesIdentity(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	group := "sso-otp-flow-group"
 	username := "sso-otp-flow-user"
@@ -296,6 +289,7 @@ func TestSsoToken_WithOtp_PreservesIdentity(t *testing.T) {
 
 	ssoToken := "sso-token-for-otp-test"
 	AuthSessionManager.Save(ssoToken, &AuthSession{
+		Kind: AuthKindSSODone,
 		Ctx: &auth.Context{
 			Conn: auth.ConnInfo{Username: username, GroupName: group},
 			SSO: &auth.SSOState{

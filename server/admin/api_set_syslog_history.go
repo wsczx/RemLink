@@ -34,7 +34,7 @@ var syslogLineRe = regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\s+
 
 // 返回历史日志是否可用（后台已配置 log_path）
 func SyslogHistoryEnabled(w http.ResponseWriter, r *http.Request) {
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"enabled": base.GetCfg().LogPath != "",
 	})
 }
@@ -72,7 +72,7 @@ func SyslogHistoryDates(w http.ResponseWriter, r *http.Request) {
 	for i, j := 0, len(dates)-1; i < j; i, j = i+1, j-1 {
 		dates[i], dates[j] = dates[j], dates[i]
 	}
-	RespSucess(w, map[string]any{"dates": dates})
+	RespSuccess(w, map[string]any{"dates": dates})
 }
 
 // 按天查询历史日志，支持级别过滤、关键字匹配与分页
@@ -122,7 +122,7 @@ func SyslogHistoryList(w http.ResponseWriter, r *http.Request) {
 	}
 	if f == nil {
 		if os.IsNotExist(openErr) {
-			RespSucess(w, map[string]any{
+			RespSuccess(w, map[string]any{
 				"count":     0,
 				"page":      page,
 				"page_size": pageSize,
@@ -140,6 +140,7 @@ func SyslogHistoryList(w http.ResponseWriter, r *http.Request) {
 	end := start + pageSize
 	total := 0
 	datas := make([]SyslogHistoryEntry, 0, min(pageSize, end-start))
+	lastIdx := -1
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 1024*1024), 4*1024*1024) // 支持长行
@@ -147,14 +148,20 @@ func SyslogHistoryList(w http.ResponseWriter, r *http.Request) {
 		line := scanner.Text()
 		m := syslogLineRe.FindStringSubmatch(line)
 		if m == nil {
+			// 拼接上一条处于窗口内的条目
+			if lastIdx >= 0 {
+				datas[lastIdx].Msg += "\n" + strings.TrimRight(line, "\r")
+			}
 			continue
 		}
 		lvl := m[3]
+		msg := strings.TrimRight(m[4], "\r\n")
 		if level != "" && !strings.EqualFold(lvl, level) {
+			lastIdx = -1
 			continue
 		}
-		msg := strings.TrimRight(m[4], "\n")
 		if keyword != "" && !strings.Contains(msg, keyword) {
+			lastIdx = -1
 			continue
 		}
 
@@ -168,6 +175,9 @@ func SyslogHistoryList(w http.ResponseWriter, r *http.Request) {
 				Time:  timeStr,
 				Msg:   msg,
 			})
+			lastIdx = len(datas) - 1
+		} else {
+			lastIdx = -1
 		}
 		total++
 	}
@@ -182,7 +192,7 @@ func SyslogHistoryList(w http.ResponseWriter, r *http.Request) {
 		dbdata.AdminLog("系统设置", "查看历史系统日志:"+date, detail, r.RemoteAddr)
 	}
 
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"count":     total,
 		"page":      page,
 		"page_size": pageSize,
@@ -242,7 +252,7 @@ func ClusterSyslogHistory(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, hr.Msg)
 		return
 	}
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"count":     hr.Data.Count,
 		"page":      hr.Data.Page,
 		"page_size": hr.Data.PageSize,

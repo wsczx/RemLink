@@ -14,6 +14,7 @@ import (
 	"github.com/wsczx/remlink/auth/authsrv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/sessdata"
 )
 
@@ -30,7 +31,7 @@ func LinkAuth(w http.ResponseWriter, r *http.Request) {
 	if base.GetLogLevel() == base.LogLevelTrace {
 		hd, err := httputil.DumpRequest(r, true)
 		if err == nil {
-			base.Trace("LinkAuth: ", string(hd))
+			base.Trace("LinkAuth: ", utils.RedactSensitive(string(hd)))
 		}
 	}
 
@@ -63,15 +64,22 @@ func LinkAuth(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	base.Trace(fmt.Sprintf("%+v \n", cr))
+	if base.GetLogLevel() == base.LogLevelTrace {
+		if b, err := xml.MarshalIndent(cr, "", "  "); err == nil {
+			base.Trace("LinkAuth parsed request:\n" + utils.RedactSensitive(string(b)))
+		} else {
+			base.Trace("LinkAuth: 结构化日志序列化失败，已跳过")
+		}
+	}
 	// 用户活动日志
 	ua := &dbdata.UserActLog{
 		Username:        cr.Auth.Username,
 		GroupName:       cr.GroupSelect,
 		RemoteAddr:      r.RemoteAddr,
 		Status:          dbdata.UserAuthSuccess,
-		DeviceType:      cr.DeviceId.DeviceType,
+		DeviceType:      cr.DeviceId.Type(),
 		PlatformVersion: cr.DeviceId.PlatformVersion,
+		Os:              dbdata.UserActLogIns.OSIdx(cr.DeviceId.OS()),
 	}
 
 	// 退出登录
@@ -91,7 +99,7 @@ func LinkAuth(w http.ResponseWriter, r *http.Request) {
 	// 空组处理
 	if cr.GroupSelect == "" {
 		if cr.Auth.SsoToken != "" || cr.Type == "init" {
-			base.Trace("允许 SSO 认证请求通过，SsoToken:", cr.Auth.SsoToken, "访问IP", r.RemoteAddr)
+			base.Trace("允许 SSO 认证请求通过，访问IP", r.RemoteAddr)
 		} else if !strings.Contains(userAgent, "openconnect") {
 			w.WriteHeader(http.StatusBadRequest)
 			return
@@ -125,7 +133,10 @@ func LinkAuth(w http.ResponseWriter, r *http.Request) {
 	// init 请求处理
 	if cr.Type == "init" {
 		// OpenConnect 不支持 WebAuth SAML 流程，走标准 init
-		if base.GetCfg().EnableWebAuth && !strings.Contains(userAgent, "openconnect") {
+		if base.GetCfg().EnableWebAuth &&
+			strings.Contains(userAgent, "anyconnect") &&
+			!strings.Contains(userAgent, "openconnect") &&
+			!strings.Contains(userAgent, "open anyconnect") {
 			handlerWebAuth(w, r, cr, ua)
 			return
 		}
@@ -294,14 +305,26 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 		}
 	}
 
+	// SSO token 仅能兑换 SSO 流程产生的会话
+	// 拒绝把 OTP-pending 等认证管道会话的 id 当作 SSO token 重放冒用
+	switch samlSession.Kind {
+	case AuthKindSSODone, AuthKindSSOPending, AuthKindWebAuth:
+		// 合法来源
+	default:
+		base.Error("SSO token 指向非 SSO 会话，已拒绝: kind=", samlSession.Kind)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
 	// 强制改密会话
 	if samlSession.ForcePwd {
 		resumeAuthSession(w, r, samlSession)
 		return
 	}
 
-	// WebAuth完成直接创建会话
-	if samlSession.Ctx != nil && samlSession.Ctx.SSO != nil && samlSession.Ctx.SSO.WebAuthCompleted {
+	// WebAuth完成直接创建会话（要求会话确为 WebAuth 流程完成，防止管道会话冒用）
+	if samlSession.Kind == AuthKindWebAuth && samlSession.Ctx != nil &&
+		samlSession.Ctx.SSO != nil && samlSession.Ctx.SSO.WebAuthCompleted {
 		username := samlSession.Ctx.SSO.WebAuthUsername
 		groupName := samlSession.Ctx.SSO.WebAuthGroup
 		nickname := samlSession.Ctx.SSO.WebAuthNickname

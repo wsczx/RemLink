@@ -11,6 +11,7 @@ import (
 	"text/template"
 
 	"github.com/wsczx/remlink/auth/authsrv"
+	"github.com/wsczx/remlink/base"
 )
 
 const (
@@ -54,7 +55,9 @@ func tplRequest(typ int, w io.Writer, data RequestData) {
 	switch typ {
 	case tpl_request:
 		t, _ := template.New("auth_request").Parse(auth_request)
-		_ = t.Execute(w, data)
+		if err := t.Execute(w, data); err != nil {
+			base.Error("渲染认证模板失败:", err)
+		}
 	case tpl_complete:
 		if data.Banner != "" {
 			buf := new(bytes.Buffer)
@@ -62,19 +65,29 @@ func tplRequest(typ int, w io.Writer, data RequestData) {
 			data.Banner = buf.String()
 		}
 		t, _ := template.New("auth_complete").Parse(auth_complete)
-		_ = t.Execute(w, data)
+		if err := t.Execute(w, data); err != nil {
+			base.Error("渲染认证模板失败:", err)
+		}
 	case tpl_otp:
 		t, _ := template.New("auth_otp").Parse(auth_otp)
-		_ = t.Execute(w, data)
+		if err := t.Execute(w, data); err != nil {
+			base.Error("渲染认证模板失败:", err)
+		}
 	case tpl_request_saml:
 		t, _ := template.New("auth_request_saml").Parse(auth_request_saml)
-		_ = t.Execute(w, data)
+		if err := t.Execute(w, data); err != nil {
+			base.Error("渲染认证模板失败:", err)
+		}
 	case tpl_accept_challenge:
 		t, _ := template.New("accept_challenge").Parse(accept_challenge)
-		_ = t.Execute(w, data)
+		if err := t.Execute(w, data); err != nil {
+			base.Error("渲染认证模板失败:", err)
+		}
 	case tpl_request_force_pwd:
 		t, _ := template.New("auth_request_force_pwd").Parse(auth_request_force_pwd)
-		_ = t.Execute(w, data)
+		if err := t.Execute(w, data); err != nil {
+			base.Error("渲染认证模板失败:", err)
+		}
 	}
 }
 
@@ -142,7 +155,7 @@ var auth_otp = `<?xml version="1.0" encoding="UTF-8"?>
         <title>OTP 动态码验证</title>
         <message>请输入您的 OTP 动态码</message>
         {{if .Error}}
-        <error id="otp-verification" param1="{{.Error}}" param2="">验证失败:  %s</error>
+        <error id="otp-verification" param1="{{.Error}}" param2="">验证失败: {{.Error}}</error>
         {{end}}		
         <form method="post" action="/otp-verification">
             <input type="password" name="secondary_password" label="OTPCode:"/>
@@ -192,7 +205,7 @@ var accept_challenge = `<?xml version="1.0" encoding="UTF-8"?>
     </auth>
 </config-auth>`
 
-// ds_domains_xml 动态分流域名配置模板（由 link_tunnel.go 使用）
+// 动态分流域名配置模板
 var ds_domains_xml = `
 <?xml version="1.0" encoding="UTF-8"?>
 <config-auth client="vpn" type="complete" aggregate-auth-version="2">
@@ -210,15 +223,8 @@ var ds_domains_xml = `
 </config-auth>
 `
 
-// samlSuccessHTML SAML 认证成功页面
-var samlSuccessHTML = `
-<!DOCTYPE html>
-<html>
-<head>
-    <title>认证成功 - 请关闭</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
+// SAML 认证成功/失败页共享样式；图标色与 h1 字号按场景覆盖
+const samlPageCSS = `
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             background: #f5f5f5;
@@ -240,13 +246,16 @@ var samlSuccessHTML = `
         }
         .icon {
             font-size: 56px;
-            color: #4CAF50; 
             margin-bottom: 24px;
         }
         h1 {
             color: #303133;
-            font-size: 28px;
             margin-bottom: 15px;
+        }
+        .error-message {
+            color: #e6a23c;
+            font-size: 16px;
+            margin-bottom: 20px;
         }
         .detail {
             color: #606266;
@@ -259,7 +268,18 @@ var samlSuccessHTML = `
             margin-top: 30px;
             border-top: 1px solid #e4e7ed;
             padding-top: 20px;
-        }
+        }`
+
+// SAML 认证成功页面
+var samlSuccessHTML = `<!DOCTYPE html>
+<html>
+<head>
+    <title>认证成功 - 请关闭</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>` + samlPageCSS + `
+        .icon { color: #4CAF50; }
+        h1 { font-size: 28px; }
     </style>
     <script>
         function tryCloseWindow() {

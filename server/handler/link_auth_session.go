@@ -17,6 +17,15 @@ import (
 	"github.com/wsczx/remlink/sessdata"
 )
 
+// 认证会话来源标记：确保 SSO token 只能兑换 SSO 流程产生的会话
+// 杜绝“等待第二因素”的认证管道会话被当作 SSO 会话重放冒用
+const (
+	AuthKindPipeline   = "pipeline"     // 原生客户端/门户认证管道会话（含 OTP/RADIUS/SMS 等待断点）
+	AuthKindSSOPending = "sso-pending"  // SSO OAuth 已发起、等待回调
+	AuthKindSSODone    = "sso-done"     // SSO 回调已完成（completeSSO）
+	AuthKindWebAuth    = "webauth-done" // WebAuth 门户管道已全部通过
+)
+
 // 临时认证会话存储
 // 步骤状态、用户信息、连接信息、Resume 断点均保存在 Ctx 内
 type AuthSession struct {
@@ -25,6 +34,7 @@ type AuthSession struct {
 	UserActLog *dbdata.UserActLog // 审计日志
 	ForcePwd   bool               // 强制改密会话
 	CreatedAt  time.Time
+	Kind       string // 会话来源：pipeline / sso-pending / sso-done / webauth-done
 }
 
 // 会话管理器（单例）
@@ -163,6 +173,7 @@ func CreateSession(w http.ResponseWriter, authSession *AuthSession) {
 	sess.UserAgent = ctx.Conn.UserAgent
 	sess.DeviceType = ua.DeviceType
 	sess.PlatformVersion = ua.PlatformVersion
+	sess.Os = ua.Os
 	sess.RemoteAddr = ctx.Conn.RemoteAddr
 	sess.UniqueMac = true
 	macHw, err := net.ParseMAC(oriMac)

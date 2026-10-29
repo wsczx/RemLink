@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestRespSucess(t *testing.T) {
+func TestRespSuccess(t *testing.T) {
 	assert := assert.New(t)
 	w := httptest.NewRecorder()
-	RespSucess(w, "data")
+	RespSuccess(w, "data")
 	assert.Equal(w.Code, 200)
 	body, _ := io.ReadAll(w.Body)
 	res := Resp{}

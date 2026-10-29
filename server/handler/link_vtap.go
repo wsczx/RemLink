@@ -30,9 +30,9 @@ func (v *Vtap) Close() error {
 	var err error
 	v.closeOnce.Do(func() {
 		v.File.Close()
-		link, e := netlink.LinkByName(v.ifName)
-		if e != nil {
-			err = e
+		link, linkErr := netlink.LinkByName(v.ifName)
+		if linkErr != nil {
+			err = linkErr
 			return
 		}
 		err = netlink.LinkDel(link)

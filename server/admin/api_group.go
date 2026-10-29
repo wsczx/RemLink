@@ -2,9 +2,7 @@ package admin
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
-	"strconv"
 
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
@@ -16,17 +14,7 @@ import (
 // 返回所有用户组的分页列表
 func GroupList(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
-	pageS := r.FormValue("page")
-	page, _ := strconv.Atoi(pageS)
-	if page < 1 {
-		page = 1
-	}
-
-	pageSizeS := r.FormValue("page_size")
-	pageSize, _ := strconv.Atoi(pageSizeS)
-	if pageSize <= 0 {
-		pageSize = dbdata.PageSize
-	}
+	page, pageSize := parsePaging(r)
 
 	count := dbdata.CountAll(&dbdata.Group{})
 
@@ -64,7 +52,7 @@ func GroupList(w http.ResponseWriter, r *http.Request) {
 		"stats_multi_auth": statWithAuth,
 	}
 
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 // 判断用户组的认证配置是否包含不少于 2 个认证步骤（即"组合认证"）
@@ -92,7 +80,7 @@ func GroupNames(w http.ResponseWriter, r *http.Request) {
 		"page_size": 0,
 		"datas":     names,
 	}
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 // 返回所有用户组的 ID-名称映射
@@ -106,16 +94,13 @@ func GroupNamesIds(w http.ResponseWriter, r *http.Request) {
 		"page_size": 0,
 		"datas":     names,
 	}
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 // 获取单个用户组的详细信息
 func GroupDetail(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	idS := r.FormValue("id")
-	id, _ := strconv.Atoi(idS)
-	if id < 1 {
-		RespError(w, RespParamErr, "Id错误")
+	id, ok := parseID(w, r, "Id错误")
+	if !ok {
 		return
 	}
 
@@ -146,22 +131,13 @@ func GroupDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	RespSucess(w, resp)
+	RespSuccess(w, resp)
 }
 
 // 新增或更新用户组配置
 func GroupSet(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<23) // 8MB
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
 	v := &dbdata.Group{}
-	err = json.Unmarshal(body, v)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
+	if err := readJSON(w, r, 1<<23, v); err != nil { // 8MB
 		return
 	}
 
@@ -170,8 +146,7 @@ func GroupSet(w http.ResponseWriter, r *http.Request) {
 		dbdata.One("Id", v.Id, &oldGroup)
 	}
 
-	err = dbdata.SetGroup(v)
-	if err != nil {
+	if err := dbdata.SetGroup(v); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
@@ -190,45 +165,28 @@ func GroupSet(w http.ResponseWriter, r *http.Request) {
 	dbdata.SyncExternalUsersForOTP(v)
 
 	dbdata.AdminLog("用户组管理", v.Name, "创建/修改了用户组", r.RemoteAddr)
-	RespSucess(w, nil)
+	RespSuccess(w, nil)
 }
 
 // 删除指定用户组
 func GroupDel(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	idS := r.FormValue("id")
-	id, _ := strconv.Atoi(idS)
-	if id < 1 {
-		RespError(w, RespParamErr, "Id错误")
-		return
-	}
+	delByID(w, r, "Id错误", func(g *dbdata.Group) {
+		// 删除组后可能移除了最后一个 cert 组，立即使证书认证缓存失效
+		dbdata.InvalidateCertAuthCache()
 
-	// 先查出组名称用于审计
-	g := &dbdata.Group{}
-	dbdata.One("Id", id, g)
+		// 清理该组在防火墙里的 NAT/转发规则，避免删除后规则残留至整机重启
+		sessdata.RemoveGroupNAT(g.ClientCidr, g.ClientCidr6, g.OutDev)
 
-	data := dbdata.Group{Id: id}
-	err := dbdata.Del(&data)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	// 删除组后可能移除了最后一个 cert 组，立即使证书认证缓存失效
-	dbdata.InvalidateCertAuthCache()
+		// 删除用户组后，组内成员重新签发 WebVPN 会话（异步，避免阻塞响应）
+		base.SafeGo(func() { dbdata.WebVpnRevokeGroupMembers([]string{g.Name}) })
 
-	// 清理该组在防火墙里的 NAT/转发规则，避免删除后规则残留至整机重启
-	sessdata.RemoveGroupNAT(g.ClientCidr, g.ClientCidr6, g.OutDev)
+		// 同步清理各用户 Groups 字段里的已删组名，避免用户列表残留
+		if err := dbdata.RemoveGroupFromUsers(g.Name); err != nil {
+			base.Error(err)
+		}
 
-	// 删除用户组后，组内成员重新签发 WebVPN 会话（异步，避免阻塞响应）
-	go dbdata.WebVpnRevokeGroupMembers([]string{g.Name})
-
-	// 同步清理各用户 Groups 字段里的已删组名，避免用户列表残留
-	if err := dbdata.RemoveGroupFromUsers(g.Name); err != nil {
-		base.Error(err)
-	}
-
-	dbdata.AdminLog("用户组管理", g.Name, "删除了用户组", r.RemoteAddr)
-	RespSucess(w, nil)
+		dbdata.AdminLog("用户组管理", g.Name, "删除了用户组", r.RemoteAddr)
+	})
 }
 
 // 测试用户组认证配置
@@ -239,17 +197,8 @@ func GroupAuthLogin(w http.ResponseWriter, r *http.Request) {
 		AuthProfile json.RawMessage `json:"auth_profile"`
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
 	v := &AuthLoginData{}
-	err = json.Unmarshal(body, &v)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
+	if err := readJSON(w, r, 1<<16, v); err != nil {
 		return
 	}
 	// 接入防暴力破解：测试接口携带真实凭据，须受 LockManager 约束
@@ -257,15 +206,14 @@ func GroupAuthLogin(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespParamErr, "尝试次数过多，请稍后再试")
 		return
 	}
-	err = dbdata.GroupAuthLogin(v.Name, v.Pwd, v.AuthProfile)
-	if err != nil {
+	if err := dbdata.GroupAuthLogin(v.Name, v.Pwd, v.AuthProfile); err != nil {
 		auth.GetLockManager().Fail(v.Name, r.RemoteAddr)
 		RespError(w, RespInternalErr, err)
 		return
 	}
 	auth.GetLockManager().Success(v.Name, r.RemoteAddr)
 	dbdata.AdminLog("用户组管理", v.Name, "测试了用户组认证登录", r.RemoteAddr)
-	RespSucess(w, "ok")
+	RespSuccess(w, "ok")
 }
 
 // 测试 Provider 的认证功能（LDAP/RADIUS）
@@ -275,17 +223,9 @@ func ProviderAuthLogin(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 		Pwd  string `json:"pwd"`
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
 
 	req := &Req{}
-	if err := json.Unmarshal(body, req); err != nil {
-		RespError(w, RespParamErr, "参数错误")
+	if err := readJSON(w, r, 1<<16, req); err != nil {
 		return
 	}
 
@@ -329,7 +269,7 @@ func ProviderAuthLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	auth.GetLockManager().Success(req.Name, r.RemoteAddr)
 	dbdata.AdminLog("Provider管理", p.Name, "测试了Provider认证登录("+p.Type+")", r.RemoteAddr)
-	RespSucess(w, "ok")
+	RespSuccess(w, "ok")
 }
 
 // 同步指定 Provider（LDAP/企微）的用户到本地
@@ -338,17 +278,9 @@ func ProviderSyncUsers(w http.ResponseWriter, r *http.Request) {
 		Id        int    `json:"id"`
 		GroupName string `json:"group_name"`
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
 
 	req := &Req{}
-	if err := json.Unmarshal(body, req); err != nil {
-		RespError(w, RespParamErr, "参数错误")
+	if err := readJSON(w, r, 1<<16, req); err != nil {
 		return
 	}
 
@@ -383,15 +315,15 @@ func ProviderSyncUsers(w http.ResponseWriter, r *http.Request) {
 			RespError(w, RespInternalErr, err)
 			return
 		}
-		go func() {
+		base.SafeGo(func() {
 			if err := authLdap.SaveUsers(g); err != nil {
 				base.Error("LDAP用户同步失败:", err)
 			} else {
 				base.Info("LDAP用户同步成功")
 			}
-		}()
+		})
 		dbdata.AdminLog("用户组管理", req.GroupName, "同步LDAP用户", r.RemoteAddr)
-		RespSucess(w, "正在后台同步 LDAP 用户，请查看后台日志确认同步结果")
+		RespSuccess(w, "正在后台同步 LDAP 用户，请查看后台日志确认同步结果")
 		return
 	}
 
@@ -402,13 +334,13 @@ func ProviderSyncUsers(w http.ResponseWriter, r *http.Request) {
 			RespError(w, RespInternalErr, err)
 			return
 		}
-		go func() {
+		base.SafeGo(func() {
 			if err := authWx.SaveUsers(g); err != nil {
 				base.Error("企微用户同步失败, 组:", g.Name, ", err:", err)
 			}
-		}()
+		})
 		dbdata.AdminLog("用户组管理", req.GroupName, "同步企微用户", r.RemoteAddr)
-		RespSucess(w, "正在后台同步企业微信用户，请查看后台日志确认同步结果")
+		RespSuccess(w, "正在后台同步企业微信用户，请查看后台日志确认同步结果")
 		return
 	}
 
@@ -419,13 +351,13 @@ func ProviderSyncUsers(w http.ResponseWriter, r *http.Request) {
 			RespError(w, RespInternalErr, err)
 			return
 		}
-		go func() {
+		base.SafeGo(func() {
 			if err := authDt.SaveUsers(g); err != nil {
 				base.Error("钉钉用户同步失败, 组:", g.Name, ", err:", err)
 			}
-		}()
+		})
 		dbdata.AdminLog("用户组管理", req.GroupName, "同步钉钉用户", r.RemoteAddr)
-		RespSucess(w, "正在后台同步钉钉用户，请查看后台日志确认同步结果")
+		RespSuccess(w, "正在后台同步钉钉用户，请查看后台日志确认同步结果")
 		return
 	}
 
@@ -435,13 +367,13 @@ func ProviderSyncUsers(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	go func() {
+	base.SafeGo(func() {
 		if err := authFs.SaveUsers(g); err != nil {
 			base.Error("飞书用户同步失败, 组:", g.Name, ", err:", err)
 		}
-	}()
+	})
 	dbdata.AdminLog("用户组管理", req.GroupName, "同步飞书用户", r.RemoteAddr)
-	RespSucess(w, "正在后台同步飞书用户，请查看后台日志确认同步结果")
+	RespSuccess(w, "正在后台同步飞书用户，请查看后台日志确认同步结果")
 }
 
 // 检查指定组是否有已签发的客户端证书
@@ -460,7 +392,7 @@ func GroupCertCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"groupname":  groupname,
 		"cert_count": count,
 	})
@@ -489,7 +421,7 @@ func GroupCertAuthCheck(w http.ResponseWriter, r *http.Request) {
 
 	hasCertAuth := dbdata.HasAuthType(g.AuthProfile, "cert")
 
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"groupname":     groupname,
 		"has_cert_auth": hasCertAuth,
 	})
@@ -501,5 +433,5 @@ func GroupIfaces(w http.ResponseWriter, r *http.Request) {
 	if ifaces == nil {
 		ifaces = []string{}
 	}
-	RespSucess(w, map[string]any{"ifaces": ifaces})
+	RespSuccess(w, map[string]any{"ifaces": ifaces})
 }

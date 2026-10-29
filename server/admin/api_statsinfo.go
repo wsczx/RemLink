@@ -30,5 +30,5 @@ func StatsInfoList(w http.ResponseWriter, r *http.Request) {
 	}
 	data := make(map[string]any)
 	data["datas"] = datas
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }

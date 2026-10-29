@@ -1,8 +1,6 @@
 package admin
 
 import (
-	"encoding/json"
-	"io"
 	"net/http"
 	"strconv"
 
@@ -12,17 +10,7 @@ import (
 // 返回所有策略的分页列表
 func PolicyList(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
-	pageS := r.FormValue("page")
-	page, _ := strconv.Atoi(pageS)
-	if page < 1 {
-		page = 1
-	}
-
-	pageSizeS := r.FormValue("page_size")
-	pageSize, _ := strconv.Atoi(pageSizeS)
-	if pageSize <= 0 {
-		pageSize = dbdata.PageSize
-	}
+	page, pageSize := parsePaging(r)
 
 	count := dbdata.CountAll(&dbdata.Policy{})
 
@@ -80,7 +68,7 @@ func PolicyList(w http.ResponseWriter, r *http.Request) {
 		"stats_quota":   statQuota,
 	}
 
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 // 返回已启用策略的 ID-名称列表（供用户/组编辑下拉选择）
@@ -94,7 +82,7 @@ func PolicyNames(w http.ResponseWriter, r *http.Request) {
 		"page_size": 0,
 		"datas":     names,
 	}
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 // 返回全部策略的 ID-名称列表（含停用，供管理列表筛选使用）
@@ -108,62 +96,34 @@ func AllPolicyNames(w http.ResponseWriter, r *http.Request) {
 		"page_size": 0,
 		"datas":     names,
 	}
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 // 获取单个策略的详细信息
 func PolicyDetail(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	idS := r.FormValue("id")
-	id, _ := strconv.Atoi(idS)
-	if id < 1 {
-		RespError(w, RespParamErr, "Id错误")
-		return
-	}
-
-	var data dbdata.Policy
-	err := dbdata.One("Id", id, &data)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-
-	RespSucess(w, data)
+	detailByID[dbdata.Policy](w, r, "Id错误")
 }
 
 // 新增或更新策略配置
 func PolicySet(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<23) // 8MB
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
 	v := &dbdata.Policy{}
-	err = json.Unmarshal(body, v)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
+	if err := readJSON(w, r, 1<<23, v); err != nil { // 8MB
 		return
 	}
 
-	err = dbdata.SetPolicy(v)
-	if err != nil {
+	if err := dbdata.SetPolicy(v); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
 
 	dbdata.AdminLog("策略管理", v.Name, "创建/修改了策略", r.RemoteAddr)
-	RespSucess(w, nil)
+	RespSuccess(w, nil)
 }
 
 // 删除指定策略（需检查是否被引用）
 func PolicyDel(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	idS := r.FormValue("id")
-	id, _ := strconv.Atoi(idS)
-	if id < 1 {
-		RespError(w, RespParamErr, "Id错误")
+	id, ok := parseID(w, r, "Id错误")
+	if !ok {
 		return
 	}
 
@@ -185,22 +145,18 @@ func PolicyDel(w http.ResponseWriter, r *http.Request) {
 	dbdata.One("Id", id, p)
 
 	data := dbdata.Policy{Id: id}
-	err := dbdata.Del(&data)
-	if err != nil {
+	if err := dbdata.Del(&data); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
 	dbdata.AdminLog("策略管理", p.Name, "删除了策略", r.RemoteAddr)
-	RespSucess(w, nil)
+	RespSuccess(w, nil)
 }
 
 // 复制策略
 func PolicyCopy(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	idS := r.FormValue("id")
-	id, _ := strconv.Atoi(idS)
-	if id < 1 {
-		RespError(w, RespParamErr, "Id错误")
+	id, ok := parseID(w, r, "Id错误")
+	if !ok {
 		return
 	}
 
@@ -222,7 +178,7 @@ func PolicyCopy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbdata.AdminLog("策略管理", orig.Name, "复制了策略→"+copy.Name, r.RemoteAddr)
-	RespSucess(w, copy)
+	RespSuccess(w, copy)
 }
 
 // 将策略反向应用到指定用户组
@@ -231,17 +187,8 @@ func PolicyApplyToGroups(w http.ResponseWriter, r *http.Request) {
 		PolicyId int   `json:"policy_id"`
 		GroupIds []int `json:"group_ids"`
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
-
 	req := &Req{}
-	if err := json.Unmarshal(body, req); err != nil {
-		RespError(w, RespParamErr, "参数错误")
+	if err := readJSON(w, r, 1<<16, req); err != nil {
 		return
 	}
 	if req.PolicyId < 1 {
@@ -280,7 +227,7 @@ func PolicyApplyToGroups(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbdata.AdminLog("策略管理", p.Name, "将策略应用到"+strconv.Itoa(successCount)+"个用户组", r.RemoteAddr)
-	RespSucess(w, "已成功应用到 "+strconv.Itoa(successCount)+" 个用户组")
+	RespSuccess(w, "已成功应用到 "+strconv.Itoa(successCount)+" 个用户组")
 }
 
 // 将策略反向应用到指定用户
@@ -289,17 +236,8 @@ func PolicyApplyToUsers(w http.ResponseWriter, r *http.Request) {
 		PolicyId int   `json:"policy_id"`
 		UserIds  []int `json:"user_ids"`
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
-
 	req := &Req{}
-	if err := json.Unmarshal(body, req); err != nil {
-		RespError(w, RespParamErr, "参数错误")
+	if err := readJSON(w, r, 1<<16, req); err != nil {
 		return
 	}
 	if req.PolicyId < 1 {
@@ -338,16 +276,13 @@ func PolicyApplyToUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbdata.AdminLog("策略管理", p.Name, "将策略应用到"+strconv.Itoa(successCount)+"个用户", r.RemoteAddr)
-	RespSucess(w, "已成功应用到 "+strconv.Itoa(successCount)+" 个用户")
+	RespSuccess(w, "已成功应用到 "+strconv.Itoa(successCount)+" 个用户")
 }
 
 // 查询策略被哪些组/用户引用
 func PolicyUsedBy(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	idS := r.FormValue("id")
-	id, _ := strconv.Atoi(idS)
-	if id < 1 {
-		RespError(w, RespParamErr, "Id错误")
+	id, ok := parseID(w, r, "Id错误")
+	if !ok {
 		return
 	}
 
@@ -358,7 +293,7 @@ func PolicyUsedBy(w http.ResponseWriter, r *http.Request) {
 		"groups": groups,
 		"users":  users,
 	}
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 // 将指定用户组从该策略移出（仅清除当前引用本策略的组）
@@ -367,17 +302,8 @@ func PolicyRemoveFromGroups(w http.ResponseWriter, r *http.Request) {
 		PolicyId int   `json:"policy_id"`
 		GroupIds []int `json:"group_ids"`
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
-
 	req := &Req{}
-	if err := json.Unmarshal(body, req); err != nil {
-		RespError(w, RespParamErr, "参数错误")
+	if err := readJSON(w, r, 1<<16, req); err != nil {
 		return
 	}
 	if req.PolicyId < 1 {
@@ -414,7 +340,7 @@ func PolicyRemoveFromGroups(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbdata.AdminLog("策略管理", p.Name, "将"+strconv.Itoa(successCount)+"个用户组移出策略", r.RemoteAddr)
-	RespSucess(w, "已成功移出 "+strconv.Itoa(successCount)+" 个用户组")
+	RespSuccess(w, "已成功移出 "+strconv.Itoa(successCount)+" 个用户组")
 }
 
 // 将指定用户从该策略移出（仅清除当前引用本策略的用户）
@@ -423,17 +349,8 @@ func PolicyRemoveFromUsers(w http.ResponseWriter, r *http.Request) {
 		PolicyId int   `json:"policy_id"`
 		UserIds  []int `json:"user_ids"`
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
-
 	req := &Req{}
-	if err := json.Unmarshal(body, req); err != nil {
-		RespError(w, RespParamErr, "参数错误")
+	if err := readJSON(w, r, 1<<16, req); err != nil {
 		return
 	}
 	if req.PolicyId < 1 {
@@ -470,5 +387,5 @@ func PolicyRemoveFromUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbdata.AdminLog("策略管理", p.Name, "将"+strconv.Itoa(successCount)+"个用户移出策略", r.RemoteAddr)
-	RespSucess(w, "已成功移出 "+strconv.Itoa(successCount)+" 个用户")
+	RespSuccess(w, "已成功移出 "+strconv.Itoa(successCount)+" 个用户")
 }

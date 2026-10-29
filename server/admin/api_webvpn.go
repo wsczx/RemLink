@@ -1,10 +1,7 @@
 package admin
 
 import (
-	"encoding/json"
-	"io"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gocarina/gocsv"
@@ -14,7 +11,7 @@ import (
 
 // 返回 WebVPN 泛域名后缀（如 wv.example.com），供前端拼接访问地址
 func WebVpnDomain(w http.ResponseWriter, r *http.Request) {
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"domain": base.GetCfg().WebVpnDomain,
 	})
 }
@@ -22,14 +19,7 @@ func WebVpnDomain(w http.ResponseWriter, r *http.Request) {
 // 返回 WebVPN 应用分页列表
 func WebVpnAppList(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
-	page, _ := strconv.Atoi(r.FormValue("page"))
-	if page < 1 {
-		page = 1
-	}
-	pageSize, _ := strconv.Atoi(r.FormValue("page_size"))
-	if pageSize <= 0 {
-		pageSize = dbdata.PageSize
-	}
+	page, pageSize := parsePaging(r)
 
 	datas, count, err := dbdata.WebVpnAppList(pageSize, page, r.FormValue("name"))
 	if err != nil && !dbdata.CheckErrNotFound(err) {
@@ -40,7 +30,7 @@ func WebVpnAppList(w http.ResponseWriter, r *http.Request) {
 		datas = []dbdata.WebVpnApp{}
 	}
 
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"count":     count,
 		"page_size": pageSize,
 		"datas":     datas,
@@ -50,9 +40,8 @@ func WebVpnAppList(w http.ResponseWriter, r *http.Request) {
 // 返回单个 WebVPN 应用详情
 func WebVpnAppDetail(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
-	id, _ := strconv.Atoi(r.FormValue("id"))
-	if id < 1 {
-		RespError(w, RespParamErr, "Id错误")
+	id, ok := parseID(w, r, "Id错误")
+	if !ok {
 		return
 	}
 
@@ -77,22 +66,14 @@ func WebVpnAppDetail(w http.ResponseWriter, r *http.Request) {
 		data.CorsAllowedOrigins = []string{}
 	}
 
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 // 新增或更新 WebVPN 应用
 func WebVpnAppSet(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
 
 	v := &dbdata.WebVpnApp{}
-	if err := json.Unmarshal(body, v); err != nil {
-		RespError(w, RespParamErr, "参数错误")
+	if err := readJSON(w, r, 1<<20, v); err != nil {
 		return
 	}
 
@@ -102,7 +83,7 @@ func WebVpnAppSet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbdata.AdminLog("WebVPN应用管理", v.Name, "创建/修改了WebVPN应用", r.RemoteAddr)
-	RespSucess(w, nil)
+	RespSuccess(w, nil)
 }
 
 // 删除 WebVPN 应用
@@ -110,8 +91,10 @@ func WebVpnAppDel(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Id int `json:"id"`
 	}
-	body, err := io.ReadAll(r.Body)
-	if err != nil || json.Unmarshal(body, &req) != nil || req.Id < 1 {
+	if err := readJSON(w, r, 1<<16, &req); err != nil {
+		return
+	}
+	if req.Id < 1 {
 		RespError(w, RespParamErr, "Id错误")
 		return
 	}
@@ -126,20 +109,13 @@ func WebVpnAppDel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbdata.AdminLog("WebVPN应用管理", a.Name, "删除了WebVPN应用", r.RemoteAddr)
-	RespSucess(w, nil)
+	RespSuccess(w, nil)
 }
 
 // 返回 WebVPN 访问审计分页列表（支持用户名/应用名/时间范围过滤）
 func WebVpnAuditList(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
-	page, _ := strconv.Atoi(r.FormValue("page"))
-	if page < 1 {
-		page = 1
-	}
-	pageSize, _ := strconv.Atoi(r.FormValue("page_size"))
-	if pageSize <= 0 {
-		pageSize = dbdata.PageSize
-	}
+	page, pageSize := parsePaging(r)
 	search := dbdata.WebVpnAuditSearch{
 		Username: r.FormValue("username"),
 		AppName:  r.FormValue("app_name"),
@@ -162,7 +138,7 @@ func WebVpnAuditList(w http.ResponseWriter, r *http.Request) {
 		datas = []dbdata.WebVpnAudit{}
 	}
 
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"count":     count,
 		"page_size": pageSize,
 		"datas":     datas,
@@ -174,8 +150,10 @@ func WebVpnSessionKick(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Username string `json:"username"`
 	}
-	body, err := io.ReadAll(r.Body)
-	if err != nil || json.Unmarshal(body, &req) != nil || req.Username == "" {
+	if err := readJSON(w, r, 1<<16, &req); err != nil {
+		return
+	}
+	if req.Username == "" {
 		RespError(w, RespParamErr, "用户名不能为空")
 		return
 	}
@@ -184,7 +162,7 @@ func WebVpnSessionKick(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dbdata.AdminLog("WebVPN应用管理", req.Username, "踢出了该用户的所有WebVPN会话", r.RemoteAddr)
-	RespSucess(w, nil)
+	RespSuccess(w, nil)
 }
 
 // 导出 WebVPN 访问审计（CSV，上限 100 万条）

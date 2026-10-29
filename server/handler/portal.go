@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wsczx/remlink/admin"
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/auth/authsrv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/jwt"
 	"github.com/wsczx/remlink/pkg/notify"
 	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/webvpn"
@@ -286,6 +286,10 @@ func PortalChangePassword(w http.ResponseWriter, r *http.Request) {
 		base.Error("用户门户修改密码失败:", err)
 		portalError(w, "修改密码失败")
 		return
+	}
+	// 吊销该用户全部未过期门户 JWT（含当前会话）
+	if n := jwt.RevokeSubjectJwt(user.Username); n > 0 {
+		base.Info("用户改密，已吊销", n, "个有效会话:", user.Username)
 	}
 	portalOK(w, map[string]string{"message": "密码修改成功"})
 }
@@ -581,7 +585,7 @@ func PortalForgotPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jti := fmt.Sprintf("%d_%d", user.Id, time.Now().UnixNano())
-	token, err := admin.SetJwtData(map[string]any{
+	token, err := jwt.SetJwtData(map[string]any{
 		"purpose": "portal_reset_password",
 		"user_id": user.Id,
 		"jti":     jti,
@@ -605,7 +609,7 @@ func PortalForgotPassword(w http.ResponseWriter, r *http.Request) {
 	if err := dbdata.SettingGet(smtpCfg); err != nil || smtpCfg.Host == "" {
 		base.Warn("用户门户SMTP未配置，跳过发送重置邮件:", user.Username)
 	} else {
-		go func() {
+		base.SafeGo(func() {
 			if err := notify.GetNotify().SendEmail(notify.Message{
 				Subject: "RemLink 密码重置",
 				To:      user.Email,
@@ -613,7 +617,7 @@ func PortalForgotPassword(w http.ResponseWriter, r *http.Request) {
 			}); err != nil {
 				base.Error("用户门户发送重置邮件失败:", user.Username, err)
 			}
-		}()
+		})
 	}
 
 	portalOK(w, map[string]string{"message": "如果账号匹配，重置邮件已发送"})
@@ -631,7 +635,7 @@ func PortalResetPasswordVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := admin.GetJwtData(token)
+	data, err := jwt.GetJwtData(token)
 	if err != nil {
 		portalOK(w, map[string]any{"valid": false})
 		return
@@ -690,7 +694,7 @@ func PortalResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := admin.GetJwtData(req.Token)
+	data, err := jwt.GetJwtData(req.Token)
 	if err != nil {
 		portalError(w, "重置链接已过期，请重新申请")
 		return
@@ -736,6 +740,10 @@ func PortalResetPassword(w http.ResponseWriter, r *http.Request) {
 		base.Error("用户门户重置密码失败:", err)
 		portalError(w, "重置密码失败")
 		return
+	}
+
+	if n := jwt.RevokeSubjectJwt(user.Username); n > 0 {
+		base.Info("用户重置密码，已吊销", n, "个有效会话:", user.Username)
 	}
 
 	portalOK(w, map[string]string{"message": "密码重置成功，请使用新密码登录"})
@@ -858,6 +866,11 @@ func portalResumeAuth(w http.ResponseWriter, sessionID, code string, r *http.Req
 	ctx.GetRADIUS().ChallengeCode = code
 	ctx.GetSMS().Code = code
 
+	// 复核用户状态：用户在断点期间可能已被禁用或设为过期
+	if err := authsrv.ReloadAndCheckUser(ctx); err != nil {
+		return portalAuthError(err.Error())
+	}
+
 	state := auth.PipelineState{
 		StepIdx:     sess.Ctx.StepIdx(),
 		PassedSteps: sess.Ctx.PassedSteps(),
@@ -973,14 +986,14 @@ func portalIssueLoginResponse(w http.ResponseWriter, r *http.Request, user *dbda
 				Path:     "/",
 				Domain:   "",
 				HttpOnly: true,
-				Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+				Secure:   utils.IsTLS(r),
 				SameSite: http.SameSiteLaxMode,
 			})
 		}
 		// 若 WebVPN 已启用，登录后签发一次性免登授权 webvpn_grant，
 		// 用户在 WebVPN 子域首次访问时凭此兑换正式会话，无需重复登录
 		if base.GetCfg().WebVpnDomain != "" {
-			if jti, jerr := admin.JtiOf(token); jerr == nil {
+			if jti, jerr := jwt.JtiOf(token); jerr == nil {
 				var gerr error
 				webVPNGrant, gerr = webvpn.GetManager().Session().IssueGrant(w, r, user, jti)
 				if gerr != nil {

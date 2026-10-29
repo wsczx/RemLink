@@ -9,6 +9,7 @@ import (
 
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/webvpn"
 )
 
@@ -21,6 +22,10 @@ func WebVpnHandler(w http.ResponseWriter, r *http.Request) bool {
 	}
 	prefix, isWebVpnHost := webVpnHostPrefix(r.Host)
 	if !isWebVpnHost {
+		return false
+	}
+
+	if prefix == "" {
 		return false
 	}
 	// WebVPN 自有端点（/webvpn/*，如登录/登出/me）不走代理，交由 initRoute 处理
@@ -78,8 +83,14 @@ func WebVpnHandler(w http.ResponseWriter, r *http.Request) bool {
 	}
 	// 未登录 /ui/ 由 RemLink 前端渲染登录页
 	// 登录后 /ui/ 透传至后端，以支持 JumpServer 等后端应用自身使用 /ui/ 的前端入口
-	if strings.HasPrefix(r.URL.Path, "/ui/") && (!ok || user == nil) {
-		return false
+	if strings.HasPrefix(r.URL.Path, "/ui/") {
+		if app != nil && err == nil {
+			if !ok || user == nil {
+				return false
+			}
+		} else {
+			return false
+		}
 	}
 	if !ok || user == nil {
 		// 门户会话有效但免登兑换失败（权限中途被取消 / grant 过期 / 会话已被吊销）：
@@ -134,7 +145,7 @@ func webVpnHostPrefix(host string) (string, bool) {
 // 返回当前 WebVPN 子域自身的登录页地址（含端口与协议）
 func webVpnLoginURL(r *http.Request) string {
 	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+	if utils.IsTLS(r) {
 		scheme = "https"
 	}
 	redirect := r.URL.RequestURI()
@@ -463,7 +474,7 @@ func webVpnSameOrigin(r *http.Request) bool {
 }
 
 func requestTLS(r *http.Request) bool {
-	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	return utils.IsTLS(r)
 }
 
 // 记录 WebVPN 请求的审计信息

@@ -4,17 +4,10 @@ import (
 	"unsafe"
 )
 
-// converts byte slice to string.
+// 零拷贝地把字节切片转成字符串
 func BytesToString(b []byte) string {
-	return *(*string)(unsafe.Pointer(&b))
-}
-
-// converts string to byte slice.
-func StringToBytes(s string) []byte {
-	return *(*[]byte)(unsafe.Pointer(
-		&struct {
-			string
-			Cap int
-		}{s, len(s)},
-	))
+	if len(b) == 0 {
+		return ""
+	}
+	return unsafe.String(&b[0], len(b))
 }

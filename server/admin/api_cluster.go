@@ -175,7 +175,7 @@ func ClusterNodes(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, row)
 	}
-	RespSucess(w, out)
+	RespSuccess(w, out)
 }
 
 // 重启指定节点（本机走本地重启，其它节点走共享 JwtSecret 节点间调用）
@@ -195,7 +195,7 @@ func ClusterRestart(w http.ResponseWriter, r *http.Request) {
 			RespError(w, RespInternalErr, "重启进行中，请稍后再试")
 			return
 		}
-		RespSucess(w, map[string]any{"message": "restart scheduled"})
+		RespSuccess(w, map[string]any{"message": "restart scheduled"})
 		return
 	}
 	target, err := dbdata.GetClusterNodeRepo().Get(req.Node)
@@ -211,7 +211,7 @@ func ClusterRestart(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, "远程重启失败: "+err.Error())
 		return
 	}
-	RespSucess(w, map[string]any{"message": "restart scheduled"})
+	RespSuccess(w, map[string]any{"message": "restart scheduled"})
 }
 
 // 重启全部节点（先其它节点，最后本机）；收集离线跳过与失败清单返回，便于前端提示
@@ -237,7 +237,7 @@ func ClusterRestartAll(w http.ResponseWriter, r *http.Request) {
 			failed = append(failed, n.Name+": "+err.Error())
 		}
 	}
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"message": "restart scheduled for all",
 		"failed":  failed,
 		"skipped": skipped,
@@ -264,7 +264,7 @@ func ClusterUpgrade(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		dbdata.AdminLog("节点", "在线升级", fmt.Sprintf("本机从 %s 升级到 %s", base.APP_VER, version), r.RemoteAddr)
-		RespSucess(w, map[string]any{"message": "upgrade scheduled", "version": version})
+		RespSuccess(w, map[string]any{"message": "upgrade scheduled", "version": version})
 		return
 	}
 	target, err := dbdata.GetClusterNodeRepo().Get(req.Node)
@@ -280,7 +280,7 @@ func ClusterUpgrade(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, "远程升级触发失败: "+err.Error())
 		return
 	}
-	RespSucess(w, map[string]any{"message": "upgrade scheduled"})
+	RespSuccess(w, map[string]any{"message": "upgrade scheduled"})
 }
 
 // 升级全部节点（先其它节点，最后本机）；收集离线跳过与失败清单返回
@@ -311,7 +311,7 @@ func ClusterUpgradeAll(w http.ResponseWriter, r *http.Request) {
 	} else {
 		dbdata.AdminLog("节点", "在线升级", fmt.Sprintf("本机从 %s 升级到 %s", base.APP_VER, v), r.RemoteAddr)
 	}
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"message": "upgrade scheduled for all",
 		"failed":  failed,
 		"skipped": skipped,
@@ -356,7 +356,7 @@ func getSelfStatus() map[string]any {
 
 // 返回本节点状态
 func ClusterNodeStatus(w http.ResponseWriter, r *http.Request) {
-	RespSucess(w, getSelfStatus())
+	RespSuccess(w, getSelfStatus())
 }
 
 // 聚合所有节点状态：本机本地汇总
@@ -406,7 +406,7 @@ func ClusterOverview(w http.ResponseWriter, r *http.Request) {
 		}(i, n, online)
 	}
 	wg.Wait()
-	RespSucess(w, out)
+	RespSuccess(w, out)
 }
 
 // 取最近一次实时网络吞吐
@@ -440,7 +440,7 @@ func ClusterSessionKick(w http.ResponseWriter, r *http.Request) {
 	if req.Node == base.GetNodeId() {
 		dbdata.AdminLog("节点", "踢下线", "本机踢下线: "+req.Token, r.RemoteAddr)
 		sessdata.CloseSess(req.Token, dbdata.UserLogoutAdmin)
-		RespSucess(w, map[string]any{"message": "kicked"})
+		RespSuccess(w, map[string]any{"message": "kicked"})
 		return
 	}
 	target, err := dbdata.GetClusterNodeRepo().Get(req.Node)
@@ -456,7 +456,7 @@ func ClusterSessionKick(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, "远程踢下线失败: "+err.Error())
 		return
 	}
-	RespSucess(w, map[string]any{"message": "kicked"})
+	RespSuccess(w, map[string]any{"message": "kicked"})
 }
 
 // 解锁指定节点的账号/IP 锁定
@@ -490,7 +490,7 @@ func ClusterUnlock(w http.ResponseWriter, r *http.Request) {
 			lm.UnlockIP(req.IP)
 		}
 		dbdata.AdminLog("节点", "解锁", "本机解锁: "+req.Description, r.RemoteAddr)
-		RespSucess(w, map[string]any{"message": "unlocked"})
+		RespSuccess(w, map[string]any{"message": "unlocked"})
 		return
 	}
 	target, err := dbdata.GetClusterNodeRepo().Get(req.Node)
@@ -511,7 +511,7 @@ func ClusterUnlock(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, "远程解锁失败: "+err.Error())
 		return
 	}
-	RespSucess(w, map[string]any{"message": "unlocked"})
+	RespSuccess(w, map[string]any{"message": "unlocked"})
 }
 
 // 聚合全集群在线会话：本机始终以本地 getSelfStatus 兜底（单节点/Sqlite 的 cluster_node 表为空也能正常展示）
@@ -568,7 +568,7 @@ func ClusterSessions(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	wg.Wait()
-	RespSucess(w, out)
+	RespSuccess(w, out)
 }
 
 // 聚合全集群账号/IP 锁定：本机以本地 getSelfStatus 兜底，其余节点逐个探活
@@ -622,7 +622,7 @@ func ClusterLocks(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	wg.Wait()
-	RespSucess(w, out)
+	RespSuccess(w, out)
 }
 
 // 断连指定节点的某个会话（集群内按 node 路由，命中本机分支即直断）
@@ -641,7 +641,7 @@ func ClusterReline(w http.ResponseWriter, r *http.Request) {
 	if req.Node == base.GetNodeId() {
 		dbdata.AdminLog("节点", "断连", "本机断连: "+req.Token, r.RemoteAddr)
 		sessdata.CloseCSess(req.Token)
-		RespSucess(w, map[string]any{"message": "reline"})
+		RespSuccess(w, map[string]any{"message": "reline"})
 		return
 	}
 	target, err := dbdata.GetClusterNodeRepo().Get(req.Node)
@@ -657,7 +657,7 @@ func ClusterReline(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, "远程断连失败: "+err.Error())
 		return
 	}
-	RespSucess(w, map[string]any{"message": "reline"})
+	RespSuccess(w, map[string]any{"message": "reline"})
 }
 
 // 经目标节点 /cluster/session/reline 断连指定会话（命中本机分支即直断）
@@ -702,7 +702,7 @@ func ClusterNodeUpdate(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, "同步节点信息失败: "+err.Error())
 		return
 	}
-	RespSucess(w, map[string]any{"message": "updated"})
+	RespSuccess(w, map[string]any{"message": "updated"})
 }
 
 // 集群配置设置
@@ -735,7 +735,7 @@ func ClusterSetConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dbdata.AdminLog("节点", "配置同步", "接收并应用集群配置: "+name, r.RemoteAddr)
-	RespSucess(w, map[string]any{"restart": restart})
+	RespSuccess(w, map[string]any{"restart": restart})
 }
 
 // 把单个配置字段变更同步推送到集群内其它在线节点

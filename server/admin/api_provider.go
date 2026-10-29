@@ -2,10 +2,8 @@ package admin
 
 import (
 	"encoding/json"
-	"io"
 	"net"
 	"net/http"
-	"strconv"
 
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
@@ -60,11 +58,7 @@ func keepProviderSecrets(newP, oldP *dbdata.Provider) {
 // 列出所有 Provider
 func ProviderList(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
-	pageS := r.FormValue("page")
-	page, _ := strconv.Atoi(pageS)
-	if page < 1 {
-		page = 1
-	}
+	page, _ := parsePaging(r)
 	pageSize := dbdata.PageSize
 
 	datas, count, err := dbdata.ProviderList(pageSize, page)
@@ -84,7 +78,7 @@ func ProviderList(w http.ResponseWriter, r *http.Request) {
 	// 统计卡片按"全量数据"聚合，不受分页影响
 	statActive := dbdata.FindWhereCount(&dbdata.Provider{}, "status=1")
 
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"count":        count,
 		"page_size":    pageSize,
 		"datas":        datas,
@@ -101,7 +95,7 @@ func ProviderNames(w http.ResponseWriter, r *http.Request) {
 	if names == nil {
 		names = []string{}
 	}
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"count": len(names),
 		"datas": names,
 	})
@@ -109,11 +103,8 @@ func ProviderNames(w http.ResponseWriter, r *http.Request) {
 
 // 获取单个 Provider 详情
 func ProviderDetail(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	idS := r.FormValue("id")
-	id, _ := strconv.Atoi(idS)
-	if id < 1 {
-		RespError(w, RespParamErr, "Id错误")
+	id, ok := parseID(w, r, "Id错误")
+	if !ok {
 		return
 	}
 
@@ -125,7 +116,7 @@ func ProviderDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	maskProviderSecrets(&data)
 	// 下发各第三方认证源的回调url
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"provider":     data,
 		"callbackBase": providerCallbackUrl(r),
 	})
@@ -153,18 +144,8 @@ func providerCallbackUrl(r *http.Request) string {
 
 // 新增或更新 Provider
 func ProviderSet(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
-
 	v := &dbdata.Provider{}
-	err = json.Unmarshal(body, v)
-	if err != nil {
-		RespError(w, RespParamErr, "参数错误")
+	if err := readJSON(w, r, 1<<16, v); err != nil {
 		return
 	}
 
@@ -176,23 +157,19 @@ func ProviderSet(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	err = dbdata.SetProvider(v)
-	if err != nil {
+	if err := dbdata.SetProvider(v); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
 
 	dbdata.AdminLog("Provider管理", v.Name, "创建/修改了认证源", r.RemoteAddr)
-	RespSucess(w, nil)
+	RespSuccess(w, nil)
 }
 
 // 删除 Provider
 func ProviderDel(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	idS := r.FormValue("id")
-	id, _ := strconv.Atoi(idS)
-	if id < 1 {
-		RespError(w, RespParamErr, "Id错误")
+	id, ok := parseID(w, r, "Id错误")
+	if !ok {
 		return
 	}
 
@@ -212,5 +189,5 @@ func ProviderDel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dbdata.AdminLog("Provider管理", p.Name, "删除了认证源", r.RemoteAddr)
-	RespSucess(w, nil)
+	RespSuccess(w, nil)
 }

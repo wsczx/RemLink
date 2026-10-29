@@ -114,21 +114,17 @@ func LinkCstp(conn net.Conn, bufRW *bufio.ReadWriter, cSess *sessdata.ConnSessio
 			binary.BigEndian.PutUint16(pl.Data[4:6], uint16(nn))
 			pl.Data = append(pl.Data[:8], (*dst)[:nn]...)
 			putByte(dst)
+			n = 8 + nn
 			fallthrough
 		case 0x00: // DATA
 			// 获取数据长度
 			dataLen = binary.BigEndian.Uint16(pl.Data[4:6]) // 4,5
-			// dataLen==0 会使 pl.Data 变为空切片，下游 payloadIn 读 pl.Data[0] 越界崩溃；
-			// 比较须转 int：uint16 下 8+dataLen 在 dataLen≥65528 时回绕成小值，绕过上限检查
-			if dataLen == 0 || 8+int(dataLen) > BufferSize {
-				base.Error("recv error dataLen", cSess.Username, dataLen)
+			if !validCstpDataLen(dataLen, n) {
+				base.Error("recv error dataLen", cSess.Username, dataLen, n)
 				continue
 			}
-			// 去除数据头
-			copy(pl.Data, pl.Data[8:8+dataLen])
-			// 更新切片长度
-			pl.Data = pl.Data[:dataLen]
-			// pl.Data = append(pl.Data[:0], pl.Data[8:8+dataLen]...)
+			// 去除 8 字节数据头，取 dataLen 字节载荷
+			pl.Data = append(pl.Data[:0], pl.Data[8:8+int(dataLen)]...)
 			if payloadIn(cSess, pl) {
 				return
 			}
@@ -177,16 +173,19 @@ func cstpWrite(conn net.Conn, _ *bufio.ReadWriter, cSess *sessdata.ConnSession) 
 				putByte(dst)
 			}
 			if !isCompress {
-				// 获取数据长度
-				l := len(pl.Data)
-				// 先扩容 +8
-				pl.Data = pl.Data[:l+8]
-				// 数据后移
-				copy(pl.Data[8:], pl.Data)
-				// 添加头信息
-				copy(pl.Data[:8], plHeader)
+				// 在载荷前加 8 字节 CSTP 头（magic+长度+类型+unknown）
+				hdrLen := len(plHeader)
+				// 容量不足则丢弃，防 reslice 越界 panic（MTU 超 2040 的异常配置）
+				if len(pl.Data)+hdrLen > cap(pl.Data) {
+					base.Warn("cstpWrite 载荷超出缓冲区容量，丢弃:", cSess.Username, cSess.IpAddr)
+					putPayload(pl)
+					continue
+				}
+				pl.Data = pl.Data[:len(pl.Data)+hdrLen]
+				copy(pl.Data[hdrLen:], pl.Data[:len(pl.Data)-hdrLen])
+				copy(pl.Data[:hdrLen], plHeader)
 				// 更新头长度
-				binary.BigEndian.PutUint16(pl.Data[4:6], uint16(l))
+				binary.BigEndian.PutUint16(pl.Data[4:6], uint16(len(pl.Data)-8))
 			}
 		} else {
 			pl.Data = append(pl.Data[:0], plHeader...)
@@ -208,4 +207,14 @@ func cstpWrite(conn net.Conn, _ *bufio.ReadWriter, cSess *sessdata.ConnSession) 
 			base.Error(err)
 		}
 	}
+}
+
+// 校验 DATA 头声明长度：dataLen 为 0 时下游读 pl.Data[0] 越界
+// 8+dataLen 须转 int 比较（uint16 在 dataLen≥65528 时回绕会绕过上限）
+// 且不得超过实读字节数 n，否则复用缓冲区中其它会话的残留数据会泄入载荷
+func validCstpDataLen(dataLen uint16, n int) bool {
+	if dataLen == 0 || 8+int(dataLen) > BufferSize {
+		return false
+	}
+	return 8+int(dataLen) <= n
 }

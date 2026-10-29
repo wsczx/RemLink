@@ -36,6 +36,7 @@ func sendEmail(smtpCfg *dbdata.SettingSmtp, msg Message) error {
 		base.Error(err)
 		return err
 	}
+	defer smtpClient.Close()
 
 	email := mail.NewMSG()
 	email.SetFrom(smtpCfg.From).

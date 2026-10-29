@@ -108,6 +108,30 @@ func ReloadUserInfo(ctx *auth.Context) {
 	}
 }
 
+// 断点恢复时重新加载并复核用户状态
+func ReloadAndCheckUser(ctx *auth.Context) error {
+	if ctx.Conn.Username == "" {
+		return nil
+	}
+	u := &dbdata.User{}
+	err := dbdata.One("Username", ctx.Conn.Username, u)
+	if err != nil {
+		if dbdata.CheckErrNotFound(err) {
+			// 本地无此用户（三方源未同步），无状态可复核
+			return nil
+		}
+		return fmt.Errorf("查询用户失败: %w", err)
+	}
+	if u.Status != 1 {
+		return fmt.Errorf("用户已被禁用")
+	}
+	if u.IsExpired() {
+		return fmt.Errorf("用户已过期")
+	}
+	ctx.SetUserInfo(u.ToAuthInfo())
+	return nil
+}
+
 // 返回组的 SSO 类型：只要认证管道中包含 SSO 步骤即返回该步骤类型
 func GetSSOType(groupName string) string {
 	profile, err := loadAndParseProfile(groupName)

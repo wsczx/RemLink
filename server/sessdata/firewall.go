@@ -150,18 +150,36 @@ func NewIPT() (*IPT, error) {
 	return &IPT{ipt: ipt, ipt6: ipt6}, nil
 }
 func (i *IPT) SetupGlobalNAT(vpnCIDR, masterDev string, inContainer bool) error {
-	// MASQUERADE 规则
+	if err := i.setupGlobalNAT(i.ipt, vpnCIDR, masterDev, inContainer); err != nil {
+		return err
+	}
+	base.Info("iptables: Setup Global NAT and Forward rules")
+	return nil
+}
+
+func (i *IPT) SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool) error {
+	if i.ipt6 == nil {
+		return fmt.Errorf("ip6tables not available, cannot setup global v6 NAT")
+	}
+	if err := i.setupGlobalNAT(i.ipt6, vpnCIDR6, masterDev, inContainer); err != nil {
+		return err
+	}
+	base.Info("iptables: Setup Global NAT6 and Forward rules")
+	return nil
+}
+
+// 在指定 iptables 句柄上建立全局 MASQUERADE + 有状态 FORWARD 规则，v4/v6 共用
+func (i *IPT) setupGlobalNAT(h *iptables.IPTables, vpnCIDR, masterDev string, inContainer bool) error {
 	natRule := []string{"-s", vpnCIDR, "-o", masterDev, "-j", "MASQUERADE"}
 	if !inContainer {
-		// 添加注释
 		natRule = append(natRule, "-m", "comment", "--comment", "RemLink")
 	}
-	if err := i.ipt.InsertUnique("nat", "POSTROUTING", 1, natRule...); err != nil {
+	if err := h.InsertUnique("nat", "POSTROUTING", 1, natRule...); err != nil {
 		return err
 	}
 
-	// FORWARD 规则：有状态放行（回包 established/related + 来自 VPN 网段的出站），
-	// 对齐 NFT 已有的有状态设计，避免无条件 `-j ACCEPT` 把客户端暴露给外部入站
+	// FORWARD 有状态放行，避免无条件 ACCEPT 把客户端暴露给外部入站
+	// 避免无条件 `-j ACCEPT` 把客户端暴露给外部入站
 	forwardRules := [][]string{
 		{"-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"},
 		{"-s", vpnCIDR, "-j", "ACCEPT"},
@@ -170,19 +188,31 @@ func (i *IPT) SetupGlobalNAT(vpnCIDR, masterDev string, inContainer bool) error 
 		if !inContainer {
 			fr = append(fr, "-m", "comment", "--comment", "RemLink")
 		}
-		if err := i.ipt.InsertUnique("filter", "FORWARD", 1, fr...); err != nil {
+		if err := h.InsertUnique("filter", "FORWARD", 1, fr...); err != nil {
 			return err
 		}
 	}
-	base.Info("iptables: Setup Global NAT and Forward rules")
 	return nil
 }
+
 func (i *IPT) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
+	return i.addGroupNAT(i.ipt, groupCIDR, masterDev, inContainer)
+}
+
+func (i *IPT) AddGroupNAT6(groupCIDR6, masterDev string, inContainer bool) error {
+	if i.ipt6 == nil {
+		return fmt.Errorf("ip6tables not available, cannot add v6 group NAT")
+	}
+	return i.addGroupNAT(i.ipt6, groupCIDR6, masterDev, inContainer)
+}
+
+// 为组自定义 CIDR 在指定句柄上添加 MASQUERADE + 源段 FORWARD ACCEPT，v4/v6 共用
+func (i *IPT) addGroupNAT(h *iptables.IPTables, groupCIDR, masterDev string, inContainer bool) error {
 	natRule := []string{"-s", groupCIDR, "-o", masterDev, "-j", "MASQUERADE"}
 	if !inContainer {
 		natRule = append(natRule, "-m", "comment", "--comment", "RemLink")
 	}
-	if err := i.ipt.InsertUnique("nat", "POSTROUTING", 1, natRule...); err != nil {
+	if err := h.InsertUnique("nat", "POSTROUTING", 1, natRule...); err != nil {
 		return err
 	}
 
@@ -190,95 +220,33 @@ func (i *IPT) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
 	if !inContainer {
 		fwdRule = append(fwdRule, "-m", "comment", "--comment", "RemLink")
 	}
-	return i.ipt.InsertUnique("filter", "FORWARD", 1, fwdRule...)
-}
-
-// 设置全局 IPv6 NAT/转发规则
-func (i *IPT) SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool) error {
-	ip6, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
-	if err != nil {
-		return err
-	}
-
-	natRule := []string{"-s", vpnCIDR6, "-o", masterDev, "-j", "MASQUERADE"}
-	if !inContainer {
-		natRule = append(natRule, "-m", "comment", "--comment", "RemLink")
-	}
-	if err := ip6.InsertUnique("nat", "POSTROUTING", 1, natRule...); err != nil {
-		return err
-	}
-
-	forwardRules := [][]string{
-		{"-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"},
-		{"-s", vpnCIDR6, "-j", "ACCEPT"},
-	}
-	for _, fr := range forwardRules {
-		if !inContainer {
-			fr = append(fr, "-m", "comment", "--comment", "RemLink")
-		}
-		if err := ip6.InsertUnique("filter", "FORWARD", 1, fr...); err != nil {
-			return err
-		}
-	}
-	base.Info("iptables: Setup Global NAT6 and Forward rules")
-	return nil
-}
-
-// 为组 v6 CIDR 添加 NAT66 和转发规则
-func (i *IPT) AddGroupNAT6(groupCIDR6, masterDev string, inContainer bool) error {
-	ip6, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
-	if err != nil {
-		return err
-	}
-	natRule := []string{"-s", groupCIDR6, "-o", masterDev, "-j", "MASQUERADE"}
-	if !inContainer {
-		natRule = append(natRule, "-m", "comment", "--comment", "RemLink")
-	}
-	if err := ip6.InsertUnique("nat", "POSTROUTING", 1, natRule...); err != nil {
-		return err
-	}
-	fwdRule := []string{"-s", groupCIDR6, "-j", "ACCEPT"}
-	if !inContainer {
-		fwdRule = append(fwdRule, "-m", "comment", "--comment", "RemLink")
-	}
-	return ip6.InsertUnique("filter", "FORWARD", 1, fwdRule...)
+	return h.InsertUnique("filter", "FORWARD", 1, fwdRule...)
 }
 
 // 删除组自定义 v4 CIDR 的 NAT/转发规则（MASQUERADE + 源段 FORWARD ACCEPT）
 func (i *IPT) DelGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
+	return i.delGroupNAT(i.ipt, groupCIDR, masterDev, inContainer)
+}
+
+func (i *IPT) DelGroupNAT6(groupCIDR6, masterDev string, inContainer bool) error {
+	if i.ipt6 == nil {
+		return fmt.Errorf("ip6tables not available, cannot delete v6 group NAT")
+	}
+	return i.delGroupNAT(i.ipt6, groupCIDR6, masterDev, inContainer)
+}
+
+// 删除组 CIDR 的 MASQUERADE + FORWARD 规则
+func (i *IPT) delGroupNAT(h *iptables.IPTables, groupCIDR, masterDev string, inContainer bool) error {
 	natRule := []string{"-s", groupCIDR, "-o", masterDev, "-j", "MASQUERADE"}
 	fwdRule := []string{"-s", groupCIDR, "-j", "ACCEPT"}
 	if !inContainer {
 		natRule = append(natRule, "-m", "comment", "--comment", "RemLink")
 		fwdRule = append(fwdRule, "-m", "comment", "--comment", "RemLink")
 	}
-	if err := i.ipt.Delete("nat", "POSTROUTING", natRule...); err != nil && !isIptRuleMissing(err) {
+	if err := h.Delete("nat", "POSTROUTING", natRule...); err != nil && !isIptRuleMissing(err) {
 		return err
 	}
-	if err := i.ipt.Delete("filter", "FORWARD", fwdRule...); err != nil && !isIptRuleMissing(err) {
-		return err
-	}
-	return nil
-}
-
-// 删除组 v6 CIDR 的 NAT66 和转发规则
-func (i *IPT) DelGroupNAT6(groupCIDR6, masterDev string, inContainer bool) error {
-	ip6, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
-	if err != nil {
-		return err
-	}
-	natRule := []string{"-s", groupCIDR6, "-o", masterDev, "-j", "MASQUERADE"}
-	if !inContainer {
-		natRule = append(natRule, "-m", "comment", "--comment", "RemLink")
-	}
-	if err := ip6.Delete("nat", "POSTROUTING", natRule...); err != nil && !isIptRuleMissing(err) {
-		return err
-	}
-	fwdRule := []string{"-s", groupCIDR6, "-j", "ACCEPT"}
-	if !inContainer {
-		fwdRule = append(fwdRule, "-m", "comment", "--comment", "RemLink")
-	}
-	if err := ip6.Delete("filter", "FORWARD", fwdRule...); err != nil && !isIptRuleMissing(err) {
+	if err := h.Delete("filter", "FORWARD", fwdRule...); err != nil && !isIptRuleMissing(err) {
 		return err
 	}
 	return nil
@@ -404,22 +372,23 @@ func (i *IPT) CleanupGlobal() error {
 	}
 
 	// 清理 IPv6 全局 NAT 规则
-	if ip6, err := iptables.NewWithProtocol(iptables.ProtocolIPv6); err == nil {
-		if natRules6, err := ip6.List("nat", "POSTROUTING"); err == nil {
-			for _, rule := range natRules6 {
-				if strings.Contains(rule, "RemLink") {
-					if parts := strings.Fields(rule); len(parts) > 2 {
-						_ = ip6.Delete("nat", "POSTROUTING", parts[2:]...)
-					}
+	if i.ipt6 == nil {
+		return nil
+	}
+	if natRules6, err := i.ipt6.List("nat", "POSTROUTING"); err == nil {
+		for _, rule := range natRules6 {
+			if strings.Contains(rule, "RemLink") {
+				if parts := strings.Fields(rule); len(parts) > 2 {
+					_ = i.ipt6.Delete("nat", "POSTROUTING", parts[2:]...)
 				}
 			}
 		}
-		if fwdRules6, err := ip6.List("filter", "FORWARD"); err == nil {
-			for _, rule := range fwdRules6 {
-				if strings.Contains(rule, "RemLink") {
-					if parts := strings.Fields(rule); len(parts) > 2 {
-						_ = ip6.Delete("filter", "FORWARD", parts[2:]...)
-					}
+	}
+	if fwdRules6, err := i.ipt6.List("filter", "FORWARD"); err == nil {
+		for _, rule := range fwdRules6 {
+			if strings.Contains(rule, "RemLink") {
+				if parts := strings.Fields(rule); len(parts) > 2 {
+					_ = i.ipt6.Delete("filter", "FORWARD", parts[2:]...)
 				}
 			}
 		}
@@ -477,7 +446,7 @@ func (n *NFT) SetupGlobalNAT(vpnCIDR, masterDev string, inContainer bool) error 
 	n.conn.AddRule(&nftables.Rule{
 		Table: globalNatTable,
 		Chain: postrouting,
-		Exprs: n.MasqueradeExprs(ipNet, prefixMask, masterDev),
+		Exprs: n.masqueradeExprs(ipNet, prefixMask, masterDev, false),
 	})
 
 	// FORWARD: ACCEPT（匹配来自 VPN CIDR 的转发包）
@@ -516,7 +485,7 @@ func (n *NFT) SetupGlobalNAT(vpnCIDR, masterDev string, inContainer bool) error 
 	n.conn.AddRule(&nftables.Rule{
 		Table: globalNatTable,
 		Chain: forwardChain,
-		Exprs: n.ForwardAcceptExprs(ipNet, prefixMask),
+		Exprs: n.forwardAcceptExprs(ipNet, prefixMask, false),
 	})
 
 	if err := n.conn.Flush(); err != nil {
@@ -555,7 +524,7 @@ func (n *NFT) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
 	n.conn.AddRule(&nftables.Rule{
 		Table:    globalNatTable,
 		Chain:    postroutingChain,
-		Exprs:    n.MasqueradeExprs(ipNet, prefixMask, masterDev),
+		Exprs:    n.masqueradeExprs(ipNet, prefixMask, masterDev, false),
 		UserData: ud,
 	})
 
@@ -563,7 +532,7 @@ func (n *NFT) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
 	n.conn.AddRule(&nftables.Rule{
 		Table:    globalNatTable,
 		Chain:    forwardChain,
-		Exprs:    n.ForwardAcceptExprs(ipNet, prefixMask),
+		Exprs:    n.forwardAcceptExprs(ipNet, prefixMask, false),
 		UserData: ud,
 	})
 
@@ -614,14 +583,14 @@ func (n *NFT) AddGroupNAT6(groupCIDR6, masterDev string, inContainer bool) error
 	n.conn.AddRule(&nftables.Rule{
 		Table:    globalNatTable6,
 		Chain:    &nftables.Chain{Name: nftPostRoutingChain6, Table: globalNatTable6},
-		Exprs:    n.MasqueradeExprs6(ipNet, prefixMask, masterDev),
+		Exprs:    n.masqueradeExprs(ipNet, prefixMask, masterDev, true),
 		UserData: ud,
 	})
 
 	n.conn.AddRule(&nftables.Rule{
 		Table:    globalNatTable6,
 		Chain:    &nftables.Chain{Name: nftForwardChain6, Table: globalNatTable6},
-		Exprs:    n.ForwardAcceptExprs6(ipNet, prefixMask),
+		Exprs:    n.forwardAcceptExprs(ipNet, prefixMask, true),
 		UserData: ud,
 	})
 
@@ -678,7 +647,7 @@ func (n *NFT) SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool) erro
 	n.conn.AddRule(&nftables.Rule{
 		Table: globalNatTable6,
 		Chain: postrouting,
-		Exprs: n.MasqueradeExprs6(ipNet, prefixMask, masterDev),
+		Exprs: n.masqueradeExprs(ipNet, prefixMask, masterDev, true),
 	})
 
 	forwardChain := n.conn.AddChain(&nftables.Chain{
@@ -713,7 +682,7 @@ func (n *NFT) SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool) erro
 	n.conn.AddRule(&nftables.Rule{
 		Table: globalNatTable6,
 		Chain: forwardChain,
-		Exprs: n.ForwardAcceptExprs6(ipNet, prefixMask),
+		Exprs: n.forwardAcceptExprs(ipNet, prefixMask, true),
 	})
 
 	if err := n.conn.Flush(); err != nil {
@@ -723,26 +692,35 @@ func (n *NFT) SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool) erro
 	return nil
 }
 
-// MASQUERADE 规则表达式（IPv6，匹配源 CIDR + 出站接口）
-func (n *NFT) MasqueradeExprs6(ipNet *net.IPNet, prefixMask net.IPMask, masterDev string) []expr.Any {
+// 构造 MASQUERADE 规则表达式（匹配源 CIDR + 出站接口）
+// isV6 区分协议族：v4 源地址偏移 12/长度 4，v6 源地址偏移 8/长度 16
+func (n *NFT) masqueradeExprs(ipNet *net.IPNet, prefixMask net.IPMask, masterDev string, isV6 bool) []expr.Any {
+	var offset, length uint32 = 12, 4
+	xor := net.IPv4zero.To4()
+	src := ipNet.IP.To4()
+	if isV6 {
+		offset, length = 8, 16
+		xor = net.IPv6zero.To16()
+		src = ipNet.IP.To16()
+	}
 	return []expr.Any{
 		&expr.Payload{
 			DestRegister: 1,
 			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       8,
-			Len:          16,
+			Offset:       offset,
+			Len:          length,
 		},
 		&expr.Bitwise{
 			SourceRegister: 1,
 			DestRegister:   1,
-			Len:            16,
+			Len:            length,
 			Mask:           prefixMask,
-			Xor:            net.IPv6zero.To16(),
+			Xor:            xor,
 		},
 		&expr.Cmp{
 			Op:       expr.CmpOpEq,
 			Register: 1,
-			Data:     ipNet.IP.To16(),
+			Data:     src,
 		},
 		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 2},
 		&expr.Cmp{
@@ -754,82 +732,35 @@ func (n *NFT) MasqueradeExprs6(ipNet *net.IPNet, prefixMask net.IPMask, masterDe
 	}
 }
 
-// FORWARD ACCEPT 规则的表达式（IPv6，匹配源 CIDR）
-func (n *NFT) ForwardAcceptExprs6(ipNet *net.IPNet, prefixMask net.IPMask) []expr.Any {
-	return []expr.Any{
-		&expr.Payload{
-			DestRegister: 1,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       8,
-			Len:          16,
-		},
-		&expr.Bitwise{
-			SourceRegister: 1,
-			DestRegister:   1,
-			Len:            16,
-			Mask:           prefixMask,
-			Xor:            net.IPv6zero.To16(),
-		},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     ipNet.IP.To16(),
-		},
-		&expr.Verdict{Kind: expr.VerdictAccept},
+// 构造 FORWARD ACCEPT 规则表达式（匹配源 CIDR）
+// isV6 区分协议族：v4 源地址偏移 12/长度 4，v6 源地址偏移 8/长度 16。
+func (n *NFT) forwardAcceptExprs(ipNet *net.IPNet, prefixMask net.IPMask, isV6 bool) []expr.Any {
+	var offset, length uint32 = 12, 4
+	xor := net.IPv4zero.To4()
+	src := ipNet.IP.To4()
+	if isV6 {
+		offset, length = 8, 16
+		xor = net.IPv6zero.To16()
+		src = ipNet.IP.To16()
 	}
-}
-
-// MASQUERADE 规则表达式（匹配源 CIDR + 出站接口）
-func (n *NFT) MasqueradeExprs(ipNet *net.IPNet, prefixMask net.IPMask, masterDev string) []expr.Any {
 	return []expr.Any{
 		&expr.Payload{
 			DestRegister: 1,
 			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       12,
-			Len:          4,
+			Offset:       offset,
+			Len:          length,
 		},
 		&expr.Bitwise{
 			SourceRegister: 1,
 			DestRegister:   1,
-			Len:            4,
+			Len:            length,
 			Mask:           prefixMask,
-			Xor:            net.IPv4zero.To4(),
+			Xor:            xor,
 		},
 		&expr.Cmp{
 			Op:       expr.CmpOpEq,
 			Register: 1,
-			Data:     ipNet.IP.To4(),
-		},
-		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 2},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 2,
-			Data:     ifname(masterDev),
-		},
-		&expr.Masq{},
-	}
-}
-
-// FORWARD ACCEPT 规则的表达式（匹配源 CIDR）
-func (n *NFT) ForwardAcceptExprs(ipNet *net.IPNet, prefixMask net.IPMask) []expr.Any {
-	return []expr.Any{
-		&expr.Payload{
-			DestRegister: 1,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       12,
-			Len:          4,
-		},
-		&expr.Bitwise{
-			SourceRegister: 1,
-			DestRegister:   1,
-			Len:            4,
-			Mask:           prefixMask,
-			Xor:            net.IPv4zero.To4(),
-		},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     ipNet.IP.To4(),
+			Data:     src,
 		},
 		&expr.Verdict{Kind: expr.VerdictAccept},
 	}

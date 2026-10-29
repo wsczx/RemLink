@@ -2,9 +2,7 @@ package admin
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"runtime"
@@ -45,7 +43,7 @@ func SetHome(w http.ResponseWriter, r *http.Request) {
 
 	data["show_fakedns"] = base.GetCfg().ShowFakeDNS
 
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 func SetSystem(w http.ResponseWriter, r *http.Request) {
@@ -106,7 +104,7 @@ func SetSystem(w http.ResponseWriter, r *http.Request) {
 		"uptime": int64(time.Since(serverStartTime).Seconds()),
 	}
 
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 func SetSoft(w http.ResponseWriter, r *http.Request) {
@@ -130,7 +128,7 @@ func SetSoft(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 type setSoftEditReq struct {
@@ -143,24 +141,14 @@ type setProfileReq struct {
 }
 
 func SetSoftStatus(w http.ResponseWriter, r *http.Request) {
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"warnings": base.GetSystemWarnings(),
 	})
 }
 
 func SetSoftEdit(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
-
 	req := &setSoftEditReq{}
-	err = json.Unmarshal(body, req)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
+	if err := readJSON(w, r, 1<<16, req); err != nil {
 		return
 	}
 	if req.Name == "" {
@@ -225,7 +213,7 @@ func SetSoftEdit(w http.ResponseWriter, r *http.Request) {
 		failedNodes = fn
 		dbdata.AdminLog("节点", "配置同步", "配置部分节点同步失败: "+strings.Join(fn, ","), r.RemoteAddr)
 	}
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"restart":      restart,
 		"failed_nodes": failedNodes,
 	})
@@ -239,9 +227,7 @@ func SetIPv4Config(w http.ResponseWriter, r *http.Request) {
 		Ipv4Start   string `json:"ipv4_start"`
 		Ipv4End     string `json:"ipv4_end"`
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		RespError(w, RespParamErr, "参数解析失败")
+	if err := readJSON(w, r, 1<<16, &req); err != nil {
 		return
 	}
 
@@ -282,7 +268,7 @@ func SetIPv4Config(w http.ResponseWriter, r *http.Request) {
 			dbdata.AdminLog("节点", "配置同步", "IPv4 配置部分节点同步失败: "+strings.Join(fn, ","), r.RemoteAddr)
 		}
 	}
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"restart":      restart,
 		"failed_nodes": allFailed,
 	})
@@ -299,33 +285,22 @@ func SetProfile(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"content": profile.Content,
 		"hash":    hash,
 	})
 }
 
 func SetProfileEdit(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
-
 	req := &setProfileReq{}
-	err = json.Unmarshal(body, req)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
+	if err := readJSON(w, r, 1<<16, req); err != nil {
 		return
 	}
 	if req.Content == "" {
 		RespError(w, RespParamErr, "profile内容不能为空")
 		return
 	}
-	err = dbdata.SettingSetProfile(req.Content)
-	if err != nil {
+	if err := dbdata.SettingSetProfile(req.Content); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
@@ -335,7 +310,7 @@ func SetProfileEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dbdata.AdminLog("系统设置", "Profile", "修改了Profile配置", r.RemoteAddr)
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"hash": hash,
 	})
 }
@@ -350,7 +325,7 @@ func SetRestart(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, "重启进行中，请稍后再试")
 		return
 	}
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"message": "restart scheduled",
 	})
 }
@@ -391,7 +366,7 @@ func selfRestart(remoteAddr string) bool {
 // 返回各表行数，供前端展示并决定排除哪些大表
 func SetDbTableSizes(w http.ResponseWriter, r *http.Request) {
 	sizes := dbdata.GetBackupManager().GetTableSizes()
-	RespSucess(w, sizes)
+	RespSuccess(w, sizes)
 }
 
 type setDbBackupReq struct {
@@ -401,17 +376,9 @@ type setDbBackupReq struct {
 
 // 创建备份
 func SetDbBackup(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
 
 	req := &setDbBackupReq{}
-	if err := json.Unmarshal(body, req); err != nil {
-		RespError(w, RespInternalErr, err)
+	if err := readJSON(w, r, 1<<16, req); err != nil {
 		return
 	}
 	if req.Type != "config" && req.Type != "full" {
@@ -439,7 +406,7 @@ func SetDbBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dbdata.AdminLog("系统设置", filename, "创建了数据库备份", r.RemoteAddr)
-	RespSucess(w, map[string]string{"filename": filename})
+	RespSuccess(w, map[string]string{"filename": filename})
 }
 
 // 列出备份文件
@@ -452,7 +419,7 @@ func SetDbBackups(w http.ResponseWriter, r *http.Request) {
 	if list == nil {
 		list = []dbdata.BackupFileInfo{}
 	}
-	RespSucess(w, list)
+	RespSuccess(w, list)
 }
 
 type setDbRestoreReq struct {
@@ -461,17 +428,9 @@ type setDbRestoreReq struct {
 
 // 从备份文件还原
 func SetDbRestore(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
 
 	req := &setDbRestoreReq{}
-	if err := json.Unmarshal(body, req); err != nil {
-		RespError(w, RespInternalErr, err)
+	if err := readJSON(w, r, 1<<16, req); err != nil {
 		return
 	}
 	if req.File == "" {
@@ -484,7 +443,7 @@ func SetDbRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dbdata.AdminLog("系统设置", req.File, "从备份还原了数据库", r.RemoteAddr)
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"message":       "还原成功",
 		"needs_restart": true,
 	})
@@ -496,17 +455,9 @@ type setDbBackupDeleteReq struct {
 
 // 删除备份文件
 func SetDbBackupDelete(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
 
 	req := &setDbBackupDeleteReq{}
-	if err := json.Unmarshal(body, req); err != nil {
-		RespError(w, RespInternalErr, err)
+	if err := readJSON(w, r, 1<<16, req); err != nil {
 		return
 	}
 	if req.File == "" {
@@ -519,7 +470,7 @@ func SetDbBackupDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dbdata.AdminLog("系统设置", req.File, "删除了备份文件", r.RemoteAddr)
-	RespSucess(w, map[string]string{"message": "已删除"})
+	RespSuccess(w, map[string]string{"message": "已删除"})
 }
 
 func decimal(f float64) float64 {
@@ -534,17 +485,9 @@ type setDbTestConnReq struct {
 
 // 测试新数据库连接是否可达
 func SetDbTestConnection(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
 
 	req := &setDbTestConnReq{}
-	if err := json.Unmarshal(body, req); err != nil {
-		RespError(w, RespInternalErr, err)
+	if err := readJSON(w, r, 1<<16, req); err != nil {
 		return
 	}
 	if req.DbType == "" || req.DbSource == "" {
@@ -570,7 +513,7 @@ func SetDbTestConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbdata.AdminLog("系统设置", "数据库切换", "测试了新数据库连接("+req.DbType+")", r.RemoteAddr)
-	RespSucess(w, map[string]string{
+	RespSuccess(w, map[string]string{
 		"message": "连接测试成功",
 	})
 }
@@ -598,19 +541,9 @@ func SetDbSwitch(w http.ResponseWriter, r *http.Request) {
 		restartMux.Unlock()
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		cleanup()
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
-
 	req := &setDbSwitchReq{}
-	if err := json.Unmarshal(body, req); err != nil {
+	if err := readJSON(w, r, 1<<16, req); err != nil {
 		cleanup()
-		RespError(w, RespInternalErr, err)
 		return
 	}
 	if req.DbType == "" || req.DbSource == "" {
@@ -691,11 +624,11 @@ func SetDbSwitch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbdata.AdminLog("系统设置", "数据库切换", "执行了数据库切换", r.RemoteAddr)
-	RespSucess(w, map[string]any{
+	RespSuccess(w, map[string]any{
 		"message":       "数据库切换成功，即将重启",
 		"needs_restart": true,
 	})
-	go func() {
+	base.SafeGo(func() {
 		time.Sleep(time.Second)
 		sessdata.CleanupAllNatRules()
 		if sessdata.GlobalFakeDNSManager != nil {
@@ -709,7 +642,7 @@ func SetDbSwitch(w http.ResponseWriter, r *http.Request) {
 			base.Error("db switch restart err:", err)
 			cleanup()
 		}
-	}()
+	})
 }
 
 // 清理残留的 macvtap 网卡（lvtap 前缀）

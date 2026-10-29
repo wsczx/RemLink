@@ -82,6 +82,7 @@ func TestCheckOtp_DifferentUsersSameCode(t *testing.T) {
 	result := CheckOtp("user_a", code1, secret1)
 	ast.True(result)
 	result = CheckOtp("user_b", code1, secret2)
+	ast.False(result, "不同 secret 配对的 code 不应通过校验")
 	// 不同 secret 下 code 大概率不同，这里主要测不会误报重放
 	// 如果巧合相同 code，重放保护 key 是 "user:code"
 }

@@ -1,12 +1,9 @@
 package admin
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/wsczx/remlink/dbdata"
@@ -14,11 +11,7 @@ import (
 
 func UserIpMapList(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
-	pageS := r.FormValue("page")
-	page, _ := strconv.Atoi(pageS)
-	if page < 1 {
-		page = 1
-	}
+	page, _ := parsePaging(r)
 
 	var pageSize = dbdata.PageSize
 
@@ -35,7 +28,7 @@ func UserIpMapList(w http.ResponseWriter, r *http.Request) {
 	}
 	if v := strings.TrimSpace(r.FormValue("username")); v != "" {
 		fuzzy := "%" + v + "%"
-		conditions = append(conditions, "(username LIKE ? OR username IN (SELECT username FROM user WHERE nickname LIKE ?))")
+		conditions = append(conditions, "(username LIKE ? OR username IN (SELECT username FROM "+dbdata.QuoteIdent("user")+" WHERE nickname LIKE ?))")
 		args = append(args, fuzzy, fuzzy)
 	}
 	if v := strings.TrimSpace(r.FormValue("group")); v != "" {
@@ -94,7 +87,7 @@ func UserIpMapList(w http.ResponseWriter, r *http.Request) {
 		"datas":     datas,
 	}
 
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 // 批量删除 IP 映射（按选中的 ID 列表）
@@ -102,10 +95,7 @@ func UserIpMapBatchDel(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Ids []int `json:"ids"`
 	}
-
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		RespError(w, RespInternalErr, err)
+	if err := readJSON(w, r, 1<<16, &req); err != nil {
 		return
 	}
 
@@ -132,81 +122,35 @@ func UserIpMapBatchDel(w http.ResponseWriter, r *http.Request) {
 	dbdata.AdminLog("IP映射管理", "批量删除", fmt.Sprintf("批量删除了%d个IP映射", successCount), r.RemoteAddr)
 
 	if successCount > 0 {
-		RespSucess(w, msg)
+		RespSuccess(w, msg)
 	} else {
 		RespError(w, RespInternalErr, errors.New(msg))
 	}
 }
 
 func UserIpMapDetail(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	idS := r.FormValue("id")
-	id, _ := strconv.Atoi(idS)
-	if id < 1 {
-		RespError(w, RespParamErr, "用户名错误")
-		return
-	}
-
-	var data dbdata.IpMap
-	err := dbdata.One("Id", id, &data)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-
-	RespSucess(w, data)
+	detailByID[dbdata.IpMap](w, r, "用户名错误")
 }
 
 func UserIpMapSet(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
 	v := &dbdata.IpMap{}
-	err = json.Unmarshal(body, v)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
+	if err := readJSON(w, r, 1<<16, v); err != nil {
 		return
 	}
 
-	err = dbdata.SetIpMap(v)
-	if err != nil {
+	if err := dbdata.SetIpMap(v); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
 
 	dbdata.AdminLog("IP映射管理", v.IpAddr, "创建/修改了IP映射", r.RemoteAddr)
-	RespSucess(w, nil)
+	RespSuccess(w, nil)
 }
 
 func UserIpMapDel(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	idS := r.FormValue("id")
-	id, _ := strconv.Atoi(idS)
-
-	if id < 1 {
-		RespError(w, RespParamErr, "IP映射id错误")
-		return
-	}
-
-	var data dbdata.IpMap
-	err := dbdata.One("Id", id, &data)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-
-	err = dbdata.Del(&data)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-
-	dbdata.AdminLog("IP映射管理", data.IpAddr, "删除了IP映射", r.RemoteAddr)
-	RespSucess(w, nil)
+	delByID(w, r, "IP映射id错误", func(data *dbdata.IpMap) {
+		dbdata.AdminLog("IP映射管理", data.IpAddr, "删除了IP映射", r.RemoteAddr)
+	})
 }

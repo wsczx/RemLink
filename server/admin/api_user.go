@@ -3,7 +3,6 @@ package admin
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +17,7 @@ import (
 	"github.com/skip2/go-qrcode"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/jwt"
 	"github.com/wsczx/remlink/pkg/notify"
 	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/sessdata"
@@ -26,23 +26,12 @@ import (
 
 func UserList(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
-	prefix := r.FormValue("prefix")
-	prefix = strings.TrimSpace(prefix)
+	prefix := strings.TrimSpace(r.FormValue("prefix"))
 	userType := strings.TrimSpace(r.FormValue("type"))
 	group := strings.TrimSpace(r.FormValue("group"))
 	status := strings.TrimSpace(r.FormValue("status"))
 	expiry := strings.TrimSpace(r.FormValue("expiry"))
-	pageS := r.FormValue("page")
-	page, _ := strconv.Atoi(pageS)
-	if page < 1 {
-		page = 1
-	}
-
-	pageSizeS := r.FormValue("page_size")
-	pageSize, _ := strconv.Atoi(pageSizeS)
-	if pageSize <= 0 {
-		pageSize = dbdata.PageSize // 使用默认值
-	}
+	page, pageSize := parsePaging(r)
 
 	var (
 		count int
@@ -55,11 +44,11 @@ func UserList(w http.ResponseWriter, r *http.Request) {
 	var args []any
 	if len(prefix) > 0 {
 		fuzzy := "%" + prefix + "%"
-		wheres = append(wheres, "(username LIKE ? OR nickname LIKE ? OR email LIKE ? OR type LIKE ?)")
+		wheres = append(wheres, "(username LIKE ? OR nickname LIKE ? OR email LIKE ? OR "+dbdata.QuoteIdent("type")+" LIKE ?)")
 		args = append(args, fuzzy, fuzzy, fuzzy, fuzzy)
 	}
 	if userType != "" {
-		wheres = append(wheres, "type = ?")
+		wheres = append(wheres, dbdata.QuoteIdent("type")+" = ?")
 		args = append(args, userType)
 	}
 	if status != "" {
@@ -78,45 +67,17 @@ func UserList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var allDatas []dbdata.User
-	if len(wheres) > 0 {
-		where := strings.Join(wheres, " AND ")
-		err = dbdata.FindWhere(&allDatas, 0, 0, where, args...)
-	} else {
-		err = dbdata.Find(&allDatas, 0, 0)
+	if group != "" {
+		wheres = append(wheres, "groups LIKE ? ESCAPE '\\'")
+		args = append(args, "%\""+dbdata.EscapeLike(group)+"\"%")
 	}
-	if err != nil && !dbdata.CheckErrNotFound(err) {
+
+	where := strings.Join(wheres, " AND ")
+	count = dbdata.FindWhereCount(&dbdata.User{}, where, args...)
+	if err = dbdata.FindWhere(&datas, pageSize, page, where, args...); err != nil && !dbdata.CheckErrNotFound(err) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	if allDatas == nil {
-		allDatas = []dbdata.User{}
-	}
-
-	if group != "" {
-		groupMembers, gerr := dbdata.UsersInGroups([]string{group})
-		if gerr != nil {
-			RespError(w, RespInternalErr, gerr)
-			return
-		}
-		memberSet := make(map[string]bool, len(groupMembers))
-		for _, u := range groupMembers {
-			memberSet[u.Username] = true
-		}
-		filtered := allDatas[:0]
-		for _, u := range allDatas {
-			if memberSet[u.Username] {
-				filtered = append(filtered, u)
-			}
-		}
-		allDatas = filtered
-	}
-
-	count = len(allDatas)
-	// 内存分页
-	start := min((page-1)*pageSize, count)
-	end := min(start+pageSize, count)
-	datas = allDatas[start:end]
 
 	// 确保空结果返回 [] 而非 null
 	if datas == nil {
@@ -141,7 +102,7 @@ func UserList(w http.ResponseWriter, r *http.Request) {
 		"stats_disable":  stats.Disable,
 	}
 
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 // 在数据库侧做聚合统计（COUNT + CASE WHEN）
@@ -155,51 +116,35 @@ func userListStats(wheres []string, args []any) (dbdata.UserStats, error) {
 }
 
 func UserDetail(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	idS := r.FormValue("id")
-	id, _ := strconv.Atoi(idS)
-	if id < 1 {
-		RespError(w, RespParamErr, "用户名错误")
-		return
-	}
-
-	var user dbdata.User
-	err := dbdata.One("Id", id, &user)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-
-	RespSucess(w, user)
+	detailByID[dbdata.User](w, r, "用户名错误")
 }
 
 func UserSet(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	defer r.Body.Close()
 	data := &dbdata.User{}
-	err = json.Unmarshal(body, data)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
+	if err := readJSON(w, r, 1<<16, data); err != nil {
 		return
 	}
 
-	// 密码为空时由系统随机生成并通过邮件下发，非空时校验复杂度
+	// 密码：新建未填→随机生成；修改未填→保持原密码；显式填写→校验复杂度并视为变更
+	pwdChanged := false
 	if data.PinCode == "" {
-		data.PinCode = utils.RandomRunes(8)
+		var exist dbdata.User
+		if data.Id > 0 && dbdata.One("Id", data.Id, &exist) == nil {
+			data.PinCode = exist.PinCode
+		} else {
+			data.PinCode = utils.RandomRunes(8)
+			pwdChanged = true
+		}
 	} else if err := utils.CheckPasswordPolicy(data.PinCode); err != nil {
 		RespError(w, RespParamErr, err.Error())
 		return
+	} else {
+		pwdChanged = true
 	}
 	plainpwd := data.PinCode
-	err = dbdata.SetUser(data)
-	if err != nil {
+	if err := dbdata.SetUser(data); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
@@ -207,11 +152,10 @@ func UserSet(w http.ResponseWriter, r *http.Request) {
 	// 审计日志
 	dbdata.AdminLog("用户管理", data.Username, "创建/修改了用户", r.RemoteAddr)
 
-	// 发送邮件（邮件中包含明文密码）
-	if data.SendEmail {
+	// 发送邮件（邮件中包含明文密码）；仅在密码确实变更（新建或显式改密）时下发
+	if data.SendEmail && pwdChanged {
 		data.PinCode = plainpwd
-		err = userAccountMail(data)
-		if err != nil {
+		if err := userAccountMail(data); err != nil {
 			RespError(w, RespInternalErr, err)
 			return
 		}
@@ -222,39 +166,27 @@ func UserSet(w http.ResponseWriter, r *http.Request) {
 	if data.Status != 1 {
 		sessdata.CloseUserSessions(data.Username, dbdata.UserLogoutAdmin)
 	}
-	RespSucess(w, nil)
+	// 密码变更或停用时吊销门户 JWT
+	if pwdChanged || data.Status != 1 {
+		if n := jwt.RevokeSubjectJwt(data.Username); n > 0 {
+			base.Info("用户口令/状态变更，已吊销", n, "个门户会话:", data.Username)
+		}
+	}
+	RespSuccess(w, nil)
 }
 
 func UserDel(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	idS := r.FormValue("id")
-	id, _ := strconv.Atoi(idS)
-
-	if id < 1 {
-		RespError(w, RespParamErr, "用户id错误")
-		return
-	}
-
-	// 先查出用户名用于审计日志
-	user := &dbdata.User{}
-	if err := dbdata.One("Id", id, user); err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-
-	err := dbdata.Del(user)
-	if err != nil {
-		RespError(w, RespInternalErr, err)
-		return
-	}
-	// 删除用户后，令其已签发的 WebVPN 会话立即失效，避免旧会话在有效期内仍可访问
-	if err := dbdata.WebVpnRevokeUser(user.Username); err != nil {
-		base.Error("用户删除成功但 WebVPN 会话吊销持久化失败:", user.Username, err)
-	}
-	// 断开该用户在线的 VPN 会话
-	sessdata.CloseUserSessions(user.Username, dbdata.UserLogoutAdmin)
-	dbdata.AdminLog("用户管理", user.Username, "删除了用户", r.RemoteAddr)
-	RespSucess(w, nil)
+	delByID(w, r, "用户id错误", func(user *dbdata.User) {
+		// 断开在线会话、吊销门户 JWT、清除 WebVPN 会话
+		if err := dbdata.WebVpnRevokeUser(user.Username); err != nil {
+			base.Error("用户删除成功但 WebVPN 会话吊销持久化失败:", user.Username, err)
+		}
+		if n := jwt.RevokeSubjectJwt(user.Username); n > 0 {
+			base.Info("用户已删除，已吊销", n, "个门户会话:", user.Username)
+		}
+		sessdata.CloseUserSessions(user.Username, dbdata.UserLogoutAdmin)
+		dbdata.AdminLog("用户管理", user.Username, "删除了用户", r.RemoteAddr)
+	})
 }
 
 func UserOtpQr(w http.ResponseWriter, r *http.Request) {
@@ -317,7 +249,7 @@ func UserOnline(w http.ResponseWriter, r *http.Request) {
 		"datas":     datas,
 	}
 
-	RespSucess(w, data)
+	RespSuccess(w, data)
 }
 
 func UserOffline(w http.ResponseWriter, r *http.Request) {
@@ -325,7 +257,7 @@ func UserOffline(w http.ResponseWriter, r *http.Request) {
 	token := r.FormValue("token")
 	dbdata.AdminLog("用户管理", token, "踢用户下线", r.RemoteAddr)
 	sessdata.CloseSess(token, dbdata.UserLogoutAdmin)
-	RespSucess(w, nil)
+	RespSuccess(w, nil)
 }
 
 func UserReline(w http.ResponseWriter, r *http.Request) {
@@ -333,7 +265,7 @@ func UserReline(w http.ResponseWriter, r *http.Request) {
 	token := r.FormValue("token")
 	dbdata.AdminLog("用户管理", token, "断开用户连接", r.RemoteAddr)
 	sessdata.CloseCSess(token)
-	RespSucess(w, nil)
+	RespSuccess(w, nil)
 }
 
 func UserResetTraffic(w http.ResponseWriter, r *http.Request) {
@@ -360,7 +292,7 @@ func UserResetTraffic(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbdata.AdminLog("用户管理", username, "重置流量配额", r.RemoteAddr)
-	RespSucess(w, nil)
+	RespSuccess(w, nil)
 }
 
 // 批量发送邮件
@@ -369,9 +301,7 @@ func UserBatchSendEmail(w http.ResponseWriter, r *http.Request) {
 		UserIds []int `json:"user_ids"`
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		RespError(w, RespInternalErr, err)
+	if err := readJSON(w, r, 1<<16, &req); err != nil {
 		return
 	}
 
@@ -424,7 +354,7 @@ func UserBatchSendEmail(w http.ResponseWriter, r *http.Request) {
 	dbdata.AdminLog("用户管理", "批量操作", "批量发送邮件(成功:"+strconv.Itoa(successCount)+",失败:"+strconv.Itoa(failCount)+")", r.RemoteAddr)
 
 	if successCount > 0 {
-		RespSucess(w, msg)
+		RespSuccess(w, msg)
 	} else {
 		RespError(w, RespInternalErr, errors.New(msg))
 	}
@@ -436,9 +366,7 @@ func UserBatchDelete(w http.ResponseWriter, r *http.Request) {
 		UserIds []int `json:"user_ids"`
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		RespError(w, RespInternalErr, err)
+	if err := readJSON(w, r, 1<<16, &req); err != nil {
 		return
 	}
 
@@ -476,18 +404,18 @@ func UserBatchDelete(w http.ResponseWriter, r *http.Request) {
 
 	// 删除后令其已签发的 WebVPN 会话失效（纯收尾安全动作，异步执行避免阻塞响应）
 	if len(usernames) > 0 {
-		go dbdata.WebVpnRevokeUsers(usernames)
+		base.SafeGo(func() { dbdata.WebVpnRevokeUsers(usernames) })
 	}
 
 	dbdata.AdminLog("用户管理", "批量操作", "批量删除了"+strconv.Itoa(successCount)+"个用户", r.RemoteAddr)
 
 	// 已删除（跳过）的用户不计入失败，避免整批被误报为“删除失败”
 	if successCount == 0 && failCount == 0 {
-		RespSucess(w, "所选用户均不存在，无需删除")
+		RespSuccess(w, "所选用户均不存在，无需删除")
 		return
 	}
 	if failCount == 0 {
-		RespSucess(w, fmt.Sprintf("批量删除完成，成功：%d，跳过：%d（已不存在）", successCount, skipCount))
+		RespSuccess(w, fmt.Sprintf("批量删除完成，成功：%d，跳过：%d（已不存在）", successCount, skipCount))
 		return
 	}
 	RespError(w, RespInternalErr, fmt.Errorf("批量删除完成，成功：%d，失败：%d，跳过：%d（已不存在）", successCount, failCount, skipCount))
@@ -529,9 +457,9 @@ func userAccountMail(user *dbdata.User) error {
 	htmlBody = fmt.Sprintf(htmlBody, dataOther.AccountMail)
 
 	// token有效期3天
-	expiresAt := time.Now().Unix() + 3600*24*3
+	expiresAt := time.Now().Unix() + jwt.JwtUserResetTTLSec
 	jwtData := map[string]any{"id": user.Id}
-	tokenString, err := SetJwtData(jwtData, expiresAt)
+	tokenString, err := jwt.SetJwtData(jwtData, expiresAt)
 	if err != nil {
 		return err
 	}

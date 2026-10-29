@@ -65,6 +65,9 @@ func preData(tmpDir string) {
 }
 
 func cleardata(tmpDir string) {
+	// 先排空异步日志 worker 再关库，避免残留 worker 写已关闭的库
+	dbdata.UserActLogIns.Pool.Release()
+	dbdata.UserActLogIns.Pool = utils.NewWorkerPool(1, 100)
 	_ = dbdata.Stop()
 	tmpDb := path.Join(tmpDir, "test.db")
 	os.Remove(tmpDb)
@@ -221,6 +224,26 @@ func TestGroupIpPoolIsolation(t *testing.T) {
 
 func getTestUser(i int) string {
 	return fmt.Sprintf("user-%d", i)
+}
+
+// 非法/非 IPv4 地址必须返回 false 而非 panic
+func TestIpInPoolInvalidIP(t *testing.T) {
+	assert := assert.New(t)
+	tmp := t.TempDir()
+	preData(tmp)
+	defer cleardata(tmp)
+
+	pool := groupPool("10.0.1.0/24", "10.0.1.100", "10.0.1.150", "10.0.1.1")
+
+	// 池内地址
+	assert.True(ipInPool(net.ParseIP("10.0.1.120"), pool))
+	// 池外地址
+	assert.False(ipInPool(net.ParseIP("10.0.2.120"), pool))
+	// 非法输入：不得 panic，返回 false
+	assert.False(ipInPool(nil, pool))
+	assert.False(ipInPool(net.ParseIP("abc"), pool))
+	// IPv6 地址（To4 为 nil）：不得 panic，返回 false
+	assert.False(ipInPool(net.ParseIP("2001:db8::1"), pool))
 }
 
 // 用给定 v4 段构造一个组级 IP 池

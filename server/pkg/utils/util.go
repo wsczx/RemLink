@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -18,8 +17,6 @@ var (
 )
 
 func init() {
-	rand.Seed(time.Now().UnixNano())
-
 	timeNowSec.Store(time.Now())
 	go func() {
 		tick := time.NewTicker(time.Second * 1)
@@ -32,10 +29,6 @@ func init() {
 func NowSec() time.Time {
 	t := timeNowSec.Load()
 	return t.(time.Time)
-}
-
-func InArrStr(arr []string, str string) bool {
-	return slices.Contains(arr, str)
 }
 
 const (
@@ -112,13 +105,4 @@ func ParseName(name string) string {
 	name = strings.ReplaceAll(name, "\"", "-")
 	name = strings.ReplaceAll(name, ";", "-")
 	return name
-}
-
-func RemoveStrFromArr(s []string, r string) []string {
-	for i, v := range s {
-		if v == r {
-			return append(s[:i], s[i+1:]...)
-		}
-	}
-	return s
 }

@@ -239,7 +239,7 @@ func SetGroup(g *Group) error {
 	// 校验 AuthProfile 格式
 	profile, err := auth.ParseAuthProfile(g.AuthProfile)
 	if err != nil {
-		return errors.New("认证配置格式无效: " + err.Error())
+		return fmt.Errorf("认证配置格式无效: %w", err)
 	}
 	// 校验每个步骤
 	for i, step := range profile.Step {
@@ -274,7 +274,7 @@ func SetGroup(g *Group) error {
 	}
 	if err == nil {
 		// 组配置/状态/名称变更后，组内成员重新签发 WebVPN 会话。异步执行避免阻塞保存响应返回
-		go WebVpnRevokeGroupMembers([]string{oldName})
+		base.SafeGo(func() { WebVpnRevokeGroupMembers([]string{oldName}) })
 	}
 
 	return err

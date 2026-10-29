@@ -6,6 +6,7 @@ import (
 	"net"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/songgao/water/waterutil"
@@ -36,7 +37,7 @@ var (
 // 分析审计日志
 type AuditPayload struct {
 	Pool       *utils.WorkerPool
-	IpAuditMap utils.IMaps
+	IpAuditMap *sync.Map
 	TCPStreams *tcpStreamCache
 }
 
@@ -147,7 +148,7 @@ func logAuditBatch() {
 	}
 	auditPayload = &AuditPayload{
 		Pool:       utils.NewWorkerPool(10, 10240),
-		IpAuditMap: utils.NewMap("cmap", 0),
+		IpAuditMap: &sync.Map{},
 		TCPStreams: newTCPStreamCache(),
 	}
 	logBatch = &LogBatch{
@@ -155,8 +156,8 @@ func logAuditBatch() {
 	}
 
 	// 启动定期清理过期审计去重条目和闲置 TCP 流
-	go auditMapCleanupLoop()
-	go tcpStreamCleanupLoop()
+	base.SafeGo(auditMapCleanupLoop)
+	base.SafeGo(tcpStreamCleanupLoop)
 
 	var (
 		limit       = 100 // 超过上限批量写入数据表
@@ -186,7 +187,7 @@ func logAuditBatch() {
 func logAudit(userName, groupName string, pl *sessdata.Payload) {
 	defer func() {
 		if err := recover(); err != nil {
-			base.Error("logAudit is panic: ", err, "\n", string(debug.Stack()), "\n", pl.Data)
+			base.Error("logAudit is panic: ", err, "\n", string(debug.Stack()))
 		}
 	}()
 
@@ -282,6 +283,7 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 		return
 	}
 	b := getByte51()
+	defer putByte51(b)
 	// key格式 16字节源IP地址 + 16字节目的IP地址 + 源/目的端口 + 1字节协议类型 + 16字节域名MD5
 	key := *b
 	copy(key[:16], ipSrc)
@@ -339,7 +341,7 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 		}
 		ipKey[36] = byte(placeholderProto)
 		ipS := accessAuditDedupKey(userName, groupName, ipKey)
-		auditPayload.IpAuditMap.Set(ipS, nu)
+		auditPayload.IpAuditMap.Store(ipS, nu)
 
 		key[36] = byte(accessProto)
 		// 存储含域名的key
@@ -350,12 +352,11 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 
 	// audit_interval=0 表示不去重，也不维护去重 Map
 	if interval > 0 {
-		v, ok := auditPayload.IpAuditMap.Get(s)
+		v, ok := auditPayload.IpAuditMap.Load(s)
 		if ok && nu-v.(int64) < interval {
-			putByte51(b)
 			return
 		}
-		auditPayload.IpAuditMap.Set(s, nu)
+		auditPayload.IpAuditMap.Store(s, nu)
 	}
 
 	audit := dbdata.AccessAudit{
@@ -404,10 +405,11 @@ func auditMapCleanupLoop() {
 			continue
 		}
 		expireBefore := now - interval*2 // 保留 2 倍间隔的余量
-		for k, v := range auditPayload.IpAuditMap.Items() {
+		auditPayload.IpAuditMap.Range(func(k, v any) bool {
 			if ts, ok := v.(int64); ok && ts < expireBefore {
-				auditPayload.IpAuditMap.Del(k)
+				auditPayload.IpAuditMap.Delete(k)
 			}
-		}
+			return true
+		})
 	}
 }

@@ -45,7 +45,7 @@ func respHttp(w http.ResponseWriter, respCode int, data any, errS ...any) {
 	}
 }
 
-func RespSucess(w http.ResponseWriter, data any) {
+func RespSuccess(w http.ResponseWriter, data any) {
 	respHttp(w, 0, data, "")
 }
 

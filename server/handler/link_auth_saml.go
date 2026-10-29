@@ -70,59 +70,7 @@ func SAMLSPLogin(w http.ResponseWriter, r *http.Request) {
 
 // 企业微信 OAuth2 回调
 func WXAuthCallback(w http.ResponseWriter, r *http.Request) {
-	code := r.URL.Query().Get("code")
-	state := r.URL.Query().Get("state")
-
-	if code == "" || state == "" {
-		base.Error("企微认证回调缺少参数")
-		http.Error(w, "缺少认证参数", http.StatusBadRequest)
-		return
-	}
-
-	pending, groupname, ok := verifySAMLPending(w, r, state)
-	if !ok {
-		return
-	}
-
-	wxworkConfig, err := dbdata.GetAuthWework(groupname)
-	if err != nil {
-		base.Error("获取企微配置失败", err)
-		SAMLError(w, err)
-		return
-	}
-
-	userID, _, err := wxworkConfig.GetWeworkUser(code)
-	if err != nil {
-		base.Error("用户信息获取失败", err)
-		SAMLError(w, err)
-		return
-	}
-
-	// 部门过滤：在回调阶段完成校验，避免后续管道绕过
-	allowedDepts := wxworkConfig.ParseDepartments()
-	if len(allowedDepts) > 0 {
-		ok, err := wxworkConfig.CheckUserDepartment(userID, allowedDepts)
-		if err != nil {
-			base.Error("验证部门失败", err)
-			SAMLError(w, err)
-			return
-		}
-		if !ok {
-			base.Error("用户不在允许的部门范围内:", userID)
-			SAMLError(w, fmt.Errorf("用户不在允许的部门范围内"))
-			return
-		}
-	}
-
-	// 用户ID拒绝清单：在回调阶段完成校验，避免后续管道绕过
-	blockedUserIDs := wxworkConfig.ParseBlockedUserIDs()
-	if len(blockedUserIDs) > 0 && wxworkConfig.CheckUserID(userID, blockedUserIDs) {
-		base.Error("用户在被拒绝的用户ID列表中:", userID)
-		SAMLError(w, fmt.Errorf("用户在被拒绝的用户ID列表中"))
-		return
-	}
-
-	finishSAMLOAuth(w, r, state, "wxwork", userID, pending)
+	ssoCallbackHandler(w, r, "wxwork", "企微")
 }
 
 // SAML 断言消费者端点（sso-v2-login-final）
@@ -210,123 +158,13 @@ func wxworkVerifyFileByPath(path string) (string, bool) {
 
 // 飞书 OAuth2 回调
 func FeishuAuthCallback(w http.ResponseWriter, r *http.Request) {
-	code := r.URL.Query().Get("code")
-	state := r.URL.Query().Get("state")
-
-	if code == "" || state == "" {
-		base.Error("飞书认证回调缺少参数")
-		http.Error(w, "缺少认证参数", http.StatusBadRequest)
-		return
-	}
-
-	pending, groupname, ok := verifySAMLPending(w, r, state)
-	if !ok {
-		return
-	}
-
-	feishuConfig, err := dbdata.GetAuthFeishu(groupname)
-	if err != nil {
-		base.Error("获取飞书配置失败", err)
-		SAMLError(w, err)
-		return
-	}
-
-	userID, _, err := feishuConfig.GetFeishuUser(code)
-	if err != nil {
-		base.Error("飞书用户信息获取失败", err)
-		SAMLError(w, err)
-		return
-	}
-
-	// 部门过滤：在回调阶段完成校验，避免后续管道绕过
-	allowedDepts := feishuConfig.ParseDepartments()
-	if len(allowedDepts) > 0 {
-		accessToken, err := feishuConfig.GetAppAccessToken()
-		if err != nil {
-			base.Error("获取飞书 access_token 失败", err)
-			SAMLError(w, err)
-			return
-		}
-		ok, err := feishuConfig.CheckUserDepartment(accessToken, userID, allowedDepts)
-		if err != nil {
-			base.Error("验证部门失败", err)
-			SAMLError(w, err)
-			return
-		}
-		if !ok {
-			base.Error("用户不在允许的部门范围内:", userID)
-			SAMLError(w, fmt.Errorf("用户不在允许的部门范围内"))
-			return
-		}
-	}
-
-	// 拒绝名单：在回调阶段完成校验，避免后续管道绕过
-	blockedUserIDs := feishuConfig.ParseBlockedUserIDs()
-	if len(blockedUserIDs) > 0 && feishuConfig.CheckUserID(userID, blockedUserIDs) != nil {
-		base.Error("用户在拒绝名单中:", userID)
-		SAMLError(w, fmt.Errorf("用户已被拒绝登录"))
-		return
-	}
-
-	finishSAMLOAuth(w, r, state, "feishu", userID, pending)
+	ssoCallbackHandler(w, r, "feishu", "飞书")
 }
 
 // 钉钉 OAuth 扫码登录回调
 // 与 WXAuthCallback / FeishuAuthCallback 对称：在回调阶段完成部门过滤与用户ID拒绝清单校验
 func DingtalkAuthCallback(w http.ResponseWriter, r *http.Request) {
-	code := r.URL.Query().Get("code")
-	state := r.URL.Query().Get("state")
-
-	if code == "" || state == "" {
-		base.Error("钉钉认证回调缺少参数")
-		http.Error(w, "缺少认证参数", http.StatusBadRequest)
-		return
-	}
-
-	pending, groupname, ok := verifySAMLPending(w, r, state)
-	if !ok {
-		return
-	}
-
-	dingtalkConfig, err := dbdata.GetAuthDingtalk(groupname)
-	if err != nil {
-		base.Error("获取钉钉配置失败", err)
-		SAMLError(w, err)
-		return
-	}
-
-	userID, _, accessToken, err := dingtalkConfig.GetDingtalkUser(code)
-	if err != nil {
-		base.Error("钉钉用户信息获取失败", err)
-		SAMLError(w, err)
-		return
-	}
-
-	// 部门过滤：在回调阶段完成校验，避免后续管道绕过
-	allowedDepts := dingtalkConfig.ParseDepartments()
-	if len(allowedDepts) > 0 {
-		ok, err := dingtalkConfig.CheckUserDepartment(accessToken, userID, allowedDepts)
-		if err != nil {
-			base.Error("验证部门失败", err)
-			SAMLError(w, err)
-			return
-		}
-		if !ok {
-			base.Error("用户不在允许的部门范围内:", userID)
-			SAMLError(w, fmt.Errorf("用户不在允许的部门范围内"))
-			return
-		}
-	}
-
-	// 用户ID拒绝清单：在回调阶段完成校验，避免后续管道绕过
-	if err := dingtalkConfig.CheckUserID(userID, dingtalkConfig.ParseBlockedUserIDs()); err != nil {
-		base.Error("用户在被拒绝的用户ID列表中:", userID)
-		SAMLError(w, err)
-		return
-	}
-
-	// 创建完整 SSO 会话（覆盖 pending 状态）
-	finishSAMLOAuth(w, r, state, "dingtalk", userID, pending)
+	ssoCallbackHandler(w, r, "dingtalk", "钉钉")
 }
 func SAMLError(w http.ResponseWriter, err error) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -339,53 +177,9 @@ func SAMLError(w http.ResponseWriter, err error) {
     <title>认证失败</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background: #f5f5f5;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            margin: 0;
-            padding: 20px;
-        }
-        .container {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 15px rgba(0,0,0,0.2);
-            padding: 40px;
-            max-width: 450px;
-            width: 100%;
-            text-align: center;
-        }
-        .icon {
-            font-size: 56px;
-            color: #f44336; 
-            margin-bottom: 24px;
-        }
-        h1 {
-            color: #303133;
-            font-size: 24px;
-            margin-bottom: 15px;
-        }
-        .error-message {
-            color: #e6a23c;
-            font-size: 16px;
-            margin-bottom: 20px;
-        }
-        .detail {
-            color: #606266;
-            font-size: 15px;
-            margin-bottom: 25px;
-        }
-        .note {
-            color: #909399;
-            font-size: 13px;
-            margin-top: 30px;
-            border-top: 1px solid #e4e7ed;
-            padding-top: 20px;
-        }
+    <style>` + samlPageCSS + `
+        .icon { color: #f44336; }
+        h1 { font-size: 24px; }
     </style>
 </head>
 <body>

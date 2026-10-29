@@ -283,6 +283,68 @@ func TestCheckUserIPLock(t *testing.T) {
 	})
 }
 
+// 挑战阶段独立计数：StageSuccess 不清挑战计数，防已知口令者重置 OTP 尝试（M-1）
+func TestChallengeLockIndependent(t *testing.T) {
+	resetLockManager()
+	base.Test()
+	setupTestConfig()
+
+	lm := GetLockManager()
+	username := "otpuser"
+	ipaddr := "192.168.1.20:12345"
+
+	lm.StageSuccess(username, ipaddr)
+	assert.True(t, lm.Check(username, ipaddr), "进入挑战时不应锁定")
+
+	for range 4 {
+		lm.ChallengeFail(username, ipaddr)
+	}
+	assert.True(t, lm.Check(username, ipaddr), "未达阈值不应锁定")
+
+	lm.StageSuccess(username, ipaddr)
+	lm.StageSuccess(username, ipaddr)
+
+	lm.ChallengeFail(username, ipaddr)
+	assert.False(t, lm.Check(username, ipaddr), "挑战失败达阈值应锁定")
+
+	lm.StageSuccess(username, ipaddr)
+	assert.False(t, lm.Check(username, ipaddr), "锁定期间 StageSuccess 不应解锁")
+
+	found := false
+	for _, info := range lm.LockInfo() {
+		if info.Description == "挑战阶段锁定" && info.Username == username {
+			found = true
+		}
+	}
+	assert.True(t, found, "LockInfo 应展示挑战阶段锁定")
+
+	lm.UnlockUserIP(username, ipaddr)
+	assert.True(t, lm.Check(username, ipaddr), "UnlockUserIP 应清除挑战锁定")
+}
+
+func TestChallengeLockClearedByFullSuccess(t *testing.T) {
+	resetLockManager()
+	base.Test()
+	setupTestConfig()
+
+	lm := GetLockManager()
+	username := "otpuser2"
+	ipaddr := "192.168.1.21:12345"
+
+	// 挑战失败 4 次
+	for range 4 {
+		lm.ChallengeFail(username, ipaddr)
+	}
+	// 完整登录成功：清除挑战计数
+	lm.Success(username, ipaddr)
+
+	// 之后挑战失败 4 次仍不应锁定（计数已从零开始）
+	for range 4 {
+		lm.ChallengeFail(username, ipaddr)
+	}
+	assert.True(t, lm.Check(username, ipaddr), "完整登录成功后挑战计数应已清除")
+}
+
 func TestInitIPList_IsInIPList(t *testing.T) {
 	resetLockManager()
 	base.Test()
@@ -306,6 +368,29 @@ func TestInitIPList_IsInIPList(t *testing.T) {
 		result := lm.InList("10.0.0.1", IPBlackList)
 		assert.True(t, result, "10.0.0.1应该在黑名单中")
 	})
+}
+
+func TestWhitelistPriorityOverBlacklist(t *testing.T) {
+	resetLockManager()
+	base.Test()
+	base.SetCfgForTest(&base.ServerConfig{
+		AntiBruteForce: true,
+		IPWhiteList:    "10.0.0.1,192.168.1.0/24",
+		IPBlackList:    "10.0.0.1,10.0.0.2",
+		MaxBanCount:    5,
+	})
+
+	lm := GetLockManager()
+	lm.LoadIPList(IPWhiteList, base.GetCfg().IPWhiteList)
+	lm.LoadIPList(IPBlackList, base.GetCfg().IPBlackList)
+
+	assert.True(t, lm.Check("user1", "10.0.0.1:12345"), "黑白名单同时命中时白名单应优先")
+
+	// 仅在黑名单：拒绝
+	assert.False(t, lm.Check("user1", "10.0.0.2:12345"), "仅黑名单命中应拒绝")
+
+	// 仅在白名单：放行
+	assert.True(t, lm.Check("user1", "192.168.1.50:12345"), "仅白名单命中应放行")
 }
 
 func TestGetLocksInfo(t *testing.T) {

@@ -18,6 +18,7 @@ import (
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/dbtest"
 )
 
 func createWebAuthSession(_ *testing.T, groupName string) string {
@@ -37,8 +38,7 @@ func createWebAuthSession(_ *testing.T, groupName string) string {
 
 func TestWebAuthSPLogin_Valid(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	base.UpdateCfg(func(c *base.ServerConfig) { c.EnableWebAuth = true })
 
 	state := createWebAuthSession(t, "default")
@@ -81,8 +81,7 @@ func TestWebAuthSPLogin_EmptyState(t *testing.T) {
 
 func TestWebAuthStart_Success(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	base.UpdateCfg(func(c *base.ServerConfig) { c.EnableWebAuth = true })
 
 	pt := &dbdata.Policy{
@@ -167,8 +166,7 @@ func TestWebAuthStart_Disabled(t *testing.T) {
 
 func TestWebAuthSelectGroup_Success(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	ast := assert.New(t)
 
@@ -240,8 +238,7 @@ func TestWebAuthSelectGroup_EmptyState(t *testing.T) {
 
 func TestWebAuthSelectGroup_GroupNotFound(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	state := createWebAuthSession(t, "default")
 
@@ -332,8 +329,7 @@ func TestWebAuthComplete_EmptyState(t *testing.T) {
 
 func TestWebAuthComplete_Success(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	state := createWebAuthSession(t, "default")
 
@@ -408,8 +404,7 @@ func createWebAuthSessionWithCert(t *testing.T, groupName, certCN, certOU string
 // 且不应把证书 CN 写入响应（防用户名锁死）
 func TestWebAuthStart_CertGuardDisabled(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	defer dbdata.InvalidateCertAuthCache()
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.EnableWebAuth = true
@@ -444,8 +439,7 @@ func TestWebAuthStart_CertGuardDisabled(t *testing.T) {
 // 且清空临时写入的证书 CN
 func TestWebAuthStart_CertAutoAuthFallback(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	defer dbdata.InvalidateCertAuthCache()
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.EnableWebAuth = true
@@ -482,8 +476,7 @@ func TestWebAuthStart_CertAutoAuthFallback(t *testing.T) {
 // 组过滤开启：预填已识别用户名，避免重复输入
 func TestWebAuthSelectGroup_GroupFilterPrefill(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.EnableWebAuth = true
 		c.EnableWebAuthGroupFilter = true
@@ -519,8 +512,7 @@ func TestWebAuthSelectGroup_GroupFilterPrefill(t *testing.T) {
 // 组过滤关闭：即使会话残留用户名也不预填，避免输入框锁死
 func TestWebAuthSelectGroup_NoPrefillWhenFilterOff(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.EnableWebAuth = true
 		c.EnableWebAuthGroupFilter = false
@@ -553,3 +545,149 @@ func TestWebAuthSelectGroup_NoPrefillWhenFilterOff(t *testing.T) {
 	ast.Equal("credentials", resp["status"])
 	ast.Nil(resp["username"], "组过滤关闭时不应预填残留用户名（防锁死）")
 }
+
+func TestWebAuthOnPass_NilCtxRejected(t *testing.T) {
+	base.Test()
+	dbtest.SetupDB(t)
+
+	ast := assert.New(t)
+
+	pending := &AuthSession{} // Ctx 为 nil
+	result := &auth.PipelineResult{Username: "u1", GroupName: "g1"}
+	req := httptest.NewRequest("POST", "/+CSCOE+/web-auth/step", nil)
+	w := httptest.NewRecorder()
+
+	webAuthOnPass(w, req, "nil-ctx-state", pending, result)
+
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	ast.Equal("error", resp["status"], "nil Ctx 会话必须显式失败")
+	ast.Nil(pending.Ctx, "不得把 nil Ctx 修复为空 Context（异常态应保持失败）")
+
+	// 不得签发门户 JWT cookie
+	for _, c := range w.Result().Cookies() {
+		ast.NotEqual(portalCookieName, c.Name, "nil Ctx 会话不得签发门户 JWT")
+	}
+}
+
+func TestWebAuthContinue_NilCtxRejected(t *testing.T) {
+	base.Test()
+
+	ast := assert.New(t)
+
+	state := GenerateSessionID()
+	AuthSessionManager.Save(state, &AuthSession{}) // Ctx 为 nil
+
+	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/continue?state="+state, nil)
+	w := httptest.NewRecorder()
+	WebAuthContinue(w, req)
+
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	ast.Equal("error", resp["status"], "nil Ctx 会话必须显式失败")
+	ast.Contains(resp["message"], "已过期")
+
+	// 残留会话应被清理，不可再被驱动
+	_, err := AuthSessionManager.Get(state)
+	ast.Error(err, "被拒的 nil Ctx 会话应被删除")
+}
+
+// WebAuth SSO 回调必须拒绝跨组冒用
+func TestWebAuthSSOCallbackRejectsCrossGroup(t *testing.T) {
+	base.Test()
+	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
+	dbtest.SetupDB(t)
+	ast := assert.New(t)
+
+	// 注册测试用 SSO 源；按组名返回回调，便于断言访问控制用的是哪一组配置
+	ssoCallbacks["testxgroup"] = func(groupName string) (ssoCallback, error) {
+		return &stubSSOCallbackX{group: groupName}, nil
+	}
+	defer delete(ssoCallbacks, "testxgroup")
+
+	const remote = "10.9.9.9:5555"
+
+	// A 组的 sso_state：授权结果将按 A 组配置做部门/拒绝名单校验
+	ssoState := "sso-state-group-a"
+	AuthSessionManager.Save(ssoState, &AuthSession{
+		Kind: AuthKindSSOPending,
+		Ctx: &auth.Context{
+			Conn: auth.ConnInfo{GroupName: "group-a", RemoteAddr: remote},
+			SSO:  &auth.SSOState{Type: "testxgroup", From: "web_auth", ClientIP: remote},
+		},
+	})
+
+	// B 组的 WebAuth 管道会话（攻击目标）
+	webState := "web-state-group-b"
+	AuthSessionManager.Save(webState, &AuthSession{
+		Kind: AuthKindPipeline,
+		Ctx: &auth.Context{
+			WebAuth: true,
+			Conn:    auth.ConnInfo{GroupName: "group-b", RemoteAddr: remote},
+		},
+	})
+
+	req := httptest.NewRequest("GET",
+		"/web-auth/sso-callback?web_state="+webState+"&sso_state="+ssoState+"&code=fake", nil)
+	req.RemoteAddr = remote
+	w := httptest.NewRecorder()
+	WebAuthSSOCallback(w, req)
+
+	// 必须拒绝，且不得把 B 组会话标记为已认证
+	ast.Equal(http.StatusBadRequest, w.Code, "跨组回调必须被拒绝")
+
+	webPending, err := AuthSessionManager.Get(webState)
+	ast.NoError(err)
+	ast.False(webPending.Ctx.SSO != nil && webPending.Ctx.SSO.Authenticated,
+		"跨组回调不得把目标会话标记为已认证")
+
+	// sso_state 应被消费，防重放
+	_, err = AuthSessionManager.Get(ssoState)
+	ast.Error(err, "sso_state 应在拒绝后被清理")
+}
+
+// sso_state 必须是 SSO 待回调会话，其它来源（如 OTP 等待的管道会话）不得复用
+func TestWebAuthSSOCallbackRejectsNonSsoState(t *testing.T) {
+	base.Test()
+	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
+	dbtest.SetupDB(t)
+	ast := assert.New(t)
+
+	const remote = "10.9.9.9:5555"
+
+	// 把「等待 OTP」的管道会话 id 当作 sso_state 重放
+	pipelineState := "pipeline-otp-pending"
+	AuthSessionManager.Save(pipelineState, &AuthSession{
+		Kind: AuthKindPipeline,
+		Ctx: &auth.Context{
+			Conn: auth.ConnInfo{GroupName: "group-a", RemoteAddr: remote},
+		},
+	})
+	webState := "web-state-for-nonsso"
+	AuthSessionManager.Save(webState, &AuthSession{
+		Kind: AuthKindPipeline,
+		Ctx:  &auth.Context{Conn: auth.ConnInfo{GroupName: "group-a", RemoteAddr: remote}},
+	})
+
+	req := httptest.NewRequest("GET",
+		"/web-auth/sso-callback?web_state="+webState+"&sso_state="+pipelineState+"&code=fake", nil)
+	req.RemoteAddr = remote
+	w := httptest.NewRecorder()
+	WebAuthSSOCallback(w, req)
+
+	ast.Equal(http.StatusBadRequest, w.Code, "非 SSO 来源的 sso_state 必须被拒绝")
+
+	// 被冒用的管道会话不得被消费/删除
+	_, err := AuthSessionManager.Get(pipelineState)
+	ast.NoError(err, "被冒用的管道会话不应被消费")
+}
+
+type stubSSOCallbackX struct{ group string }
+
+func (s *stubSSOCallbackX) getUser(code string) (string, string, error) {
+	return "attacker", "攻击者", nil
+}
+
+func (s *stubSSOCallbackX) checkDept(userID string) error { return nil }
+
+func (s *stubSSOCallbackX) isBlocked(userID string) bool { return false }

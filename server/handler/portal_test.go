@@ -9,9 +9,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/wsczx/remlink/admin"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/dbtest"
+	"github.com/wsczx/remlink/pkg/jwt"
 	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/xlzd/gotp"
 )
@@ -87,8 +88,7 @@ func createPortalLoginSetup(t *testing.T, username, password, groupName string) 
 
 func TestPortalLogin_Success(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	base.UpdateCfg(func(c *base.ServerConfig) { c.EnableUserPortal = true })
 
 	createPortalLoginSetup(t, "testuser", "testpass123", "default")
@@ -115,8 +115,7 @@ func TestPortalLogin_Success(t *testing.T) {
 
 func TestPortalLogin_WrongPassword(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	base.UpdateCfg(func(c *base.ServerConfig) { c.EnableUserPortal = true })
 
 	createPortalLoginSetup(t, "testuser", "testpass123", "default")
@@ -138,8 +137,7 @@ func TestPortalLogin_WrongPassword(t *testing.T) {
 
 func TestPortalLogin_UserNotFound(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	base.UpdateCfg(func(c *base.ServerConfig) { c.EnableUserPortal = true })
 
 	createPortalLoginSetup(t, "testuser", "testpass123", "default")
@@ -211,8 +209,7 @@ func createPortalPwdUser(t *testing.T, username, password string) (*dbdata.User,
 
 func TestPortalChangePassword_Success(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.EnableUserPortal = true
 		c.JwtSecret = "test-jwt-secret-for-portal-32b"
@@ -249,8 +246,7 @@ func TestPortalChangePassword_Success(t *testing.T) {
 
 func TestPortalChangePassword_WrongOldPassword(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.EnableUserPortal = true
 		c.JwtSecret = "test-jwt-secret-for-portal-32b"
@@ -275,8 +271,7 @@ func TestPortalChangePassword_WrongOldPassword(t *testing.T) {
 
 func TestPortalChangePassword_WeakNewPassword(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.EnableUserPortal = true
 		c.JwtSecret = "test-jwt-secret-for-portal-32b"
@@ -305,8 +300,7 @@ func TestPortalChangePassword_WeakNewPassword(t *testing.T) {
 
 func TestPortalChangePassword_TooShort(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.EnableUserPortal = true
 		c.JwtSecret = "test-jwt-secret-for-portal-32b"
@@ -335,8 +329,7 @@ func TestPortalChangePassword_TooShort(t *testing.T) {
 
 func TestPortalChangePassword_Unauthorized(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	base.UpdateCfg(func(c *base.ServerConfig) { c.EnableUserPortal = true })
 
 	body := `{"old_password":"old","new_password":"newpass123"}`
@@ -352,8 +345,7 @@ func TestPortalChangePassword_Unauthorized(t *testing.T) {
 
 func TestPortalChangePassword_ExternalUser(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.EnableUserPortal = true
@@ -404,8 +396,7 @@ func TestPortalChangePassword_ExternalUser(t *testing.T) {
 
 func TestPortalResetPassword_InvalidToken(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.EnableUserPortal = true
@@ -446,8 +437,7 @@ func TestPortalResetPassword_EmptyFields(t *testing.T) {
 
 func TestPortalResetPassword_Success(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.EnableUserPortal = true
@@ -484,7 +474,7 @@ func TestPortalResetPassword_Success(t *testing.T) {
 	err = dbdata.SetUser(u)
 	ast.Nil(err)
 
-	token, err := admin.SetJwtData(map[string]any{
+	token, err := jwt.SetJwtData(map[string]any{
 		"purpose": "portal_reset_password",
 		"user_id": float64(u.Id),
 		"jti":     "test-jti-123",
@@ -538,8 +528,7 @@ func TestPortalLogout(t *testing.T) {
 
 func TestPortalLogin_ForcePwd(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	base.UpdateCfg(func(c *base.ServerConfig) { c.EnableUserPortal = true })
 
 	createPortalLoginSetup(t, "forceuser", "oldpass123", "default")
@@ -582,8 +571,7 @@ func TestPortalLogin_ForcePwd(t *testing.T) {
 
 func TestPortalLogin_OTP(t *testing.T) {
 	base.Test()
-	preIpData(t)
-	defer closeIpdata()
+	dbtest.SetupDB(t)
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.EnableUserPortal = true
 		c.SendOtp = false

@@ -19,6 +19,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/wsczx/remlink/auth/authsrv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/utils"
 )
 
 // WebAuth 入口引导态（管道运行前）文案集中定义
@@ -48,6 +50,7 @@ func handlerWebAuth(w http.ResponseWriter, r *http.Request, cr *ClientRequest, u
 	certTLS := r.TLS
 
 	pending := &AuthSession{
+		Kind:       AuthKindPipeline, // WebAuth 门户认证管道会话（含 OTP/RADIUS/SMS 等待断点）
 		UserActLog: ua,
 		Ctx: &auth.Context{
 			WebAuth: true,
@@ -57,7 +60,7 @@ func handlerWebAuth(w http.ResponseWriter, r *http.Request, cr *ClientRequest, u
 				UserAgent:   cr.UserAgent,
 				MacAddr:     cr.MacAddressList.MacAddress,
 				DeviceID:    cr.DeviceId.UniqueIdGlobal,
-				DeviceType:  cr.DeviceId.DeviceType,
+				DeviceType:  cr.DeviceId.Type(),
 				PlatformVer: cr.DeviceId.PlatformVersion,
 				TLS:         certTLS,
 			},
@@ -124,16 +127,8 @@ func WebAuthStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state := r.URL.Query().Get("state")
-	if state == "" {
-		webAuthError(w, "缺少认证参数")
-		return
-	}
-
-	// 校验 state 有效
-	pending, err := AuthSessionManager.Get(state)
-	if err != nil {
-		webAuthError(w, "认证会话已过期")
+	pending, state, ok := webAuthPending(w, r)
+	if !ok {
 		return
 	}
 
@@ -186,15 +181,8 @@ func WebAuthStart(w http.ResponseWriter, r *http.Request) {
 
 // 选定组并执行认证管道。首步非 SSO 时返回凭据输入界面
 func WebAuthSelectGroup(w http.ResponseWriter, r *http.Request) {
-	state := r.URL.Query().Get("state")
-	if state == "" {
-		webAuthError(w, "缺少认证参数")
-		return
-	}
-
-	pending, err := AuthSessionManager.Get(state)
-	if err != nil {
-		webAuthError(w, "认证会话已过期")
+	pending, state, ok := webAuthPending(w, r)
+	if !ok {
 		return
 	}
 
@@ -321,14 +309,8 @@ func filterGroupsByUser(rawGroups []string, user *dbdata.User) []string {
 
 // 在选组前先收集用户名，按 User.Groups 过滤后返回可选组列表。仅支持「本地用户认证」
 func WebAuthIdentify(w http.ResponseWriter, r *http.Request) {
-	state := r.URL.Query().Get("state")
-	if state == "" {
-		webAuthError(w, "缺少认证参数")
-		return
-	}
-	pending, err := AuthSessionManager.Get(state)
-	if err != nil {
-		webAuthError(w, "认证会话已过期")
+	pending, state, ok := webAuthPending(w, r)
+	if !ok {
 		return
 	}
 
@@ -381,14 +363,12 @@ func WebAuthIdentify(w http.ResponseWriter, r *http.Request) {
 // 提交认证凭据或验证码，推进管道
 // 根据管道状态自动选择首次执行（Authenticate）或恢复执行（Resume）
 func WebAuthStep(w http.ResponseWriter, r *http.Request) {
-	state := r.URL.Query().Get("state")
-	if state == "" {
-		webAuthError(w, "缺少认证参数")
+	pending, state, ok := webAuthPending(w, r)
+	if !ok {
 		return
 	}
-
-	pending, err := AuthSessionManager.Get(state)
-	if err != nil {
+	if pending.Ctx == nil {
+		AuthSessionManager.Delete(state)
 		webAuthError(w, "认证会话已过期")
 		return
 	}
@@ -455,10 +435,6 @@ func WebAuthStep(w http.ResponseWriter, r *http.Request) {
 
 	// 复用已有 Context（恢复场景）或首次场景
 	ctx := pending.Ctx
-	if ctx == nil {
-		ctx = &auth.Context{}
-		pending.Ctx = ctx
-	}
 	ctx.Conn.TLS = certTLS
 	if certTLS == nil {
 		ctx.Conn.TLS = r.TLS
@@ -519,6 +495,10 @@ func webAuthDispatch(w http.ResponseWriter, r *http.Request,
 // 从已保存会话恢复管道（Resume）分发
 func webAuthResumeDispatch(w http.ResponseWriter, r *http.Request,
 	state string, pending *AuthSession, username string) {
+	if err := authsrv.ReloadAndCheckUser(pending.Ctx); err != nil {
+		webAuthError(w, err.Error())
+		return
+	}
 	flow := newWebAuthFlow(state, pending, username)
 	flow.Resume(w, r, auth.PipelineState{
 		StepIdx:     pending.Ctx.StepIdx(),
@@ -576,6 +556,11 @@ func webAuthOnPass(w http.ResponseWriter, r *http.Request,
 
 	username := result.Username
 	groupName := result.GroupName
+	if pending.Ctx == nil {
+		base.Error("WebAuth 认证会话状态异常（Ctx 为 nil），state:", state[:min(16, len(state))])
+		webAuthError(w, "认证会话状态异常")
+		return
+	}
 
 	// 更新 pending 会话信息
 	pending.Ctx.Conn.Username = username
@@ -592,13 +577,11 @@ func webAuthOnPass(w http.ResponseWriter, r *http.Request,
 	}
 
 	// 保存完成标记到 SSO 状态
-	if pending.Ctx == nil {
-		pending.Ctx = &auth.Context{}
-	}
 	pending.Ctx.GetSSO().WebAuthCompleted = true
 	pending.Ctx.SSO.WebAuthUsername = username
 	pending.Ctx.SSO.WebAuthNickname = pending.Ctx.Conn.Nickname
 	pending.Ctx.SSO.WebAuthGroup = groupName
+	pending.Kind = AuthKindWebAuth // 标记门户管道已全部通过
 	AuthSessionManager.Save(state, pending)
 
 	// 签发门户 JWT cookie（浏览器端可直接访问 /ui/#/portal）
@@ -621,7 +604,7 @@ func webAuthOnPass(w http.ResponseWriter, r *http.Request,
 			Value:    token,
 			Path:     "/",
 			HttpOnly: true,
-			Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+			Secure:   utils.IsTLS(r),
 			SameSite: http.SameSiteLaxMode,
 		})
 	}
@@ -648,11 +631,13 @@ func webAuthBuildSSOURL(r *http.Request, ssoType, groupName, webAuthState string
 	// 生成 SSO 子状态，关联回当前 WebAuth 会话
 	ssoState := GenerateSessionID()
 	pending := &AuthSession{
+		Kind: AuthKindSSOPending, // 标记为 SSO 待回调会话，防止其它类型会话被当作 sso_state 使用
 		Ctx: &auth.Context{
 			Conn: auth.ConnInfo{GroupName: groupName},
 			SSO: &auth.SSOState{
-				Type: ssoType,
-				From: "web_auth",
+				Type:     ssoType,
+				From:     "web_auth",
+				ClientIP: r.RemoteAddr, // 发起登录与回调须来自同一客户端 IP
 			},
 		},
 	}
@@ -690,56 +675,77 @@ func WebAuthSSOCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 仅接受 SSO 待回调会话，防止其它类型会话（如管道会话）被当作 sso_state 使用
+	if pending.Kind != AuthKindSSOPending || pending.Ctx.SSO == nil {
+		base.Error("WebAuth SSO state 类型非法")
+		http.Error(w, "认证会话已过期", http.StatusBadRequest)
+		return
+	}
+	// 防重放：已认证过的 state 不得再次使用
+	if pending.Ctx.SSO.Authenticated {
+		base.Error("WebAuth SSO state 已被使用（疑似重放）")
+		AuthSessionManager.Delete(ssoState)
+		http.Error(w, "认证会话已过期", http.StatusBadRequest)
+		return
+	}
+	// 发起登录与回调须来自同一客户端 IP，否则拒绝冒用
+	if ip := pending.Ctx.SSO.ClientIP; ip != "" {
+		want, _, _ := net.SplitHostPort(ip)
+		got, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if want != "" && got != "" && want != got {
+			base.Error("WebAuth SSO state 来源 IP 不匹配:", want, got)
+			AuthSessionManager.Delete(ssoState)
+			http.Error(w, "认证会话来源异常", http.StatusForbidden)
+			return
+		}
+	}
+
 	ssoType := ""
 	if pending.Ctx != nil && pending.Ctx.SSO != nil {
 		ssoType = pending.Ctx.SSO.Type
 	}
 	code := r.URL.Query().Get("code")
 
-	var username string
-	switch ssoType {
-	case "wxwork":
-		cfg, cErr := dbdata.GetAuthWework(pending.Ctx.Conn.GroupName)
-		if cErr != nil {
-			http.Error(w, "获取企微配置失败", http.StatusInternalServerError)
-			return
-		}
-		var name string
-		username, name, err = cfg.GetWeworkUser(code)
-		pending.Ctx.Conn.Nickname = name
-	case "feishu":
-		cfg, cErr := dbdata.GetAuthFeishu(pending.Ctx.Conn.GroupName)
-		if cErr != nil {
-			http.Error(w, "获取飞书配置失败", http.StatusInternalServerError)
-			return
-		}
-		var name string
-		username, name, err = cfg.GetFeishuUser(code)
-		pending.Ctx.Conn.Nickname = name
-	case "dingtalk":
-		cfg, cErr := dbdata.GetAuthDingtalk(pending.Ctx.Conn.GroupName)
-		if cErr != nil {
-			http.Error(w, "获取钉钉配置失败", http.StatusInternalServerError)
-			return
-		}
-		var userid, name string
-		userid, name, _, err = cfg.GetDingtalkUser(code)
-		pending.Ctx.Conn.Nickname = name
-		username = userid
-	default:
-		http.Error(w, "不支持的 SSO 类型", http.StatusBadRequest)
+	if pending.Ctx == nil {
+		AuthSessionManager.Delete(ssoState)
+		http.Error(w, "认证会话已过期", http.StatusBadRequest)
 		return
 	}
 
-	if err != nil || username == "" {
+	cb, cbErr := ssoCallbackFor(ssoType, pending.Ctx.Conn.GroupName)
+	if cbErr != nil {
+		AuthSessionManager.Delete(ssoState)
+		http.Error(w, "获取用户信息失败", http.StatusInternalServerError)
+		return
+	}
+	username, nickname, err := cb.getUser(code)
+	if err != nil {
+		AuthSessionManager.Delete(ssoState)
+		http.Error(w, "获取用户信息失败", http.StatusInternalServerError)
+		return
+	}
+	pending.Ctx.Conn.Nickname = nickname
+	if username == "" {
 		AuthSessionManager.Delete(ssoState)
 		http.Error(w, "获取用户信息失败", http.StatusInternalServerError)
 		return
 	}
 
+	// 部门过滤 + 拒绝名单：在回调阶段完成校验，避免后续管道绕过
+	if aerr := ssoAuthorize(cb, username); aerr != nil {
+		base.Error("WebAuth SSO 访问控制拒绝:", username, aerr)
+		AuthSessionManager.Delete(ssoState)
+		http.Error(w, "用户未通过访问控制校验", http.StatusForbidden)
+		return
+	}
+
 	// 将 SSO 结果写入 WebAuth 会话
 	webPending, werr := AuthSessionManager.Get(webState)
-	if werr != nil {
+	if werr != nil || webPending == nil || webPending.Ctx == nil ||
+		webPending.Kind != AuthKindPipeline ||
+		webPending.Ctx.Conn.GroupName != pending.Ctx.Conn.GroupName {
+		base.Error("WebAuth SSO 回调目标会话非法（疑似跨组冒用）: webState=", webState)
+		AuthSessionManager.Delete(ssoState)
 		http.Error(w, "认证会话已过期", http.StatusBadRequest)
 		return
 	}
@@ -768,14 +774,12 @@ func WebAuthSSOCallback(w http.ResponseWriter, r *http.Request) {
 
 // SSO 回调后恢复管道
 func WebAuthContinue(w http.ResponseWriter, r *http.Request) {
-	state := r.URL.Query().Get("state")
-	if state == "" {
-		webAuthError(w, "缺少认证参数")
+	pending, state, ok := webAuthPending(w, r)
+	if !ok {
 		return
 	}
-
-	pending, err := AuthSessionManager.Get(state)
-	if err != nil {
+	if pending.Ctx == nil {
+		AuthSessionManager.Delete(state)
 		webAuthError(w, "认证会话已过期")
 		return
 	}
@@ -792,10 +796,6 @@ func WebAuthContinue(w http.ResponseWriter, r *http.Request) {
 	_, _, certTLS := webAuthRecoverCert(pending)
 
 	ctx := pending.Ctx
-	if ctx == nil {
-		ctx = &auth.Context{}
-		pending.Ctx = ctx
-	}
 	ctx.Conn.TLS = certTLS
 	if certTLS == nil {
 		ctx.Conn.TLS = r.TLS
@@ -854,15 +854,8 @@ func webAuthRecoverCert(pending *AuthSession) (cn, ou string, tlsState *tls.Conn
 
 // 重新发送短信验证码
 func WebAuthSmsResend(w http.ResponseWriter, r *http.Request) {
-	state := r.URL.Query().Get("state")
-	if state == "" {
-		webAuthError(w, "缺少认证参数")
-		return
-	}
-
-	pending, err := AuthSessionManager.Get(state)
-	if err != nil {
-		webAuthError(w, "认证会话已过期")
+	pending, state, ok := webAuthPending(w, r)
+	if !ok {
 		return
 	}
 
@@ -876,8 +869,7 @@ func WebAuthSmsResend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 重新发送验证码
-	_, err = authsrv.SendSmsCode(phone)
-	if err != nil {
+	if _, err := authsrv.SendSmsCode(phone); err != nil {
 		webAuthError(w, err.Error())
 		return
 	}
@@ -906,6 +898,21 @@ func webAuthError(w http.ResponseWriter, msg string) {
 	})
 }
 
+// 读取并校验 WebAuth 认证会话调用方直接 return
+func webAuthPending(w http.ResponseWriter, r *http.Request) (*AuthSession, string, bool) {
+	state := r.URL.Query().Get("state")
+	if state == "" {
+		webAuthError(w, "缺少认证参数")
+		return nil, "", false
+	}
+	pending, err := AuthSessionManager.Get(state)
+	if err != nil {
+		webAuthError(w, "认证会话已过期")
+		return nil, "", false
+	}
+	return pending, state, true
+}
+
 // 返回 SAML XML 中 sso-v2-browser-mode 的值
 // 手机端强制使用内置浏览器（外部浏览器的 localhost:29786 回调在手机上不可用）
 func webAuthBrowserMode(r *http.Request) string {
@@ -922,13 +929,12 @@ func webAuthBrowserMode(r *http.Request) string {
 // 处理 WebAuth 强制改密提交（POST /web-auth/change_password）
 // 校验强度并更新密码、清除 ForcePwd 后续跑管道（forcepwd 步直接通过，继续后续 otp 等步骤）
 func WebAuthChangePassword(w http.ResponseWriter, r *http.Request) {
-	state := r.URL.Query().Get("state")
-	if state == "" {
-		webAuthError(w, "缺少认证参数")
+	pending, state, ok := webAuthPending(w, r)
+	if !ok {
 		return
 	}
-	pending, err := AuthSessionManager.Get(state)
-	if err != nil {
+	if pending.Ctx == nil {
+		AuthSessionManager.Delete(state)
 		webAuthError(w, "认证会话已过期")
 		return
 	}

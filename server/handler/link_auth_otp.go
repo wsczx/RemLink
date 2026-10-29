@@ -16,7 +16,7 @@ import (
 )
 
 // OTP 验证入口（独立窗口模式），通过 Cookie 恢复 Pipeline
-func LinkAuth_otp(w http.ResponseWriter, r *http.Request) {
+func LinkAuthOtp(w http.ResponseWriter, r *http.Request) {
 	sessionID, err := GetCookie(r, "auth-session-id")
 	if err != nil {
 		http.Error(w, "会话已过期，请重新登录", http.StatusUnauthorized)

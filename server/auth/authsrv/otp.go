@@ -103,7 +103,7 @@ func (a *OTPAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 		if base.GetCfg().SendOtp && !sent {
 			base.Info("OTP首次请求，发送验证码到:", ctx.Conn.Username)
 			ctx.GetOTP().Sent = true
-			go sendOtpToUser(ub)
+			base.SafeGo(func() { sendOtpToUser(ub) })
 		}
 		return auth.StepPending, nil
 	}

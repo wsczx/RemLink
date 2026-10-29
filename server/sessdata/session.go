@@ -90,6 +90,7 @@ type Session struct {
 	UserAgent       string
 	DeviceType      string
 	PlatformVersion string
+	Os              uint8 // 操作系统分类索引
 
 	LastLogin time.Time
 	IsActive  bool
@@ -412,7 +413,7 @@ func (cs *ConnSession) ratePeriod() {
 		cs.settleTraffic()
 		if exceeded, _ := dbdata.QuotaExceeded(cs.Username, cs.Policy); exceeded {
 			base.Warn("流量配额超限，强制下线:", cs.Username)
-			go CloseSess(cs.Sess.Token, dbdata.UserLogoutQuota) // 异步避免死锁
+			base.SafeGo(func() { CloseSess(cs.Sess.Token, dbdata.UserLogoutQuota) }) // 异步避免死锁
 			return
 		}
 	}
@@ -644,6 +645,7 @@ func AddUserActLog(cs *ConnSession, loginTime time.Time) {
 		RemoteAddr:      cs.RemoteAddr,
 		DeviceType:      cs.Sess.DeviceType,
 		PlatformVersion: cs.Sess.PlatformVersion,
+		Os:              cs.Sess.Os,
 		Status:          dbdata.UserLogout,
 	}
 	info := dbdata.UserActLogIns.GetInfoOpsById(cs.LogoutCode())
@@ -665,6 +667,7 @@ func AddUserActLogBySess(sess *Session, code ...uint8) {
 		RemoteAddr:      sess.RemoteAddr,
 		DeviceType:      sess.DeviceType,
 		PlatformVersion: sess.PlatformVersion,
+		Os:              sess.Os,
 		Status:          dbdata.UserLogout,
 	}
 	ua.Info = dbdata.UserActLogIns.GetInfoOpsById(dbdata.UserLogoutBanner)

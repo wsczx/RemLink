@@ -432,7 +432,7 @@ StepFail   StepPending  StepPass（所有步骤通过 + 身份一致性校验）
 
 | 名称       | 文件                  | 类型                                                    | Challenge | Challenge 类型      |
 | ---------- | --------------------- | ------------------------------------------------------- | :-------: | ------------------- |
-| `local`  | `authsrv/local.go`  | 本地密码（bcrypt，支持密码+OTP 尾部合并输入，兜底剥离） |    ✗    | —                  |
+| `local`  | `authsrv/local.go`  | 本地密码（bcrypt，动态码须经独立 OTP 步骤提交）          |    ✗    | —                  |
 | `ldap`   | `authsrv/ldap.go`   | LDAP/AD Bind 认证                                       |   ✗¹   | —                  |
 | `radius` | `authsrv/radius.go` | RADIUS 认证                                             |   ✓²   | `ChallengeRADIUS` |
 | `cert`   | `authsrv/cert.go`   | TLS X.509 客户端证书                                    |    ✗    | —                  |

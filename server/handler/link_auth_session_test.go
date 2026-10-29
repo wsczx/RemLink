@@ -85,7 +85,13 @@ func TestAuthSessionManagerGetExpired(t *testing.T) {
 		t.Fatalf("未过期会话应可读取: %v", err)
 	}
 
-	time.Sleep(30 * time.Millisecond)
+	// 轮询等待 TTL 过期（ttl=10ms）
+	for range 100 {
+		if _, err := m.Get("expire-id"); err != nil {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
 	if _, err := m.Get("expire-id"); err == nil {
 		t.Fatal("过期会话不应可读取")
 	}

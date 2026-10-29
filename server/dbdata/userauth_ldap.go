@@ -5,9 +5,6 @@ import (
 
 	"github.com/go-ldap/ldap"
 	"github.com/wsczx/remlink/auth"
-	"github.com/wsczx/remlink/base"
-	"github.com/wsczx/remlink/pkg/utils"
-	"github.com/xlzd/gotp"
 )
 
 // LDAP 认证配置（嵌入共享 LDAPConfig，Connect/SearchFilter/SearchUsers 等方法由嵌入体提供）
@@ -17,27 +14,9 @@ type AuthLdap struct {
 
 // 从 Group 的 AuthProfile 中通过 Provider 名称解析 LDAP 配置
 func ResolveLdapConfig(g *Group) (*AuthLdap, error) {
-	profile, err := auth.ParseAuthProfile(g.AuthProfile)
+	cfg, err := resolveProviderConfigMap(g, "ldap", "LDAP")
 	if err != nil {
 		return nil, err
-	}
-
-	var cfg map[string]any
-	for _, step := range profile.Step {
-		if step.Type == "ldap" {
-			if step.Provider == "" {
-				return nil, fmt.Errorf("LDAP 步骤未设置 Provider")
-			}
-			resolved, err := ResolveProviderConfig(step.Provider, "ldap")
-			if err != nil {
-				return nil, fmt.Errorf("解析 LDAP Provider %q: %w", step.Provider, err)
-			}
-			cfg = resolved
-			break
-		}
-	}
-	if cfg == nil {
-		return nil, fmt.Errorf("认证配置中未找到 LDAP 步骤")
 	}
 
 	result := &AuthLdap{}
@@ -78,10 +57,9 @@ func (a *AuthLdap) SaveUsers(g *Group) error {
 		}
 		return entry.GetAttributeValue("mobile")
 	}
-	// 创建LDAP用户映射
-	ldapUserMap := make(map[string]bool)
-	var added, updated int
-	// 处理搜索结果
+
+	needOTP := a.EnableOtp || HasAuthType(g.AuthProfile, "otp")
+	remote := make(map[string]RemoteUser)
 	for _, entry := range sr.Entries {
 		if a.SyncUserStatus {
 			// 检查用户状态，只同步正常用户
@@ -89,121 +67,34 @@ func (a *AuthLdap) SaveUsers(g *Group) error {
 				continue
 			}
 		}
-		var groups []string
-		needOTP := a.EnableOtp || HasAuthType(g.AuthProfile, "otp")
-		ldapuser := &User{
-			Type:       "ldap",
-			Username:   entry.GetAttributeValue(a.SearchAttr),
-			Nickname:   entry.GetAttributeValue("displayName"),
-			Email:      entry.GetAttributeValue("mail"),
-			Phone:      ldapPhone(entry),
-			Groups:     append(groups, g.Name),
-			DisableOtp: !needOTP,
-			OtpSecret:  gotp.RandomSecret(32),
-			SendEmail:  false,
-			Status:     1,
+		id := entry.GetAttributeValue(a.SearchAttr)
+		remote[id] = RemoteUser{
+			ID:    id,
+			Name:  entry.GetAttributeValue("displayName"),
+			Phone: ldapPhone(entry),
+			Email: entry.GetAttributeValue("mail"),
 		}
-		ldapUserMap[ldapuser.Username] = true
-		// 新增或更新ldap用户
-		u := &User{}
-		if err := One("username", ldapuser.Username, u); err != nil {
-			if CheckErrNotFound(err) {
-				if err := Add(ldapuser); err != nil {
-					base.Error("新增ldap用户失败", ldapuser.Username, err)
-					continue
-				}
-				continue
-			}
-			base.Error("查询用户失败", ldapuser.Username, err)
-			continue
-		}
-		if u.Type != "ldap" {
-			base.Warn("已存在本地同名用户:", ldapuser.Username)
-			continue
-		}
-		// 现有LDAP用户，更新字段
-		u.Nickname = entry.GetAttributeValue("displayName")
-		u.DisableOtp = !needOTP
-		if u.OtpSecret == "" {
-			u.OtpSecret = gotp.RandomSecret(32)
-		}
-		if u.Email == "" {
-			u.Email = entry.GetAttributeValue("mail")
-		}
-		if u.Phone == "" {
-			u.Phone = ldapPhone(entry)
-		}
-		if !utils.InArrStr(u.Groups, g.Name) {
-			u.Groups = append(u.Groups, g.Name)
-		}
-
-		if err := Set(u); err != nil {
-			return fmt.Errorf("更新ldap用户%s失败:%v", u.Username, err.Error())
-		}
-		updated++
 	}
+	// 判据是过滤前的原始搜索结果（与旧行为一致：全部被状态过滤时仍执行清理）
 	if len(sr.Entries) == 0 {
 		return fmt.Errorf("LDAP 搜索到的用户列表为空（可能连接失败、base DN 配置错误或搜索权限不足），组: %s", g.Name)
 	}
-	base.Info("LDAP用户同步完成，组:", g.Name, " 新增:", added, " 更新:", updated)
 
-	// 查询本地LDAP用户
-	var localLdapUsers []User
-	if err := FindWhere(&localLdapUsers, 0, 0, "type = 'ldap'"); err != nil {
-		base.Error("查询本地LDAP用户失败:", err)
-		return fmt.Errorf("查询本地LDAP用户失败: %w", err)
-	}
-
-	// 删除LDAP中不存在的本地用户
-	for _, localUser := range localLdapUsers {
-		if !utils.InArrStr(localUser.Groups, g.Name) {
-			continue
-		}
-		if !ldapUserMap[localUser.Username] {
-			localUser.Groups = utils.RemoveStrFromArr(localUser.Groups, g.Name)
-			if len(localUser.Groups) == 0 {
-				if err := Del(&localUser); err != nil {
-					base.Error("删除本地LDAP用户失败:", localUser.Username, err)
-				} else {
-					base.Info("成功删除本地LDAP用户:", localUser.Username)
-				}
-			} else {
-				if err := Set(&localUser); err != nil {
-					base.Error("更新用户组失败:", localUser.Username, err)
-				} else {
-					base.Info("成功从组 '"+g.Name+"' 移除用户:", localUser.Username)
-				}
-			}
-		}
-	}
-	return nil
+	// LDAP 语义：本地已填写的字段不覆盖（保留本地编辑）；无拒绝名单
+	return syncExternalUsers(g, "ldap", "LDAP", remote, needOTP, nil, true)
 }
 
 // 同步所有 LDAP 认证源用户（按各 LDAP 认证源的 sync_users 独立控制）
 func SyncLdapUsers() {
-	groups, err := GetAllGroups()
-	if err != nil {
-		base.Error("获取所有组失败:", err)
-		return
-	}
-	for _, g := range groups {
-		if !HasAuthType(g.AuthProfile, "ldap") {
-			continue
-		}
-		authLdap, err := ResolveLdapConfig(&g)
-		if err != nil {
-			base.Error("解析LDAP配置失败:", g.Name, err)
-			continue
-		}
-		if !authLdap.SyncUsers {
-			continue
-		}
-		go func(g Group, authldap *AuthLdap) {
-			if err := authldap.SaveUsers(&g); err != nil {
-				base.Error("LDAP 自动同步失败", g.Name, err)
-			} else {
-				base.Info("LDAP用户同步成功", g.Name)
+	syncExternalUsersBySource(extSyncSource{
+		authType: "ldap",
+		name:     "LDAP",
+		resolve: func(g *Group) (bool, func(*Group) error, error) {
+			cfg, err := ResolveLdapConfig(g)
+			if err != nil {
+				return false, nil, err
 			}
-		}(g, authLdap)
-	}
+			return cfg.SyncUsers, cfg.SaveUsers, nil
+		},
+	})
 }

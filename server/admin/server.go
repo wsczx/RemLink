@@ -20,7 +20,7 @@ import (
 var UiData embed.FS
 
 // 开启服务
-func StartAdmin() {
+func StartAdmin() error {
 	base.SetNodeBootTime(serverStartTime.Unix())
 	r := mux.NewRouter()
 	r.Use(recoverHttp, authMiddleware, handlers.CompressHandler)
@@ -28,7 +28,6 @@ func StartAdmin() {
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			utils.SetSecureHeader(w)
-			w.Header().Set("Server", "RemLinkAdminOpenSource")
 			next.ServeHTTP(w, req)
 		})
 	})
@@ -219,18 +218,18 @@ func StartAdmin() {
 	r.HandleFunc("/debug/pprof/trace", pprofGuard(pprof.Trace)).Name("debug")
 	r.HandleFunc("/debug/pprof", pprofGuard(location("/debug/pprof/"))).Name("debug")
 	r.PathPrefix("/debug/pprof/").HandlerFunc(pprofGuard(pprof.Index)).Name("debug")
-	// statsviz
-	vizSrv, _ := statsviz.NewServer()
-	r.Path("/debug/statsviz/ws").Name("debug").HandlerFunc(pprofGuard(vizSrv.Ws()))
-	r.PathPrefix("/debug/statsviz/").Name("debug").Handler(
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !base.GetCfg().Pprof {
-				http.Error(w, "statsviz is disabled", http.StatusForbidden)
-				return
-			}
-			vizSrv.Index().ServeHTTP(w, r)
-		}),
-	)
+	// statsviz - 复用 pprofGuard 统一按 Pprof 配置开关
+	vizSrv, err := statsviz.NewServer()
+	if err != nil {
+		base.Error("初始化 statsviz 失败，跳过 statsviz 路由:", err)
+	} else {
+		r.Path("/debug/statsviz/ws").Name("debug").HandlerFunc(pprofGuard(vizSrv.Ws()))
+		r.PathPrefix("/debug/statsviz/").Name("debug").Handler(
+			pprofGuard(func(w http.ResponseWriter, r *http.Request) {
+				vizSrv.Index().ServeHTTP(w, r)
+			}),
+		)
+	}
 	r.NotFoundHandler = NotFound()
 
 	base.Info("Listen admin", base.GetCfg().AdminAddr)
@@ -261,10 +260,10 @@ func StartAdmin() {
 		IdleTimeout:       120 * time.Second,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	err := srv.ListenAndServeTLS("", "")
-	if err != nil {
-		base.Fatal(err)
+	if err := srv.ListenAndServeTLS("", ""); err != nil {
+		return err
 	}
+	return nil
 }
 
 func location(url string) http.HandlerFunc {

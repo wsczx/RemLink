@@ -13,5 +13,8 @@ func Long2ip(i uint32) net.IP {
 
 func Ip2long(ip net.IP) uint32 {
 	ip = ip.To4()
+	if ip == nil {
+		return 0
+	}
 	return binary.BigEndian.Uint32(ip)
 }

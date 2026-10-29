@@ -6,8 +6,6 @@ import (
 
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
-	"github.com/wsczx/remlink/pkg/utils"
-	"github.com/xlzd/gotp"
 )
 
 // AuthFeishu 飞书认证配置（嵌入共享 FeishuConfig）
@@ -26,27 +24,9 @@ func GetAuthFeishu(groupName string) (*AuthFeishu, error) {
 
 // 从 Group 的 AuthProfile 解析飞书配置
 func ResolveFeishuConfig(g *Group) (*AuthFeishu, error) {
-	profile, err := auth.ParseAuthProfile(g.AuthProfile)
+	cfg, err := resolveProviderConfigMap(g, "feishu", "飞书")
 	if err != nil {
 		return nil, err
-	}
-
-	var cfg map[string]any
-	for _, step := range profile.Step {
-		if step.Type == "feishu" {
-			if step.Provider == "" {
-				return nil, fmt.Errorf("飞书步骤未设置 Provider")
-			}
-			resolved, err := ResolveProviderConfig(step.Provider, "feishu")
-			if err != nil {
-				return nil, fmt.Errorf("解析飞书 Provider %q: %w", step.Provider, err)
-			}
-			cfg = resolved
-			break
-		}
-	}
-	if cfg == nil {
-		return nil, fmt.Errorf("认证配置中未找到飞书步骤")
 	}
 
 	result := &AuthFeishu{}
@@ -68,9 +48,10 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 
 	needOTP := HasAuthType(g.AuthProfile, "otp")
 	blocked := a.ParseBlockedUserIDs()
+	isBlocked := func(id string) bool { return a.CheckUserID(id, blocked) != nil }
 
 	// 拉取允许部门内的成员；未配置部门时拉取权限范围内全部用户
-	feishuUserMap := make(map[string]auth.FeishuDeptUserItem)
+	remote := make(map[string]RemoteUser)
 	if departments := a.ParseDepartments(); len(departments) > 0 {
 		for _, deptID := range departments {
 			users, err := a.GetDepartmentUsers(accessToken, deptID)
@@ -79,8 +60,8 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 				continue
 			}
 			for _, u := range users {
-				if _, exists := feishuUserMap[u.UserID]; !exists {
-					feishuUserMap[u.UserID] = u
+				if _, exists := remote[u.UserID]; !exists {
+					remote[u.UserID] = RemoteUser{ID: u.UserID, Name: u.Name, Phone: u.Mobile, Email: u.Email}
 				}
 			}
 		}
@@ -91,148 +72,48 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 			return fmt.Errorf("获取飞书全部用户失败: %w", err)
 		}
 		for _, u := range users {
-			if _, exists := feishuUserMap[u.UserID]; !exists {
-				feishuUserMap[u.UserID] = u
+			if _, exists := remote[u.UserID]; !exists {
+				remote[u.UserID] = RemoteUser{ID: u.UserID, Name: u.Name, Phone: u.Mobile, Email: u.Email}
 			}
 		}
 	}
 
-	// 同步到本地 DB
-	syncedUsers := make(map[string]bool)
-	var added, updated, skipped int
-	for _, feishuUser := range feishuUserMap {
-		syncedUsers[feishuUser.UserID] = true
-		// 拒绝名单：不同步到本地，跳过后续新增/更新
-		if a.CheckUserID(feishuUser.UserID, blocked) != nil {
-			base.Debug("飞书同步跳过拒绝用户:", feishuUser.UserID)
-			skipped++
+	// 飞书明细手机号带 +86 国际前缀，需去除
+	for id, ru := range remote {
+		if isBlocked(id) {
 			continue
 		}
-		mobile, email := feishuUser.Mobile, feishuUser.Email
-		if detail, derr := a.GetFeishuUserDetail(accessToken, feishuUser.UserID); derr == nil {
+		if detail, derr := a.GetFeishuUserDetail(accessToken, id); derr == nil {
 			if detail.Data.Mobile != "" {
-				mobile = detail.Data.Mobile
+				ru.Phone = detail.Data.Mobile
 			}
 			if detail.Data.Email != "" {
-				email = detail.Data.Email
+				ru.Email = detail.Data.Email
 			}
 		} else {
-			base.Debug("飞书获取用户明细失败:", feishuUser.UserID, derr)
+			base.Debug("飞书获取用户明细失败:", id, derr)
 		}
-
-		newUser := &User{
-			Type:       "feishu",
-			Username:   feishuUser.UserID,
-			Nickname:   feishuUser.Name,
-			Phone:      strings.TrimPrefix(mobile, "+86"),
-			Email:      email,
-			Groups:     []string{g.Name},
-			DisableOtp: !needOTP,
-			OtpSecret:  gotp.RandomSecret(32),
-			SendEmail:  false,
-			Status:     1,
-		}
-
-		// 查现有用户
-		u := &User{}
-		if err := One("username", feishuUser.UserID, u); err != nil {
-			if CheckErrNotFound(err) {
-				if err := Add(newUser); err != nil {
-					base.Error("新增飞书用户失败", feishuUser.UserID, err)
-					continue
-				}
-				added++
-				continue
-			}
-			base.Error("查询用户失败", feishuUser.UserID, err)
-			continue
-		}
-		if u.Type != "feishu" {
-			base.Warn("已存在本地同名用户:", feishuUser.UserID)
-			skipped++
-			continue
-		}
-		// 更新现有飞书用户字段
-		u.Nickname = feishuUser.Name
-		if mobile != "" {
-			u.Phone = strings.TrimPrefix(mobile, "+86")
-		}
-		if email != "" {
-			u.Email = email
-		}
-		u.DisableOtp = !needOTP
-		if u.OtpSecret == "" {
-			u.OtpSecret = gotp.RandomSecret(32)
-		}
-		if !utils.InArrStr(u.Groups, g.Name) {
-			u.Groups = append(u.Groups, g.Name)
-		}
-		if err := Set(u); err != nil {
-			base.Error("更新飞书用户失败", u.Username, err)
-		} else {
-			updated++
-		}
+		ru.Phone = strings.TrimPrefix(ru.Phone, "+86")
+		remote[id] = ru
 	}
-	if len(feishuUserMap) == 0 {
+	if len(remote) == 0 {
 		return fmt.Errorf("飞书拉取到的用户列表为空（可能部门配置错误、access_token 权限不足或应用可见范围未覆盖），组: %s", g.Name)
 	}
-	base.Info("飞书用户同步完成，组:", g.Name, " 新增:", added, " 更新:", updated, " 跳过:", skipped)
 
-	// 清理已不在飞书部门中的本地 feishu 用户
-	var localFeishuUsers []User
-	if err := FindWhere(&localFeishuUsers, 0, 0, "type = 'feishu'"); err != nil {
-		base.Error("查询本地飞书用户失败，跳过用户清理:", err)
-		return fmt.Errorf("查询本地飞书用户失败: %w", err)
-	}
-	for _, localUser := range localFeishuUsers {
-		if !utils.InArrStr(localUser.Groups, g.Name) {
-			continue
-		}
-		if !syncedUsers[localUser.Username] || a.CheckUserID(localUser.Username, blocked) != nil {
-			localUser.Groups = utils.RemoveStrFromArr(localUser.Groups, g.Name)
-			if len(localUser.Groups) == 0 {
-				if err := Del(&localUser); err != nil {
-					base.Error("删除本地飞书用户失败:", localUser.Username, err)
-				} else {
-					base.Info("成功删除本地飞书用户:", localUser.Username)
-				}
-			} else {
-				if err := Set(&localUser); err != nil {
-					base.Error("更新用户组失败:", localUser.Username, err)
-				} else {
-					base.Info("成功从组 '"+g.Name+"' 移除用户:", localUser.Username)
-				}
-			}
-		}
-	}
-	return nil
+	return syncExternalUsers(g, "feishu", "飞书", remote, needOTP, isBlocked, false)
 }
 
 // 同步所有飞书认证源用户（按各飞书认证源的 sync_users 独立控制）
 func SyncFeishuUsers() {
-	groups, err := GetAllGroups()
-	if err != nil {
-		base.Error("获取所有组失败:", err)
-		return
-	}
-	for _, g := range groups {
-		if !HasAuthType(g.AuthProfile, "feishu") {
-			continue
-		}
-		authFs, err := ResolveFeishuConfig(&g)
-		if err != nil {
-			base.Error("解析飞书配置失败:", g.Name, err)
-			continue
-		}
-		if !authFs.SyncUsers {
-			continue
-		}
-		go func(g Group, a *AuthFeishu) {
-			if err := a.SaveUsers(&g); err != nil {
-				base.Error("飞书用户同步失败", g.Name, err)
-				return
+	syncExternalUsersBySource(extSyncSource{
+		authType: "feishu",
+		name:     "飞书",
+		resolve: func(g *Group) (bool, func(*Group) error, error) {
+			cfg, err := ResolveFeishuConfig(g)
+			if err != nil {
+				return false, nil, err
 			}
-			base.Info("飞书用户组同步成功:", g.Name)
-		}(g, authFs)
-	}
+			return cfg.SyncUsers, cfg.SaveUsers, nil
+		},
+	})
 }

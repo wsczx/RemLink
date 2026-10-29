@@ -82,8 +82,19 @@ func verifySAMLPending(w http.ResponseWriter, r *http.Request, state string) (*A
 		SAMLError(w, fmt.Errorf("认证会话已过期或无效"))
 		return nil, "", false
 	}
+	if pending.Ctx == nil {
+		base.Error("SSO pending 会话缺少上下文:", state[:min(16, len(state))])
+		SAMLError(w, fmt.Errorf("认证会话已过期或无效"))
+		return nil, "", false
+	}
 	if pending.Ctx.SSO == nil || pending.Ctx.SSO.Authenticated {
 		base.Error("SSO state 已被使用（疑似重放）:", state[:min(16, len(state))])
+		SAMLError(w, fmt.Errorf("认证会话已过期或无效"))
+		return nil, "", false
+	}
+	// 仅接受 SSO 待回调会话，防止其它类型会话被当作 SSO state 使用
+	if pending.Kind != AuthKindSSOPending {
+		base.Error("SSO state 类型非法:", state[:min(16, len(state))])
 		SAMLError(w, fmt.Errorf("认证会话已过期或无效"))
 		return nil, "", false
 	}
@@ -111,6 +122,7 @@ func verifySAMLPending(w http.ResponseWriter, r *http.Request, state string) (*A
 // 建立 SAML 会话、写入 Cookie 并跳转至断言消费端点
 func completeSSO(w http.ResponseWriter, r *http.Request, state, ssoType, groupname, userID string) {
 	samlSession := &AuthSession{
+		Kind: AuthKindSSODone,
 		Ctx: &auth.Context{
 			Conn: auth.ConnInfo{GroupName: groupname, Username: userID},
 			SSO: &auth.SSOState{
@@ -157,6 +169,7 @@ func startSSO(w http.ResponseWriter, r *http.Request, tgname, ssoType, redirect 
 			},
 		},
 	}
+	pending.Kind = AuthKindSSOPending // 标记为 SSO 待回调会话
 	AuthSessionManager.Save(state, pending)
 
 	redirectURI := fmt.Sprintf("%s/%s/callback", getServerAddr(r), p.callbackPath)

@@ -167,7 +167,7 @@ func initRoute() http.Handler {
 	r.PathPrefix("/ui/").Handler(admin.ServeUI())
 	r.HandleFunc("/CSCOSSLC/tunnel", LinkTunnel).Methods(http.MethodConnect)
 	r.HandleFunc("/otp_qr", LinkOtpQr).Methods(http.MethodGet)
-	r.HandleFunc("/otp-verification", LinkAuth_otp).Methods(http.MethodPost)
+	r.HandleFunc("/otp-verification", LinkAuthOtp).Methods(http.MethodPost)
 	// 添加Cisco AnyConnect兼容的SAML端点
 	r.HandleFunc("/+CSCOE+/saml/sp/login", SAMLSPLogin).Methods(http.MethodGet)
 	r.HandleFunc("/+CSCOE+/saml_ac_login.html", SAMLACLogin).Methods(http.MethodGet)
@@ -241,7 +241,7 @@ func initRoute() http.Handler {
 func notFound(w http.ResponseWriter, r *http.Request) {
 	if base.GetLogLevel() == base.LogLevelTrace {
 		hd, _ := httputil.DumpRequest(r, true)
-		base.Trace("NotFound: ", r.RemoteAddr, string(hd))
+		base.Trace("NotFound: ", r.RemoteAddr, utils.RedactSensitive(string(hd)))
 	}
 
 	w.WriteHeader(http.StatusNotFound)
