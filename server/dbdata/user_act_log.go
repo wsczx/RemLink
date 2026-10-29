@@ -89,6 +89,25 @@ var (
 	}
 )
 
+// 将操作系统描述映射为分类索引
+func (ua *UserActLogProcess) OSIdx(raw string) uint8 {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	switch {
+	case strings.Contains(raw, "windows") || raw == "win" || strings.HasPrefix(raw, "win-") || strings.HasPrefix(raw, "win_"):
+		return 1
+	case strings.Contains(raw, "iphone") || strings.Contains(raw, "ipad") ||
+		strings.Contains(raw, "applesslvpn") || strings.Contains(raw, "ios"):
+		return 5
+	case strings.Contains(raw, "mac") || strings.Contains(raw, "darwin") || strings.Contains(raw, "osx"):
+		return 2
+	case strings.Contains(raw, "android"):
+		return 4
+	case strings.Contains(raw, "linux"):
+		return 3
+	}
+	return 0
+}
+
 // 异步写入用户操作日志。isPortal 为 true 时按门户（浏览器）解析客户端与系统
 func (ua *UserActLogProcess) Add(u UserActLog, userAgent string, isPortal ...bool) {
 	// 账号/IP 已被锁定后的重复登录失败没有新的审计价值，按 username|ip 每分钟限频一条，
@@ -200,6 +219,9 @@ var ieVerRe = regexp.MustCompile(`trident/.*rv:([0-9.]+)`)
 // 匹配纯版本号串（如 4.10.05085）
 var verRe = regexp.MustCompile(`^(\d+\.?)+$`)
 
+// 取版本号开头的数字与点部分，如： 9.12-unknown 这类带后缀的版本
+var verPrefixRe = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)*`)
+
 // 从常见浏览器 UA 中提取浏览器名称和版本
 func parseBrowserUA(userAgent string) (name, version string) {
 	ua := strings.ToLower(userAgent)
@@ -247,30 +269,14 @@ func (ua *UserActLogProcess) ParseUserAgent(userAgent string) (os_idx, client_id
 	if len(userAgent) == 0 {
 		return 0, 0, ""
 	}
-	// 首个命中即生效，iOS 必须早于 android/macOS，macOS 的 darwin 兜底必须在最后
-	switch {
-	case strings.Contains(userAgent, "windows"):
-		os_idx = 1
-	case strings.Contains(userAgent, "iphone") || strings.Contains(userAgent, "ipad") ||
-		strings.Contains(userAgent, "applesslvpn") || strings.Contains(userAgent, "ios"):
-		// iOS：仅用精准子串判定。禁止使用 "apple"（会误匹配 AppleWebKit）或 "darwin_arm"（会误匹配 macOS Apple 芯片）
-		os_idx = 5
-	case strings.Contains(userAgent, "android"):
-		os_idx = 4
-	case strings.Contains(userAgent, "mac os") || strings.Contains(userAgent, "macos") || strings.Contains(userAgent, "darwin"):
-		// macOS：darwin 全系兜底（iPad/iPhone 已在上面的 iOS 分支拦截）
-		os_idx = 2
-	case strings.Contains(userAgent, "linux"):
-		os_idx = 3
-	default:
-		os_idx = 0
-	}
+	os_idx = ua.OSIdx(userAgent)
 	// 客户端类型判定
+	// openconnect必须在 anyconnect 之前判定，否则会被误识别成 AnyConnect
 	switch {
+	case strings.Contains(userAgent, "openconnect") || strings.Contains(userAgent, "open anyconnect"):
+		client_idx = 2
 	case strings.Contains(userAgent, "anyconnect"):
 		client_idx = 1
-	case strings.Contains(userAgent, "openconnect"):
-		client_idx = 2
 	case strings.Contains(userAgent, "anylink"):
 		client_idx = 3
 	default:
@@ -281,6 +287,8 @@ func (ua *UserActLogProcess) ParseUserAgent(userAgent string) (os_idx, client_id
 	if len(ver) > 0 && ver[0] == 'v' {
 		ver = ver[1:]
 	}
+	// 版本号只取开头的数字与点部分
+	ver = verPrefixRe.FindString(ver)
 	if !verRe.MatchString(ver) {
 		ver = ""
 	}

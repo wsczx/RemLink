@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/xml"
+	"strings"
 )
 
 const BufferSize = 2048
@@ -37,6 +38,24 @@ type deviceId struct {
 	PlatformVersion string `xml:"platform-version,attr"`
 	UniqueId        string `xml:"unique-id,attr"`
 	UniqueIdGlobal  string `xml:"unique-id-global,attr"`
+	Value           string `xml:",chardata"`
+}
+
+// 返回设备的操作系统标识：优先 <device-id> ，文本 chardata 兜底
+func (d deviceId) OS() string {
+	raw := d.Value
+	if raw == "" {
+		raw = d.DeviceType
+	}
+	return strings.TrimSpace(raw)
+}
+
+// 返回客户端机型/设备标识：优先 device-type 属性，<device-id> 文本兜底
+func (d deviceId) Type() string {
+	if d.DeviceType != "" {
+		return d.DeviceType
+	}
+	return strings.TrimSpace(d.Value)
 }
 
 type macAddressList struct {

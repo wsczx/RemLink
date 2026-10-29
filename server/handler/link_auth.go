@@ -71,8 +71,9 @@ func LinkAuth(w http.ResponseWriter, r *http.Request) {
 		GroupName:       cr.GroupSelect,
 		RemoteAddr:      r.RemoteAddr,
 		Status:          dbdata.UserAuthSuccess,
-		DeviceType:      cr.DeviceId.DeviceType,
+		DeviceType:      cr.DeviceId.Type(),
 		PlatformVersion: cr.DeviceId.PlatformVersion,
+		Os:              dbdata.UserActLogIns.OSIdx(cr.DeviceId.OS()),
 	}
 
 	// 退出登录

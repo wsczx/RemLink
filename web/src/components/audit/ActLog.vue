@@ -72,7 +72,7 @@
                         {{ row.os == item ? value : "" }}
                     </span>
                     <div class="sub_txt">型号:
-                        <span v-if="row.device_type != ''">{{ row.device_type }} / {{ row.platform_version }}</span>
+                        <span v-if="row.device_type != ''">{{ row.device_type }}<template v-if="row.platform_version != ''"> / {{ row.platform_version }}</template></span>
                         <span v-else> - </span>
                     </div>
                 </template>

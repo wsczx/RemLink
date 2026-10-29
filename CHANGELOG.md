@@ -9,6 +9,9 @@
 - 修复：开启webauth后Linux客户端无法连接的问题
 - 修复：将 `webvpn_domain` 配置为与门户/VPN 同域（根域）时，访问门户页面报「应用不存在」或「应用不存在或已删除」的问题
 - 修复：sqlite下记录用户流量数据竞争的问题
+- 修复 openconnect（Linux/Windows）操作系统显示为 Unknown 的问题
+- 修复 openconnect 客户端类型被误识别为 AnyConnect 的问题
+- 修复 openconnect 版本号识别为空的问题
 
 ### 调整
 
