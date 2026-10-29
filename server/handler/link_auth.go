@@ -64,7 +64,13 @@ func LinkAuth(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	base.Trace(fmt.Sprintf("%+v \n", cr))
+	if base.GetLogLevel() == base.LogLevelTrace {
+		if b, err := xml.MarshalIndent(cr, "", "  "); err == nil {
+			base.Trace("LinkAuth parsed request:\n" + utils.RedactSensitive(string(b)))
+		} else {
+			base.Trace("LinkAuth: 结构化日志序列化失败，已跳过")
+		}
+	}
 	// 用户活动日志
 	ua := &dbdata.UserActLog{
 		Username:        cr.Auth.Username,
