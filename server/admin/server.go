@@ -92,6 +92,7 @@ func StartAdmin() error {
 	r.HandleFunc("/set/other/edit", SetOtherEdit).Methods(http.MethodPost)
 	r.HandleFunc("/set/other/smtp", SetOtherSmtp)
 	r.HandleFunc("/set/other/smtp/edit", SetOtherSmtpEdit).Methods(http.MethodPost)
+	r.HandleFunc("/set/other/smtp/test", SetOtherSmtpTest).Methods(http.MethodPost)
 	r.HandleFunc("/set/other/sms", SetOtherSms)
 	r.HandleFunc("/set/other/sms/edit", SetOtherSmsEdit).Methods(http.MethodPost)
 	r.HandleFunc("/set/other/sms/test", SetOtherSmsTest).Methods(http.MethodPost)
