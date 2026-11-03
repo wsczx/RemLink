@@ -210,7 +210,17 @@ func initRoute() http.Handler {
 			http.Redirect(w, r, "/files/", http.StatusMovedPermanently)
 			return
 		}
-		name := filepath.Join(base.GetCfg().FilesPath, strings.TrimPrefix(r.URL.Path, "/files/"))
+		// 防路径穿越
+		baseDir := filepath.Clean(base.GetCfg().FilesPath)
+		name := filepath.Join(baseDir, strings.TrimPrefix(r.URL.Path, "/files/"))
+		if !strings.HasPrefix(name, baseDir+string(os.PathSeparator)) {
+			if r.Method == http.MethodGet {
+				admin.ServeIndex(w, r)
+			} else {
+				notFound(w, r)
+			}
+			return
+		}
 		if fi, err := os.Stat(name); err != nil || fi.IsDir() {
 			if r.Method == http.MethodGet {
 				admin.ServeIndex(w, r)

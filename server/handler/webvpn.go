@@ -77,6 +77,8 @@ func WebVpnHandler(w http.ResponseWriter, r *http.Request) bool {
 		u := *r.URL
 		q := u.Query()
 		q.Del(webvpnGrantQuery)
+		u.Scheme = ""
+		u.Host = ""
 		u.RawQuery = q.Encode()
 		http.Redirect(w, r, u.String(), http.StatusFound)
 		return true
