@@ -73,18 +73,19 @@ func payloadOutCstp(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 }
 
 func payloadOutDtls(cSess *sessdata.ConnSession, dSess *sessdata.DtlsSession, pl *sessdata.Payload) bool {
+	closed := false
 	select {
 	case cSess.PayloadOutDtls <- pl:
 	case <-dSess.CloseChan:
+		closed = true
 	}
-
-	return false
+	return closed
 }
 
 // 判断包的目的地址是否落在 FakeDNS 假地址段内（v4/v6 双池）
 // FakeIP 是域名占位地址，真实目的由内核 DNAT 决定，ACL 不应基于占位地址做拦截
 func isFakeIPDst(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
-	if cSess.FakeDNS == nil || !cSess.Policy.EnableFakeDNS {
+	if cSess.FakeDNS == nil || !cSess.Policy.EnableFakeDNS || len(pl.Data) < 20 {
 		return false
 	}
 	var ipDst net.IP
@@ -110,6 +111,10 @@ func checkLinkAcl(rp *dbdata.Policy, pl *sessdata.Payload) bool {
 	}
 	if len(rp.LinkAcl) == 0 {
 		return true // 无 ACL 规则，v4/v6 一致放行
+	}
+	// 畸形短包无法解析，交给后续路径处理
+	if len(pl.Data) < 20 {
+		return true
 	}
 
 	// 按 IP 版本分流，提取五元组

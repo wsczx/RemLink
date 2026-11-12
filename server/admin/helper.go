@@ -46,6 +46,10 @@ func parsePaging(r *http.Request) (page, pageSize int) {
 	if pageSize <= 0 {
 		pageSize = dbdata.PageSize
 	}
+	const maxPageSize = 200
+	if pageSize > maxPageSize {
+		pageSize = maxPageSize
+	}
 	return page, pageSize
 }
 

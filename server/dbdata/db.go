@@ -1,6 +1,7 @@
 package dbdata
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -266,7 +267,7 @@ func addInitData() error {
 }
 
 func CheckErrNotFound(err error) bool {
-	return err == ErrNotFound
+	return errors.Is(err, ErrNotFound)
 }
 
 // base64 图片

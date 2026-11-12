@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strconv"
+
 	"strings"
 
 	"github.com/wsczx/remlink/base"
@@ -29,17 +29,7 @@ func (c *FeishuConfig) ValidateConfig() error {
 	if strings.TrimSpace(c.AppSecret) == "" {
 		return fmt.Errorf("应用 Secret 不能为空")
 	}
-	if c.AllowedDepartments != "" {
-		parts := strings.SplitSeq(c.AllowedDepartments, ",")
-		for part := range parts {
-			part = strings.TrimSpace(part)
-			if part != "" {
-				if _, err := strconv.Atoi(part); err != nil {
-					return fmt.Errorf("部门 ID 必须为数字: %s", part)
-				}
-			}
-		}
-	}
+	// 飞书部门 ID 既可为纯数字，也可为带字母的字符串（如 od-xxxx），不再限定为数字
 	return nil
 }
 

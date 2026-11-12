@@ -653,7 +653,11 @@ func PortalResetPasswordVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userId, _ := data["user_id"].(float64)
+	userId, ok := data["user_id"].(float64)
+	if !ok || userId < 1 {
+		portalOK(w, map[string]any{"valid": false})
+		return
+	}
 	user := &dbdata.User{}
 	if err := dbdata.One("Id", int(userId), user); err != nil || user.Status != 1 {
 		portalOK(w, map[string]any{"valid": false})
@@ -711,7 +715,11 @@ func PortalResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userId, _ := data["user_id"].(float64)
+	userId, ok := data["user_id"].(float64)
+	if !ok || userId < 1 {
+		portalError(w, "无效的重置链接")
+		return
+	}
 	user := &dbdata.User{}
 	if err := dbdata.One("Id", int(userId), user); err != nil || user.Status != 1 {
 		portalError(w, "用户不存在或已停用")

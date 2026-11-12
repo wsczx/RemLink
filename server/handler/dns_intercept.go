@@ -262,7 +262,7 @@ func buildDNSResponse(queryPacket []byte, v6Info v6HeaderInfo, isV6 bool, dnsRes
 // 还原 FakeIP 为真实域名并解析
 func restoreFakeIP(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 	rp := cSess.Policy
-	if cSess.FakeDNS == nil || !rp.EnableFakeDNS {
+	if cSess.FakeDNS == nil || !rp.EnableFakeDNS || len(pl.Data) < 20 {
 		return false
 	}
 
