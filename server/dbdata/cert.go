@@ -6,18 +6,22 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
-	"github.com/wsczx/remlink/pkg/utils"
 	"math/big"
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/wsczx/remlink/pkg/utils"
 
 	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/go-acme/lego/v4/certificate"
@@ -39,7 +43,25 @@ var (
 	nameToCertificate = make(map[string]*tls.Certificate)
 	tempCert          *tls.Certificate
 	tempCertMux       sync.Mutex
+	// 主证书 SHA1 指纹，随主证书加载/更换同步更新（认证 XML 中下发，客户端据此信任服务器证书）
+	mainCertHash atomic.Value
 )
+
+// 返回当前主证书的 SHA1 指纹，尚未加载证书时返回空串
+func GetMainCertHash() string {
+	if h, ok := mainCertHash.Load().(string); ok && h != "" {
+		return h
+	}
+	// 指纹未登记时从 default 证书算，避免认证 XML 的 server-cert-hash 下发空值
+	ntcMux.RLock()
+	cert, ok := nameToCertificate["default"]
+	ntcMux.RUnlock()
+	if !ok || cert == nil || len(cert.Certificate) == 0 {
+		return ""
+	}
+	h := sha1.Sum(cert.Certificate[0])
+	return strings.ToUpper(hex.EncodeToString(h[:]))
+}
 
 type SettingLetsEncrypt struct {
 	Domain      string `json:"domain"`
@@ -385,14 +407,17 @@ func PrivateCert() error {
 	pub := &priv.PublicKey
 
 	template := x509.Certificate{
-		SerialNumber:          big.NewInt(1658),
-		Subject:               pkix.Name{CommonName: "localhost"},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(time.Hour * 24 * 365),
+		SerialNumber: big.NewInt(1658),
+		Subject:      pkix.Name{CommonName: "remlink"},
+		NotBefore:    time.Now(),
+		// 自签默认证书有效期 10 年：过期重建会更换指纹，导致客户端重新弹证书确认
+		NotAfter:              time.Now().Add(time.Hour * 24 * 3650),
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
-		IPAddresses:           []net.IP{},
+		DNSNames:              []string{"localhost"},
+		// 注入本机全部网卡 IP：未配置商业证书时，客户端使用 IP 直连也能通过 SAN 校验
+		IPAddresses: localIPAddresses(),
 	}
 
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, pub, priv)
@@ -408,6 +433,21 @@ func PrivateCert() error {
 	}
 
 	return nil
+}
+
+// 返回本机全部网卡的 IP 地址（含回环），供自签证书 SAN 使用
+func localIPAddresses() []net.IP {
+	ips := []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ips
+	}
+	for _, addr := range addrs {
+		if ipNet, ok := addr.(*net.IPNet); ok {
+			ips = append(ips, ipNet.IP)
+		}
+	}
+	return ips
 }
 
 func getTempCertificate() (*tls.Certificate, error) {
@@ -436,6 +476,10 @@ func buildNameToCertificate(cert *tls.Certificate, setDefault bool) {
 		}
 
 		nameToCertificate["default"] = cert
+		// 同步更新主证书指纹（SHA1），保证运行期更换证书后认证 XML 下发的指纹与实际证书一致
+		h := sha1.New()
+		h.Write(cert.Certificate[0])
+		mainCertHash.Store(strings.ToUpper(hex.EncodeToString(h.Sum(nil))))
 	}
 
 	x509Cert, err := x509.ParseCertificate(cert.Certificate[0])

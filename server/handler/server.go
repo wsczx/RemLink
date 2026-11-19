@@ -1,9 +1,7 @@
 package handler
 
 import (
-	"crypto/sha1"
 	"crypto/tls"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -36,19 +34,13 @@ func startTls(services Services) (*http.Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("证书加载失败: %w", err)
 	}
-	// 主证书作为 default；WebVPN 泛域名证书并存
-	certs := []*tls.Certificate{tlscert}
+	// 主证书设为 default 并登记 SHA1 指纹
+	// IP 直连无 SNI，依赖 default 返回主证书（其 SAN 含本机 IP）；认证 XML 的 server-cert-hash 依赖该指纹
+	dbdata.Certs.LoadCertificate(tlscert)
+	// WebVPN 泛域名证书追加到 SAN 表，与主证书并存
 	if wildCert, _, werr := dbdata.ParseCertWild(); werr == nil && wildCert != nil {
-		certs = append(certs, wildCert)
+		dbdata.Certs.LoadCertificates([]*tls.Certificate{wildCert})
 	}
-	dbdata.Certs.LoadCertificates(certs)
-
-	// 证书的 SHA1 指纹，只用主证书
-	s1 := sha1.New()
-	s1.Write(tlscert.Certificate[0])
-	h2s := hex.EncodeToString(s1.Sum(nil))
-	services.LinkAuth.SetCertHash(strings.ToUpper(h2s))
-	base.Debug("certHash", services.LinkAuth.CertHash())
 
 	// 仅启用安全的 TLS 密码套件
 	cipherSuites := tls.CipherSuites()

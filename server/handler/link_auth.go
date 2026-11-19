@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"net/http"
 	"strings"
-	"sync/atomic"
 
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/auth/authsrv"
@@ -15,7 +14,6 @@ import (
 
 // 处理 AnyConnect XML 认证
 type LinkAuthService struct {
-	certHash     atomic.Value
 	sessions     *sessdata.SessionManager
 	authSessions *AuthSessionManager
 	locks        *auth.LockManager
@@ -23,16 +21,11 @@ type LinkAuthService struct {
 }
 
 func NewLinkAuthService(sessions *sessdata.SessionManager, authSessions *AuthSessionManager, locks *auth.LockManager, webAuth *WebAuthService) *LinkAuthService {
-	s := &LinkAuthService{sessions: sessions, authSessions: authSessions, locks: locks, webAuth: webAuth}
-	s.certHash.Store("")
-	return s
+	return &LinkAuthService{sessions: sessions, authSessions: authSessions, locks: locks, webAuth: webAuth}
 }
 
-// 写入主证书 SHA1 指纹
-func (s *LinkAuthService) SetCertHash(hash string) { s.certHash.Store(hash) }
-
-// 返回主证书 SHA1 指纹
-func (s *LinkAuthService) CertHash() string { return s.certHash.Load().(string) }
+// 返回主证书 SHA1 指纹（随证书更换实时更新）
+func (s *LinkAuthService) CertHash() string { return dbdata.GetMainCertHash() }
 
 // 认证入口
 func (s *LinkAuthService) Handle(w http.ResponseWriter, r *http.Request) {
