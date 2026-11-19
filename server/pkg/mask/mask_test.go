@@ -3,6 +3,7 @@ package mask
 import "testing"
 
 func TestSecret(t *testing.T) {
+	t.Parallel()
 	// 空字符串脱敏后应为空（前端未填写/未修改）
 	if got := Secret(""); got != "" {
 		t.Fatalf("Secret(\"\") = %q, want empty", got)
@@ -18,6 +19,7 @@ func TestSecret(t *testing.T) {
 }
 
 func TestIsPlaceholder(t *testing.T) {
+	t.Parallel()
 	// 占位符与空字符串都视作"未修改"
 	if !IsPlaceholder(Placeholder) {
 		t.Fatal("IsPlaceholder(Placeholder) = false, want true")
@@ -32,6 +34,7 @@ func TestIsPlaceholder(t *testing.T) {
 }
 
 func TestSecretStr(t *testing.T) {
+	t.Parallel()
 	// SecretStr 与 Secret 行为一致
 	if got := SecretStr(""); got != "" {
 		t.Fatalf("SecretStr(\"\") = %q, want empty", got)

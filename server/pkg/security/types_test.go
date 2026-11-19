@@ -52,7 +52,7 @@ func TestEncryptedJSON_MarshalJSONStaysPlaintextForAPI(t *testing.T) {
 		Data: json.RawMessage(`{"bind_pwd":"` + secret + `"}`),
 	}
 
-	// API 序列化必须保持明文，脱敏由调用方(maskProviderSecrets)处理。
+	// API 序列化必须保持明文，脱敏由调用方(maskProviderSecrets)处理
 	out, err := ej.MarshalJSON()
 	if err != nil {
 		t.Fatalf("MarshalJSON: %v", err)

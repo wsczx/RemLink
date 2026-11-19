@@ -6,6 +6,7 @@ import (
 )
 
 func TestIp2long(t *testing.T) {
+	t.Parallel()
 	if got := Ip2long(net.ParseIP("192.168.1.1")); got != 0xC0A80101 {
 		t.Errorf("Ip2long(192.168.1.1) = %x, want c0a80101", got)
 	}
@@ -16,6 +17,7 @@ func TestIp2long(t *testing.T) {
 
 // 非法/非 IPv4 输入必须返回 0：IpMap 历史脏数据曾致 IP 池分配 panic
 func TestIp2longInvalid(t *testing.T) {
+	t.Parallel()
 	if got := Ip2long(nil); got != 0 {
 		t.Errorf("Ip2long(nil) = %d, want 0", got)
 	}

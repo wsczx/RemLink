@@ -10,6 +10,7 @@ import (
 )
 
 func TestTable(t *testing.T) {
+	t.Parallel()
 	ast := assert.New(t)
 	ip := net.ParseIP("2001:db8:1::2")
 	hw := net.HardwareAddr{0x02, 0x00, 0x00, 0x00, 0x00, 0x01}
@@ -22,6 +23,7 @@ func TestTable(t *testing.T) {
 }
 
 func TestNewNAReply(t *testing.T) {
+	t.Parallel()
 	ast := assert.New(t)
 	targetIP := net.ParseIP("2001:db8:1::2")
 	targetHw := net.HardwareAddr{0x02, 0x00, 0x00, 0x00, 0x00, 0x01}

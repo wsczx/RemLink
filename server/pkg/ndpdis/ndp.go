@@ -15,6 +15,7 @@ var (
 	tableMu sync.RWMutex
 )
 
+// 将 IP 与其 MAC 的邻居映射写入本地缓存，供 NDP 代答使用
 func Add(ip net.IP, hw net.HardwareAddr) {
 	if ip == nil || hw == nil {
 		return
@@ -24,6 +25,7 @@ func Add(ip net.IP, hw net.HardwareAddr) {
 	table[ip.String()] = hw
 }
 
+// 从本地邻居缓存中移除指定 IP 的映射
 func Delete(ip net.IP) {
 	if ip == nil {
 		return
@@ -33,6 +35,7 @@ func Delete(ip net.IP) {
 	delete(table, ip.String())
 }
 
+// 返回指定 IP 对应的 MAC 地址；不存在时返回 nil
 func Lookup(ip net.IP) net.HardwareAddr {
 	tableMu.RLock()
 	defer tableMu.RUnlock()

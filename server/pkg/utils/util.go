@@ -7,29 +7,11 @@ import (
 	"log"
 	"math/rand"
 	"strings"
-	"sync/atomic"
 	"time"
 )
 
-var (
-	// 每秒时间缓存
-	timeNowSec = &atomic.Value{}
-)
-
-func init() {
-	timeNowSec.Store(time.Now())
-	go func() {
-		tick := time.NewTicker(time.Second * 1)
-		for c := range tick.C {
-			timeNowSec.Store(c)
-		}
-	}()
-}
-
-func NowSec() time.Time {
-	t := timeNowSec.Load()
-	return t.(time.Time)
-}
+// 返回当前时间
+func NowSec() time.Time { return time.Now() }
 
 const (
 	KB = 1024

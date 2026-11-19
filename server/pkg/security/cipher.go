@@ -13,7 +13,7 @@ import (
 	"github.com/wsczx/remlink/base"
 )
 
-// 密文前缀，用于区分明文和密文。
+// 密文前缀，用于区分明文和密文
 const prefix = "$AES256$"
 
 var ErrNotEnabled = errors.New("加密未启用")
@@ -105,13 +105,13 @@ func Decrypt(ciphertext string) (string, error) {
 	return c.Decrypt(ciphertext)
 }
 
-// 判断值是否为密文。
+// 判断值是否为密文
 func IsEncrypted(s string) bool { return strings.HasPrefix(s, prefix) }
 
 // 返回密文前缀
 func Prefix() string { return prefix }
 
-// 加密：密文/空值直接返回，明文加密。
+// 加密：密文/空值直接返回，明文加密
 func EncryptIfNeeded(s string) string {
 	if s == "" || IsEncrypted(s) {
 		return s
@@ -124,7 +124,7 @@ func EncryptIfNeeded(s string) string {
 	return enc
 }
 
-// 解密：非密文直接返回，密文解密。
+// 解密：非密文直接返回，密文解密
 func DecryptIfNeeded(s string) string {
 	if !IsEncrypted(s) {
 		return s
@@ -137,7 +137,7 @@ func DecryptIfNeeded(s string) string {
 	return dec
 }
 
-// 递归解密 JSON 中所有密文字符串值，返回解密后的 JSON。
+// 递归解密 JSON 中所有密文字符串值，返回解密后的 JSON
 func DecryptJSON(raw []byte) ([]byte, error) {
 	var m map[string]any
 	if err := json.Unmarshal(raw, &m); err != nil {

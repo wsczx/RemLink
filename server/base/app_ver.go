@@ -11,3 +11,11 @@ var (
 	CommitId  string
 	BuildDate string
 )
+
+func SetVersion(ver, commit, buildDate string) {
+	if ver != "" {
+		APP_VER = ver
+	}
+	CommitId = commit
+	BuildDate = buildDate
+}

@@ -7,6 +7,7 @@ import (
 )
 
 func TestHumanByte(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	var s string
 	s = HumanByte(999)

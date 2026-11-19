@@ -8,6 +8,7 @@ import (
 
 // 无 Server 指纹头、CSP 不含 unsafe-eval、包含 Permissions-Policy
 func TestSetSecureHeader(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	SetSecureHeader(w)
 

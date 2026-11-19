@@ -20,11 +20,11 @@ var (
 	defaultDir string
 )
 
-// 设置密钥文件目录（仅启动时调用，非并发安全）。
+// 设置密钥文件目录（仅启动时调用，非并发安全）
 func SetDir(dir string) { defaultDir = dir }
 
 // 环境变量优先于默认路径：
-// REMLINK_ENCRYPTION_KEY 指定完整路径，REMLINK_ENCRYPTION_KEY_DIR 指定目录。
+// REMLINK_ENCRYPTION_KEY 指定完整路径，REMLINK_ENCRYPTION_KEY_DIR 指定目录
 func keyPath() string {
 	if p := os.Getenv("REMLINK_ENCRYPTION_KEY"); p != "" {
 		return p
@@ -35,7 +35,7 @@ func keyPath() string {
 	return filepath.Join(defaultDir, keyFileName)
 }
 
-// 加密是否已启用（密钥已加载）。
+// 加密是否已启用（密钥已加载）
 func IsEnabled() bool { return globalKey.Load() != nil }
 
 func getKeyLocked() []byte {
@@ -46,7 +46,7 @@ func getKeyLocked() []byte {
 	return *p
 }
 
-// 生成 32 字节 AES-256 密钥并写入文件。
+// 生成 32 字节 AES-256 密钥并写入文件
 func GenerateKey() error {
 	keyMu.Lock()
 	defer keyMu.Unlock()
@@ -76,7 +76,7 @@ func GenerateKey() error {
 	return nil
 }
 
-// 从密钥文件加载密钥。文件不存在时返回 nil（加密未启用）。
+// 从密钥文件加载密钥。文件不存在时返回 nil（加密未启用）
 func LoadKey() error {
 	keyMu.Lock()
 	defer keyMu.Unlock()
@@ -109,10 +109,10 @@ func LoadKey() error {
 	return nil
 }
 
-// 返回密钥文件路径。
+// 返回密钥文件路径
 func KeyFilePath() string { return keyPath() }
 
-// 删除密钥文件并清空内存密钥。
+// 删除密钥文件并清空内存密钥
 func DeleteKey() error {
 	keyMu.Lock()
 	defer keyMu.Unlock()

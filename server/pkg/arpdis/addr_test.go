@@ -9,6 +9,7 @@ import (
 )
 
 func TestLookup(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	ip := net.IPv4(192, 168, 10, 2)
 	hw, _ := net.ParseMAC("08:00:27:a0:17:42")

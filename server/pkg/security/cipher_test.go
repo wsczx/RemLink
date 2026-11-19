@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// 固定测试密钥（32 字节），用于不依赖磁盘密钥文件的注入式单测。
+// 固定测试密钥（32 字节），用于不依赖磁盘密钥文件的注入式单测
 var testKey = []byte("0123456789abcdef0123456789abcdef")
 
 func TestNewCipherEncryptDecryptRoundtrip(t *testing.T) {
@@ -46,7 +46,7 @@ func TestNewCipherRejectsWrongKeySize(t *testing.T) {
 	}
 }
 
-// 覆盖实例方法与包级函数使用同一密钥；随机 nonce 不要求密文相同。
+// 覆盖实例方法与包级函数使用同一密钥；随机 nonce 不要求密文相同
 func TestNewCipherMatchesGlobalKey(t *testing.T) {
 	enableForTest(t) // 全局 key 已加载
 
@@ -69,7 +69,7 @@ func TestNewCipherMatchesGlobalKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Cipher.Encrypt: %v", err)
 	}
-	// 二者密文应可互相解密（验证同一密钥、同一算法）。
+	// 二者密文应可互相解密（验证同一密钥、同一算法）
 	if dec, err := Decrypt(encCipher); err != nil || dec != plain {
 		t.Fatalf("包级 Decrypt 解 Cipher 密文失败: %v %q", err, dec)
 	}
@@ -85,7 +85,7 @@ func TestNewCipherNonPrefixPassthrough(t *testing.T) {
 	}
 }
 
-// 覆盖嵌套对象、数组和明文混合时的递归解密。
+// 覆盖嵌套对象、数组和明文混合时的递归解密
 func TestDecryptJSON_Recursive(t *testing.T) {
 	enableForTest(t)
 
@@ -149,7 +149,7 @@ func TestDecryptJSON_Recursive(t *testing.T) {
 	}
 }
 
-// 非法 JSON 应返回错误而不是 panic。
+// 非法 JSON 应返回错误而不是 panic
 func TestDecryptJSON_InvalidJSON(t *testing.T) {
 	enableForTest(t)
 	if _, err := DecryptJSON([]byte(`{not-json`)); err == nil {
@@ -157,7 +157,7 @@ func TestDecryptJSON_InvalidJSON(t *testing.T) {
 	}
 }
 
-// 全明文 JSON 应保持不变。
+// 全明文 JSON 应保持不变
 func TestDecryptJSON_AllPlain(t *testing.T) {
 	enableForTest(t)
 	raw := []byte(`{"a":"x","b":1}`)

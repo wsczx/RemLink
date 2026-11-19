@@ -2,7 +2,7 @@ package utils
 
 import "net/http"
 
-// SetSecureHeader 设置安全的header头
+// 设置安全的header头
 // https://blog.csdn.net/liwan09/article/details/130248003
 // https://zhuanlan.zhihu.com/p/335165168
 func SetSecureHeader(w http.ResponseWriter) {

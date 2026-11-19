@@ -7,11 +7,11 @@ import (
 	"github.com/wsczx/remlink/pkg/mask"
 )
 
-// 自动加解密的字符串。
-// DB 写入时 Value() 加密，读出时 Scan() 解密。
+// 自动加解密的字符串
+// DB 写入时 Value() 加密，读出时 Scan() 解密
 type EncryptedString string
 
-// 加密明文：空值/占位符/已加密的值跳过。
+// 加密明文：空值/占位符/已加密的值跳过
 func encryptField(s string) string {
 	if !IsEnabled() || s == "" || s == mask.Placeholder || IsEncrypted(s) {
 		return s
@@ -59,12 +59,12 @@ func (e EncryptedString) IsPlaceholder() bool {
 	return mask.IsPlaceholder(string(e))
 }
 
-// 返回脱敏值 "******"。
+// 返回脱敏值 "******"
 func (e EncryptedString) Masked() EncryptedString {
 	return EncryptedString(mask.SecretStr(string(e)))
 }
 
-// 自动加解密的泛型 JSON 类型。
+// 自动加解密的泛型 JSON 类型
 // DB 读写时 ToDB/FromDB 自动处理加解密
 type EncryptedJSON[T any] struct {
 	Data T
@@ -97,8 +97,8 @@ func (e EncryptedJSON[T]) MarshalJSON() ([]byte, error) {
 	return json.Marshal(e.Data)
 }
 
-// 返回加密形式的 JSON 字符串，用于备份落盘（避免明文泄露凭证）。
-// 还原时经 FromDB：json 反序列化得到无引号密文串 -> DecryptIfNeeded -> 明文 JSON -> 写入 Data，可逆。
+// 返回加密形式的 JSON 字符串，用于备份落盘（避免明文泄露凭证）
+// 还原时经 FromDB：json 反序列化得到无引号密文串 -> DecryptIfNeeded -> 明文 JSON -> 写入 Data，可逆
 func (e EncryptedJSON[T]) MarshalEncrypted() ([]byte, error) {
 	b, err := e.ToDB()
 	if err != nil {

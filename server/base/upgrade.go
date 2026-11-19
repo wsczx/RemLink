@@ -184,7 +184,7 @@ func downloadBinary(url string, totalSize int64, progressCh chan<- UpgradeProgre
 		req.Header.Set("User-Agent", "RemLink-Upgrade")
 
 		resp, err = client.Do(req)
-		if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
+		if err == nil && resp.StatusCode == http.StatusOK {
 			break
 		}
 		if resp != nil {

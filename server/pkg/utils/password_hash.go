@@ -26,7 +26,7 @@ func PasswordVerify(password, hash string) bool {
 }
 
 // 判断字符串是否为 bcrypt 哈希
-// bcrypt 标准前缀为 $2a$/$2b$/$2y$，固定长度 60。
+// bcrypt 标准前缀为 $2a$/$2b$/$2y$，固定长度 60
 func IsBcryptHash(hash string) bool {
 	if len(hash) != 60 {
 		return false

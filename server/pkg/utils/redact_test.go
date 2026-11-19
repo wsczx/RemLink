@@ -6,6 +6,7 @@ import (
 )
 
 func TestRedactSensitive(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		in   string
