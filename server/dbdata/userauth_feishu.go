@@ -51,6 +51,31 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 		}
 	}
 
+	// 补拉「允许的用户」中不在部门树内的用户，保证名单用户同步入库
+	if allowed := a.ParseAllowedUserIDs(); len(allowed) > 0 {
+		for _, uid := range allowed {
+			if _, exists := remote[uid]; exists {
+				continue
+			}
+			if isBlocked(uid) {
+				continue
+			}
+			info, err := a.GetFeishuUserDetail(accessToken, uid)
+			if err != nil {
+				base.Warn("补拉允许的用户失败:", uid, err)
+				continue
+			}
+			key := info.Data.UserID
+			if key == "" {
+				key = info.Data.OpenID
+			}
+			if key == "" {
+				continue
+			}
+			remote[key] = RemoteUser{ID: key, Name: info.Data.Name, Phone: info.Data.Mobile, Email: info.Data.Email}
+		}
+	}
+
 	for id, ru := range remote {
 		if isBlocked(id) {
 			continue

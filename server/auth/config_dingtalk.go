@@ -23,6 +23,7 @@ type DingtalkConfig struct {
 	ClientID           string `json:"client_id"`           // 钉钉应用 AppKey
 	ClientSecret       string `json:"client_secret"`       // 钉钉应用 AppSecret
 	AllowedDepartments string `json:"allowed_departments"` // 允许的部门 ID，逗号分隔；为空表示不限制
+	AllowedUserIDs     string `json:"allowed_userids"`     // 允许的用户 ID，逗号分隔；与允许的部门任一命中即通过
 	BlockedUserIDs     string `json:"blocked_userids"`     // 拒绝的用户 ID 列表，逗号分隔
 	UseDefaultBrowser  bool   `json:"use_default_browser"` // 默认使用浏览器打开钉钉授权页面
 	SyncUsers          bool   `json:"sync_users"`          // 同步用户到本地
@@ -39,6 +40,11 @@ func (c *DingtalkConfig) ValidateConfig() error {
 // 解析允许的部门 ID 列表
 func (c *DingtalkConfig) ParseDepartments() []string {
 	return parseCSVList(c.AllowedDepartments)
+}
+
+// 解析允许的用户 ID 列表
+func (c *DingtalkConfig) ParseAllowedUserIDs() []string {
+	return parseCSVList(c.AllowedUserIDs)
 }
 
 // 解析拒绝的用户 ID 列表
@@ -185,6 +191,41 @@ func (c *DingtalkConfig) GetDingtalkUser(code string) (string, string, string, e
 		return "", "", "", fmt.Errorf("钉钉未返回有效 userId (已尝试手机号与 unionId 反查): raw=%s", string(respBody))
 	}
 	return userID, sr.Nick, accessToken, nil
+}
+
+// 获取钉钉单个用户详情（用于同步时补拉「允许的用户」中不在部门树内的用户）
+func (c *DingtalkConfig) GetDingtalkUserDetail(contactToken, userid string) (*DingtalkDeptUser, error) {
+	body, err := json.Marshal(map[string]string{
+		"userid": userid,
+	})
+	if err != nil {
+		return nil, err
+	}
+	url := "https://oapi.dingtalk.com/topapi/v2/user/get?access_token=" + contactToken
+	resp, err := dingtalkHttpClient.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	var dr struct {
+		ErrCode int              `json:"errcode"`
+		ErrMsg  string           `json:"errmsg"`
+		Result  DingtalkDeptUser `json:"result"`
+	}
+	if err := json.Unmarshal(respBody, &dr); err != nil {
+		return nil, err
+	}
+	if dr.ErrCode != 0 {
+		return nil, fmt.Errorf("获取钉钉用户详情失败: %s", dr.ErrMsg)
+	}
+	if dr.Result.UserId == "" {
+		dr.Result.UserId = userid
+	}
+	return &dr.Result, nil
 }
 
 // 通过手机号获取 userid

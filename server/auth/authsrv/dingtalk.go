@@ -25,6 +25,7 @@ func (a *DingTalkAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) 
 			return a.CheckUserID(userID, blocked)
 		},
 		a.ParseDepartments,
+		a.ParseAllowedUserIDs,
 		a.ParseBlockedUserIDs,
 	)
 }

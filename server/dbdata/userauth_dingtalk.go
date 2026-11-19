@@ -48,6 +48,23 @@ func (a *AuthDingtalk) SaveUsers(g *Group) error {
 			}
 		}
 	}
+	// 补拉「允许的用户」中不在部门树内的用户，保证名单用户同步入库
+	if allowed := a.ParseAllowedUserIDs(); len(allowed) > 0 {
+		for _, uid := range allowed {
+			if _, exists := remote[uid]; exists {
+				continue
+			}
+			if isBlocked(uid) {
+				continue
+			}
+			u, err := a.GetDingtalkUserDetail(contactToken, uid)
+			if err != nil {
+				base.Warn("补拉允许的用户失败:", uid, err)
+				continue
+			}
+			remote[u.UserId] = RemoteUser{ID: u.UserId, Name: u.Name, Phone: u.Mobile, Email: u.Email}
+		}
+	}
 	if len(remote) == 0 {
 		return fmt.Errorf("钉钉拉取到的用户列表为空（可能部门配置错误、access_token 权限不足或应用可见范围未覆盖），组: %s", g.Name)
 	}

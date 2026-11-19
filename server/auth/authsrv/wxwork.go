@@ -29,6 +29,7 @@ func (a *WXWorkAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 			return nil
 		},
 		func() []string { return intsToStrs(a.ParseDepartments()) },
+		a.ParseAllowedUserIDs,
 		a.ParseBlockedUserIDs,
 	)
 }

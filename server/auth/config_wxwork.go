@@ -18,6 +18,7 @@ type WXWorkConfig struct {
 	Secret             string `json:"secret"`
 	UseDefaultBrowser  bool   `json:"use_default_browser"`
 	AllowedDepartments string `json:"allowed_departments"`
+	AllowedUserIDs     string `json:"allowed_userids"` // 允许的用户 ID，逗号分隔；与允许的部门任一命中即通过
 	BlockedUserIDs     string `json:"blocked_userids"`
 	SyncUsers          bool   `json:"sync_users"`          // 定时自动同步用户
 	VerifyFileName     string `json:"verify_file_name"`    // 企微回调域名验证文件名
@@ -49,6 +50,13 @@ func (c *WXWorkConfig) ValidateConfig() error {
 		for part := range strings.SplitSeq(c.BlockedUserIDs, ",") {
 			if strings.TrimSpace(part) == "" {
 				return fmt.Errorf("拒绝的用户ID列表格式错误：存在空值")
+			}
+		}
+	}
+	if c.AllowedUserIDs != "" {
+		for part := range strings.SplitSeq(c.AllowedUserIDs, ",") {
+			if strings.TrimSpace(part) == "" {
+				return fmt.Errorf("允许的用户ID列表格式错误：存在空值")
 			}
 		}
 	}
@@ -124,6 +132,11 @@ func (c *WXWorkConfig) ParseBlockedUserIDs() []string {
 	return parseCSVList(c.BlockedUserIDs)
 }
 
+// 解析允许的用户 ID 列表
+func (c *WXWorkConfig) ParseAllowedUserIDs() []string {
+	return parseCSVList(c.AllowedUserIDs)
+}
+
 // 检查用户ID是否在拒绝列表中（列表为空表示不限制）
 func (c *WXWorkConfig) CheckUserID(userID string, blockedUserIDs []string) bool {
 	return slices.Contains(blockedUserIDs, userID)
@@ -154,18 +167,18 @@ func (c *WXWorkConfig) CheckUserDepartment(userID string, allowedDepts []int) (b
 
 // 获取企微用户详情（手机号、邮箱）。复用 user/get 接口逐个查询，
 // 返回 (mobile, email)。企微手机/邮箱默认不返回，需后台开放通讯录敏感信息权限
-func (c *WXWorkConfig) GetUserDetail(accessToken, userID string) (string, string) {
+func (c *WXWorkConfig) GetUserDetail(accessToken, userID string) (string, string, string) {
 	url := fmt.Sprintf("https://qyapi.weixin.qq.com/cgi-bin/user/get?access_token=%s&userid=%s", accessToken, userID)
 	userInfo := &WXWorkUserResponse{}
 	if err := fetchJSON("获取企微用户详情", "GET", url, nil, nil, userInfo, 30*time.Second); err != nil {
 		base.Warn("获取企微用户详情失败:", userID, err)
-		return "", ""
+		return "", "", ""
 	}
 	if userInfo.ErrCode != 0 {
 		base.Warn("获取企微用户详情失败:", userID, userInfo.ErrMsg)
-		return "", ""
+		return "", "", ""
 	}
-	return userInfo.Mobile, userInfo.Email
+	return userInfo.Name, userInfo.Mobile, userInfo.Email
 }
 
 type WXWorkDepartmentUser struct {

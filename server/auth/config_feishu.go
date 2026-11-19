@@ -17,6 +17,7 @@ type FeishuConfig struct {
 	AppSecret          string `json:"app_secret"`
 	UseDefaultBrowser  bool   `json:"use_default_browser"`
 	AllowedDepartments string `json:"allowed_departments"`
+	AllowedUserIDs     string `json:"allowed_userids"` // 允许的用户 ID 列表，逗号分隔；与允许的部门任一命中即通过
 	BlockedUserIDs     string `json:"blocked_userids"` // 拒绝的用户 ID 列表，逗号分隔
 	SyncUsers          bool   `json:"sync_users"`      // 定时自动同步用户
 }
@@ -50,6 +51,11 @@ func (c *FeishuConfig) ParseDepartments() []string {
 // 解析拒绝的用户 ID 列表
 func (c *FeishuConfig) ParseBlockedUserIDs() []string {
 	return parseCSVList(c.BlockedUserIDs)
+}
+
+// 解析允许的用户 ID 列表
+func (c *FeishuConfig) ParseAllowedUserIDs() []string {
+	return parseCSVList(c.AllowedUserIDs)
 }
 
 // 校验用户是否在拒绝名单中

@@ -43,8 +43,25 @@ func (a *AuthWXwork) SaveUsers(g *Group) error {
 				remote[u.UserID] = RemoteUser{ID: u.UserID, Name: u.Name}
 				continue
 			}
-			mobile, email := a.GetUserDetail(accessToken, u.UserID)
-			remote[u.UserID] = RemoteUser{ID: u.UserID, Name: u.Name, Phone: mobile, Email: email}
+			name, mobile, email := a.GetUserDetail(accessToken, u.UserID)
+			remote[u.UserID] = RemoteUser{ID: u.UserID, Name: name, Phone: mobile, Email: email}
+		}
+	}
+
+	// 补拉「允许的用户」中不在允许部门内的用户，保证名单用户同步入库
+	if allowed := a.ParseAllowedUserIDs(); len(allowed) > 0 {
+		for _, uid := range allowed {
+			if _, exists := remote[uid]; exists {
+				continue
+			}
+			if isBlocked(uid) {
+				continue
+			}
+			name, mobile, email := a.GetUserDetail(accessToken, uid)
+			if name == "" && mobile == "" && email == "" {
+				continue
+			}
+			remote[uid] = RemoteUser{ID: uid, Name: name, Phone: mobile, Email: email}
 		}
 	}
 	if len(remote) == 0 {

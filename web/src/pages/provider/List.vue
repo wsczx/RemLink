@@ -305,6 +305,14 @@
                 </el-form-item>
               </el-col>
             </el-row>
+            <el-form-item prop="allowed_userids">
+              <template slot="label">允许的用户
+                <el-tooltip content="用户ID在对应平台管理后台查看，逗号分隔。填写后与允许的部门任一命中即可登录，拒绝名单优先级最高" placement="top">
+                  <i class="el-icon-question"></i>
+                </el-tooltip>
+              </template>
+              <el-input v-model="configForm.allowed_userids" placeholder="逗号分隔，留空不限制"></el-input>
+            </el-form-item>
             <el-form-item prop="blocked_userids">
               <template slot="label">拒绝的用户
                 <el-tooltip content="填写后，列表中的用户即使通过部门限制也会被拒绝登录" placement="top">
@@ -370,6 +378,14 @@
                 </el-form-item>
               </el-col>
             </el-row>
+            <el-form-item prop="allowed_userids">
+              <template slot="label">允许的用户
+                <el-tooltip content="用户ID在对应平台管理后台查看，逗号分隔。填写后与允许的部门任一命中即可登录，拒绝名单优先级最高" placement="top">
+                  <i class="el-icon-question"></i>
+                </el-tooltip>
+              </template>
+              <el-input v-model="configForm.allowed_userids" placeholder="逗号分隔，留空不限制"></el-input>
+            </el-form-item>
             <el-form-item prop="blocked_userids">
               <template slot="label">拒绝的用户
                 <el-tooltip content="填写后，列表中的用户即使通过部门限制也会被拒绝登录" placement="top">
@@ -435,6 +451,15 @@
                 </el-form-item>
               </el-col>
             </el-row>
+            <el-form-item>
+              <template slot="label">
+                允许的用户
+                <el-tooltip content="企业微信用户ID（userid），逗号分隔。填写后与允许的部门任一命中即可登录，拒绝名单优先级最高" placement="top">
+                  <i class="el-icon-question help-icon"></i>
+                </el-tooltip>
+              </template>
+              <el-input v-model="configForm.allowed_userids" placeholder="逗号分隔，留空不限制"></el-input>
+            </el-form-item>
             <el-form-item>
               <template slot="label">
                 拒绝的用户
@@ -529,9 +554,9 @@ const configDefaults = {
     member_of: "", sync_user_status: false, enable_otp: false, sync_users: false
   },
   radius: { addr: "", secret: "", nasip: "" },
-  wxwork: { corp_id: "", agent_id: "", secret: "", use_default_browser: false, allowed_departments: "", blocked_userids: "", sync_users: false, verify_file_name: "", verify_file_content: "" },
-  feishu: { app_id: "", app_secret: "", use_default_browser: false, allowed_departments: "", blocked_userids: "", sync_users: false },
-  dingtalk: { client_id: "", client_secret: "", use_default_browser: false, allowed_departments: "", blocked_userids: "", sync_users: false },
+  wxwork: { corp_id: "", agent_id: "", secret: "", use_default_browser: false, allowed_departments: "", allowed_userids: "", blocked_userids: "", sync_users: false, verify_file_name: "", verify_file_content: "" },
+  feishu: { app_id: "", app_secret: "", use_default_browser: false, allowed_departments: "", allowed_userids: "", blocked_userids: "", sync_users: false },
+  dingtalk: { client_id: "", client_secret: "", use_default_browser: false, allowed_departments: "", allowed_userids: "", blocked_userids: "", sync_users: false },
 };
 
 const TYPE_LABELS = { ldap: 'LDAP', radius: 'RADIUS', wxwork: '企微', feishu: '飞书', dingtalk: '钉钉' };
