@@ -199,7 +199,7 @@
         </div>
         <div class="upgrade-changelog" v-if="upgradeDialog.info && upgradeDialog.info.latest.body">
           <div class="upgrade-changelog-title">更新日志</div>
-          <div class="upgrade-changelog-body">{{ upgradeDialog.info.latest.body }}</div>
+          <div class="upgrade-changelog-body" v-html="changelogHtml"></div>
         </div>
       </div>
 
@@ -237,6 +237,8 @@
 
 <script>
 import axios from "axios";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 
 export default {
   name: 'Monitor',
@@ -266,6 +268,13 @@ export default {
     }
   },
   computed: {
+    changelogHtml() {
+      const info = this.upgradeDialog.info;
+      const body = info && info.latest && info.latest.body;
+      if (!body) return "";
+      // 日志来自 GitHub/Gitee Release，v-html 前先净化防注入
+      return DOMPurify.sanitize(marked.parse(body));
+    },
     formattedUptime() {
       const s = Math.max(0, Math.floor(this.uptimeSeconds || 0));
       const d = Math.floor(s / 86400);
@@ -730,9 +739,41 @@ export default {
   font-size: 13px;
   color: var(--text-regular);
   line-height: 1.8;
-  white-space: pre-wrap;
   max-height: 200px;
   overflow-y: auto;
+}
+
+.upgrade-changelog-body h3,
+.upgrade-changelog-body h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 10px 0 6px;
+}
+
+.upgrade-changelog-body p {
+  margin: 6px 0;
+}
+
+.upgrade-changelog-body ul,
+.upgrade-changelog-body ol {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.upgrade-changelog-body li {
+  margin: 2px 0;
+}
+
+.upgrade-changelog-body code {
+  background: #f5f7fa;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.upgrade-changelog-body a {
+  color: var(--color-primary);
 }
 
 /* 升级进度 */
