@@ -12,40 +12,36 @@ import (
 	"github.com/wsczx/remlink/sessdata"
 )
 
-func checkTun() {
-	// 测试tun
+func testTun(fw sessdata.Firewall) error {
 	cfg := water.Config{
 		DeviceType: water.TUN,
 	}
 
 	ifce, err := water.New(cfg)
 	if err != nil {
-		base.Fatal("open tun err: ", err)
+		return fmt.Errorf("open tun err: %w", err)
 	}
 	defer ifce.Close()
 
 	link, err := netlink.LinkByName(ifce.Name())
 	if err != nil {
-		base.Fatal("testTun err: ", err)
+		return fmt.Errorf("testTun err: %w", err)
 	}
 	if err = netlink.LinkSetMTU(link, 1399); err != nil {
-		base.Fatal("testTun err: ", err)
+		return fmt.Errorf("testTun err: %w", err)
 	}
 	if err = netlink.LinkSetAllmulticastOff(link); err != nil {
-		base.Fatal("testTun err: ", err)
+		return fmt.Errorf("testTun err: %w", err)
 	}
 	if err = netlink.LinkSetUp(link); err != nil {
-		base.Fatal("testTun err: ", err)
+		return fmt.Errorf("testTun err: %w", err)
 	}
 	// 未启用 NAT 时不初始化防火墙后端
 	if !base.GetCfg().GlobalNat && !base.GetCfg().GlobalNat6 {
-		return
+		return nil
 	}
-
-	fw := sessdata.GetFirewall()
 	if fw == nil {
-		base.Error("初始化防火墙失败: firewall is nil, 请检查防火墙后端配置")
-		return
+		return fmt.Errorf("初始化防火墙失败: firewall is nil, 请检查防火墙后端配置")
 	}
 
 	// IPv4 全局 NAT
@@ -85,10 +81,11 @@ func checkTun() {
 			}
 		}
 	}
+	return nil
 }
 
 // 创建tun网卡
-func LinkTun(cSess *sessdata.ConnSession) error {
+func LinkTun(sessions *sessdata.SessionManager, cSess *sessdata.ConnSession) error {
 	cfg := water.Config{
 		DeviceType: water.TUN,
 	}
@@ -161,7 +158,7 @@ func LinkTun(cSess *sessdata.ConnSession) error {
 		}
 		v6Addr := &netlink.Addr{
 			IPNet: &net.IPNet{
-				IP:   cSess.IpPool.V6Gateway(),
+				IP:   cSess.V6Gateway(),
 				Mask: net.CIDRMask(128, 128),
 			},
 			Peer: &net.IPNet{
@@ -177,7 +174,7 @@ func LinkTun(cSess *sessdata.ConnSession) error {
 	}
 
 	// 设置组NAT
-	setGroupNAT(cSess)
+	setGroupNAT(sessions, cSess)
 	// 仅纯 v4 时禁用 TUN 接口的 IPv6，避免无地址的 v6 流量；启用 v6 双栈时不禁用
 	if cSess.IpAddr6 == nil {
 		if err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifce.Name()), "1"); err != nil {
@@ -185,73 +182,39 @@ func LinkTun(cSess *sessdata.ConnSession) error {
 		}
 	}
 
-	go tunRead(ifce, cSess)
-	go tunWrite(ifce, cSess)
+	go func() {
+		defer func() {
+			base.Debug("LinkTun return", cSess.IpAddr)
+			_ = ifce.Close()
+			cSess.Close()
+		}()
+
+		readFn := func(pl *sessdata.Payload) (int, error) {
+			return ifce.Read(pl.Data)
+		}
+		decodeFn := func(pl *sessdata.Payload, n int) bool {
+			pl.Data = pl.Data[:n]
+			cSess.LastDataTime.Store(utils.NowSec().Unix())
+			return cSess.PayloadOut(pl)
+		}
+		writeFn := func(pl *sessdata.Payload) (int, error) {
+			return ifce.Write(pl.Data)
+		}
+
+		go runSessionReadLoop(cSess, readFn, decodeFn, true)
+		go runSessionWriteLoop(cSess, cSess.PayloadIn, cSess.CloseChan, writeFn, func(pl *sessdata.Payload) { putPayloadInBefore(cSess, pl) }, true)
+		go runSessionIdleCheck(cSess, cSess.CloseChan)
+		<-cSess.CloseChan
+	}()
 	return nil
 }
 
-func tunWrite(ifce *water.Interface, cSess *sessdata.ConnSession) {
-	defer func() {
-		base.Debug("LinkTun return", cSess.IpAddr)
-		cSess.Close()
-		_ = ifce.Close()
-	}()
-
-	var (
-		err error
-		pl  *sessdata.Payload
-	)
-
-	for {
-		select {
-		case pl = <-cSess.PayloadIn:
-		case <-cSess.CloseChan:
-			return
-		}
-
-		_, err = ifce.Write(pl.Data)
-		if err != nil {
-			base.Error("tun Write err", err)
-			return
-		}
-
-		putPayloadInBefore(cSess, pl)
-	}
-}
-
-func tunRead(ifce *water.Interface, cSess *sessdata.ConnSession) {
-	defer func() {
-		base.Debug("tunRead return", cSess.IpAddr)
-		_ = ifce.Close()
-	}()
-	var (
-		err error
-		n   int
-	)
-
-	for {
-		// data := make([]byte, BufferSize)
-		pl := getPayload()
-		n, err = ifce.Read(pl.Data)
-		if err != nil {
-			base.Error("tun Read err", n, err)
-			return
-		}
-
-		// 更新数据长度
-		pl.Data = (pl.Data)[:n]
-
-		if payloadOut(cSess, pl) {
-			return
-		}
-	}
-}
-func setGroupNAT(cSess *sessdata.ConnSession) {
+func setGroupNAT(sessions *sessdata.SessionManager, cSess *sessdata.ConnSession) {
 	if cSess.IpPool == nil || cSess.IpPool.Ipv4IPNet == nil {
 		return
 	}
 	// 回退到全局池则
-	if cSess.IpPool == sessdata.IpPool {
+	if cSess.IpPoolGlobal {
 		return
 	}
 
@@ -283,7 +246,7 @@ func setGroupNAT(cSess *sessdata.ConnSession) {
 		return
 	}
 
-	sessdata.SyncGroupNAT(cidr, v6cidr, egress)
+	sessions.SyncGroupNAT(cidr, v6cidr, egress)
 
 	// 组指定了独立的出网网卡且不同于全局 master_dev 时，确保该接口 IPv6 可用
 	if v6cidr != "" && egress != base.GetCfg().MasterDev {

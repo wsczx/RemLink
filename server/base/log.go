@@ -20,6 +20,16 @@ const (
 	LogLevelFatal
 )
 
+// 系统日志条目（通过 WebSocket 推送）
+type SyslogEntry struct {
+	Level string `json:"level"` // Trace/Debug/Info/Warn/Error/Fatal
+	Time  string `json:"time"`  // 2006-01-02 15:04:05
+	Msg   string `json:"msg"`   // 日志内容
+}
+
+// 系统日志广播通道
+var SyslogBroadcast = make(chan SyslogEntry, 2048)
+
 // 按 key 限制日志输出频率
 type WarnLimiter struct {
 	mu       sync.Mutex
@@ -66,14 +76,7 @@ var (
 
 	dateFormat = "2006-01-02"
 	logName    = "remlink.log"
-
-	// WebSocket 实时日志推送回调
-	BroadcastSyslogFunc func(level int, msg string)
 )
-
-func init() {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-}
 
 type logWriter struct {
 	mu        sync.Mutex
@@ -119,6 +122,7 @@ func (lw *logWriter) newFile() {
 }
 
 func initLog() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	cfg := GetCfg()
 	lw := &logWriter{
 		UseStdout: cfg.LogPath == "",
@@ -183,12 +187,18 @@ func output(l int, s ...any) {
 		fmt.Fprint(os.Stderr, lvl+msg)
 	}
 
-	broadcastSyslogIfSet(l, msg)
+	broadcastSyslog(l, msg)
 }
 
-func broadcastSyslogIfSet(l int, msg string) {
-	if BroadcastSyslogFunc != nil {
-		BroadcastSyslogFunc(l, msg)
+func broadcastSyslog(l int, msg string) {
+	entry := SyslogEntry{
+		Level: levels[l],
+		Time:  time.Now().Format("2006-01-02 15:04:05"),
+		Msg:   strings.TrimSuffix(msg, "\n"),
+	}
+	select {
+	case SyslogBroadcast <- entry:
+	default:
 	}
 }
 
@@ -262,13 +272,4 @@ func Error(v ...any) {
 		return
 	}
 	output(l, v...)
-}
-
-func Fatal(v ...any) {
-	l := LogLevelFatal
-	if int(baseLevel.Load()) > l {
-		return
-	}
-	output(l, v...)
-	os.Exit(1)
 }

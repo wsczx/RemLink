@@ -18,7 +18,7 @@ var stepNamePrefixes = []string{
 }
 
 // 认证失败时，将错误信息映射为用户可读的文案
-func stripStepPrefix(msg string) string {
+func removeStepPrefix(msg string) string {
 	for _, p := range stepNamePrefixes {
 		if strings.HasPrefix(msg, p) {
 			return msg[len(p):]
@@ -68,7 +68,7 @@ func newAuthContext(cr *ClientRequest, r *http.Request) *auth.Context {
 
 // 从已保存的认证会话恢复管道执行
 // 调用前需将当前请求的密码/OTP 码写入 ctx
-func resumeAuthSession(w http.ResponseWriter, r *http.Request,
+func (s *LinkAuthService) resumeAuthSession(w http.ResponseWriter, r *http.Request,
 	sess *AuthSession) {
 
 	ctx := sess.Ctx
@@ -83,7 +83,7 @@ func resumeAuthSession(w http.ResponseWriter, r *http.Request,
 			Username:  ctx.Conn.Username,
 			GroupName: ctx.Conn.GroupName,
 		}
-		handlePipelineResult(w, r, result, sess)
+		s.handlePipelineResult(w, r, result, sess)
 		return
 	}
 
@@ -92,11 +92,11 @@ func resumeAuthSession(w http.ResponseWriter, r *http.Request,
 		PassedSteps: sess.Ctx.PassedSteps(),
 	}
 	result := authsrv.Resume(ctx, state)
-	handlePipelineResult(w, r, result, sess)
+	s.handlePipelineResult(w, r, result, sess)
 }
 
 // 将管道执行结果映射为 HTTP 响应
-func handlePipelineResult(w http.ResponseWriter, r *http.Request,
+func (s *LinkAuthService) handlePipelineResult(w http.ResponseWriter, r *http.Request,
 	result *auth.PipelineResult, sessionData *AuthSession) {
 
 	ctx := sessionData.Ctx
@@ -106,13 +106,15 @@ func handlePipelineResult(w http.ResponseWriter, r *http.Request,
 	}
 
 	flow := &Flow{
-		Ctx:      ctx,
-		Username: username,
+		Ctx:          ctx,
+		Username:     username,
+		locks:        s.locks,
+		authSessions: s.authSessions,
 		Callbacks: FlowCallbacks{
 			OnPass: func(fl *Flow, w http.ResponseWriter, r *http.Request) {
 				// 恢复场景：清除旧认证会话（新建会话在 CreateSession 内另发 cookie）
 				if sessionData.SessionID != "" {
-					AuthSessionManager.Delete(sessionData.SessionID)
+					s.authSessions.Delete(sessionData.SessionID)
 					DeleteCookie(w, "auth-session-id")
 				}
 				sessionData.UserActLog.Username = fl.Result.Username
@@ -126,12 +128,12 @@ func handlePipelineResult(w http.ResponseWriter, r *http.Request,
 
 				ctx.Conn.Username = fl.Result.Username
 				ctx.Conn.GroupName = fl.Result.GroupName
-				CreateSession(w, sessionData)
+				s.CreateSession(w, sessionData)
 			},
 			OnFail: func(fl *Flow, w http.ResponseWriter, r *http.Request) {
 				// 恢复场景：清除旧认证会话
 				if sessionData.SessionID != "" {
-					AuthSessionManager.Delete(sessionData.SessionID)
+					s.authSessions.Delete(sessionData.SessionID)
 					DeleteCookie(w, "auth-session-id")
 				}
 				errMsg := "认证失败"
@@ -144,16 +146,16 @@ func handlePipelineResult(w http.ResponseWriter, r *http.Request,
 				w.WriteHeader(http.StatusOK)
 				data := RequestData{
 					Group:  ctx.Conn.GroupName,
-					Groups: dbdata.GetGroupNamesNormal(),
+					Groups: dbdata.Groups.GetGroupNamesNormal(),
 					Error:  authFailMessage(fl.Result.Err),
 				}
 				if base.GetCfg().DisplayError && fl.Result.Err != nil {
-					data.Error = stripStepPrefix(errMsg)
+					data.Error = removeStepPrefix(errMsg)
 				}
 				tplRequest(tpl_request, w, data)
 			},
 			OnChallenge: func(fl *Flow, w http.ResponseWriter, r *http.Request) {
-				handleChallengeResult(w, r, fl, sessionData)
+				s.handleChallengeResult(w, r, fl, sessionData)
 			},
 		},
 	}
@@ -164,7 +166,7 @@ func handlePipelineResult(w http.ResponseWriter, r *http.Request,
 
 // 处理 StepPending：保存/更新会话状态 + 按挑战视图返回模板
 // 由 Flow.OnChallenge 回调调用，flow 已统一处理锁定计数窗口
-func handleChallengeResult(w http.ResponseWriter, r *http.Request,
+func (s *LinkAuthService) handleChallengeResult(w http.ResponseWriter, r *http.Request,
 	flow *Flow, sessionData *AuthSession) {
 
 	result := flow.Result
@@ -185,12 +187,12 @@ func handleChallengeResult(w http.ResponseWriter, r *http.Request,
 
 	if isResume {
 		// 恢复场景：更新已有会话
-		AuthSessionManager.Save(sessionData.SessionID, sessionData)
+		s.authSessions.Save(sessionData.SessionID, sessionData)
 	} else {
 		// 首次认证：创建新会话
 		sid := GenerateSessionID()
 		sessionData.SessionID = sid
-		AuthSessionManager.Save(sid, sessionData)
+		s.authSessions.Save(sid, sessionData)
 		SetCookie(w, "auth-session-id", sid, 0)
 	}
 	// 清除强制改密标记

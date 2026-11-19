@@ -68,7 +68,7 @@ func (c *tcpStreamCache) add(key tcpStreamKey, tcpSeg []byte, now time.Time) (ui
 	stream := c.streams[key]
 	if stream == nil {
 		if len(c.streams) >= tcpStreamMaxCount {
-			c.evictOldestLocked()
+			c.removeOldestLocked()
 		}
 		stream = &tcpStream{segments: make(map[uint32][]byte), baseSeq: seq}
 		c.streams[key] = stream
@@ -92,7 +92,7 @@ func (c *tcpStreamCache) add(key tcpStreamKey, tcpSeg []byte, now time.Time) (ui
 		c.total += len(data)
 	}
 	c.trimLocked(key, stream)
-	assembled := assembleTCPStream(stream.segments, stream.baseSeq)
+	assembled := buildTCPStream(stream.segments, stream.baseSeq)
 	c.mu.Unlock()
 
 	if len(assembled) == 0 {
@@ -121,7 +121,7 @@ func relativeSeq(seq, base uint32) uint32 {
 	return seq - base
 }
 
-func assembleTCPStream(segments map[uint32][]byte, baseSeq uint32) []byte {
+func buildTCPStream(segments map[uint32][]byte, baseSeq uint32) []byte {
 	ordered := make([]tcpStreamSegment, 0, len(segments))
 	for seq, data := range segments {
 		ordered = append(ordered, tcpStreamSegment{seq: seq, data: data})
@@ -197,7 +197,7 @@ func (c *tcpStreamCache) cleanup(now time.Time) {
 	c.mu.Unlock()
 }
 
-func (c *tcpStreamCache) evictOldestLocked() {
+func (c *tcpStreamCache) removeOldestLocked() {
 	var oldKey tcpStreamKey
 	var oldTime time.Time
 	found := false

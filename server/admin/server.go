@@ -4,6 +4,8 @@ package admin
 import (
 	"crypto/tls"
 	"embed"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/pprof"
 	"time"
@@ -11,16 +13,25 @@ import (
 	"github.com/arl/statsviz"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
-	_ "github.com/wsczx/remlink/auth/authsrv" // 触发认证器 init() 注册
+	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/utils"
+	"github.com/wsczx/remlink/sessdata"
 )
 
 var UiData embed.FS
 
-// 开启服务
-func StartAdmin() error {
+// 注入前端静态资源，启动时由 App 调用
+func SetUIData(fs embed.FS) { UiData = fs }
+
+// admin 依赖，由 App 注入
+type Api struct {
+	Sessions *sessdata.SessionManager
+	Locks    *auth.LockManager
+}
+
+func initRoute(ws http.Handler, api *Api) *mux.Router {
 	r := mux.NewRouter()
 	r.Use(recoverHttp, authMiddleware, handlers.CompressHandler)
 	// 所有路由添加安全头
@@ -38,8 +49,8 @@ func StartAdmin() error {
 
 	r.Handle("/", http.RedirectHandler("/ui/", http.StatusFound)).Name("index")
 	r.PathPrefix("/ui/").Handler(ServeUI()).Name("static")
-	r.HandleFunc("/base/login", Login).Name("login")
-	r.HandleFunc("/base/login/otp", LoginOTP).Name("login_otp")
+	r.HandleFunc("/base/login", api.Login).Name("login")
+	r.HandleFunc("/base/login/otp", api.LoginOTP).Name("login_otp")
 	r.HandleFunc("/base/auth_check", AuthCheck).Name("auth_check")
 	r.HandleFunc("/base/logout", Logout).Name("logout")
 	// 品牌配置免鉴权：供管理后台侧边栏与登录页在 8800 端口直接加载
@@ -50,15 +61,15 @@ func StartAdmin() error {
 	r.HandleFunc("/set/otp_confirm", AdminOtpConfirm).Methods(http.MethodPost)
 	r.HandleFunc("/set/otp_disable", AdminOtpDisable).Methods(http.MethodPost)
 
-	r.HandleFunc("/set/home", SetHome)
-	r.HandleFunc("/set/system", SetSystem)
+	r.HandleFunc("/set/home", api.SetHome)
+	r.HandleFunc("/set/system", api.SetSystem)
 	r.HandleFunc("/set/soft", SetSoft)
 	r.HandleFunc("/set/soft/status", SetSoftStatus)
-	r.HandleFunc("/set/soft/edit", SetSoftEdit).Methods(http.MethodPost)
+	r.HandleFunc("/set/soft/edit", api.SetSoftEdit).Methods(http.MethodPost)
 	r.HandleFunc("/set/soft/ipv4", SetIPv4Config).Methods(http.MethodPost)
 	r.HandleFunc("/set/profile", SetProfile)
 	r.HandleFunc("/set/profile/edit", SetProfileEdit).Methods(http.MethodPost)
-	r.HandleFunc("/set/restart", SetRestart).Methods(http.MethodPost)
+	r.HandleFunc("/set/restart", api.SetRestart).Methods(http.MethodPost)
 	r.HandleFunc("/set/upgrade/check", CheckUpgrade).Methods(http.MethodGet)
 	r.HandleFunc("/set/upgrade/start", StartUpgrade).Methods(http.MethodPost)
 	r.HandleFunc("/set/upgrade/status", UpgradeStatusHandler).Methods(http.MethodGet)
@@ -68,7 +79,7 @@ func StartAdmin() error {
 	r.HandleFunc("/set/db/restore", SetDbRestore).Methods(http.MethodPost)
 	r.HandleFunc("/set/db/backup/delete", SetDbBackupDelete).Methods(http.MethodPost)
 	r.HandleFunc("/set/db/test_connection", SetDbTestConnection)
-	r.HandleFunc("/set/db/switch", SetDbSwitch).Methods(http.MethodPost)
+	r.HandleFunc("/set/db/switch", api.SetDbSwitch).Methods(http.MethodPost)
 	r.HandleFunc("/set/other", SetOther)
 	r.HandleFunc("/set/other/edit", SetOtherEdit).Methods(http.MethodPost)
 	r.HandleFunc("/set/other/smtp", SetOtherSmtp)
@@ -97,7 +108,7 @@ func StartAdmin() error {
 	r.HandleFunc("/set/audit/export", SetAuditExport)
 	r.HandleFunc("/set/audit/act_log_list", UserActLogList)
 	r.HandleFunc("/set/audit/admin_op_log_list", AdminOpLogList)
-	r.HandleFunc("/set/syslog/ws", SyslogWS) // WebSocket 系统日志实时推送
+	r.HandleFunc("/set/syslog/ws", syslogWSHandler(ws)) // WebSocket 系统日志实时推送
 	r.HandleFunc("/set/syslog/history_enabled", SyslogHistoryEnabled)
 	r.HandleFunc("/set/syslog/history_dates", SyslogHistoryDates)
 	r.HandleFunc("/set/syslog/history_list", SyslogHistoryList)
@@ -128,9 +139,9 @@ func StartAdmin() error {
 	r.HandleFunc("/user/uploaduser", UserUpload).Methods(http.MethodPost)
 	r.HandleFunc("/user/uploaduser_template", UserUploadTemplate)
 	r.HandleFunc("/user/del", UserDel).Methods(http.MethodPost)
-	r.HandleFunc("/user/online", UserOnline)
-	r.HandleFunc("/user/offline", UserOffline).Methods(http.MethodPost)
-	r.HandleFunc("/user/reline", UserReline).Methods(http.MethodPost)
+	r.HandleFunc("/user/online", api.UserOnline)
+	r.HandleFunc("/user/offline", api.UserOffline).Methods(http.MethodPost)
+	r.HandleFunc("/user/reline", api.UserReline).Methods(http.MethodPost)
 	r.HandleFunc("/user/reset_traffic", UserResetTraffic).Methods(http.MethodPost)
 	r.HandleFunc("/user/otp_qr", UserOtpQr)
 	r.HandleFunc("/user/ip_map/list", UserIpMapList)
@@ -148,7 +159,7 @@ func StartAdmin() error {
 	r.HandleFunc("/group/ifaces", GroupIfaces)
 	r.HandleFunc("/group/set", GroupSet).Methods(http.MethodPost)
 	r.HandleFunc("/group/del", GroupDel).Methods(http.MethodPost)
-	r.HandleFunc("/group/auth_login", GroupAuthLogin)
+	r.HandleFunc("/group/auth_login", api.GroupAuthLogin)
 	r.HandleFunc("/group/cert_check", GroupCertCheck)
 	r.HandleFunc("/group/cert_auth_check", GroupCertAuthCheck)
 
@@ -171,7 +182,7 @@ func StartAdmin() error {
 	r.HandleFunc("/provider/detail", ProviderDetail)
 	r.HandleFunc("/provider/set", ProviderSet).Methods(http.MethodPost)
 	r.HandleFunc("/provider/del", ProviderDel).Methods(http.MethodPost)
-	r.HandleFunc("/provider/test_login", ProviderAuthLogin).Methods(http.MethodPost)
+	r.HandleFunc("/provider/test_login", api.ProviderAuthLogin).Methods(http.MethodPost)
 	r.HandleFunc("/provider/sync_users", ProviderSyncUsers).Methods(http.MethodPost)
 
 	r.HandleFunc("/set/secret/status", SecretStatus)
@@ -180,8 +191,8 @@ func StartAdmin() error {
 	r.HandleFunc("/set/secret/disable", SecretDisable).Methods(http.MethodPost)
 
 	r.HandleFunc("/statsinfo/list", StatsInfoList)
-	r.HandleFunc("/locksinfo/list", GetLocksInfo)
-	r.HandleFunc("/locksinfo/unlok", UnlockUser).Methods(http.MethodPost)
+	r.HandleFunc("/locksinfo/list", api.GetLocksInfo)
+	r.HandleFunc("/locksinfo/unlok", api.UnlockUser).Methods(http.MethodPost)
 
 	// pprof - 始终注册路由，运行时根据配置动态开关
 	pprofGuard := func(next http.HandlerFunc) http.HandlerFunc {
@@ -212,6 +223,11 @@ func StartAdmin() error {
 		)
 	}
 	r.NotFoundHandler = NotFound()
+	return r
+}
+
+func StartAdmin(ws http.Handler, api *Api) (*http.Server, error) {
+	r := initRoute(ws, api)
 
 	base.Info("Listen admin", base.GetCfg().AdminAddr)
 
@@ -228,7 +244,7 @@ func StartAdmin() error {
 		MinVersion:   tls.VersionTLS12,
 		CipherSuites: selectedCipherSuites,
 		GetCertificate: func(chi *tls.ClientHelloInfo) (*tls.Certificate, error) {
-			return dbdata.GetCertificateBySNI(chi.ServerName)
+			return dbdata.Certs.GetCertificateBySNI(chi.ServerName)
 		},
 	}
 	srv := &http.Server{
@@ -241,10 +257,16 @@ func StartAdmin() error {
 		IdleTimeout:       120 * time.Second,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	if err := srv.ListenAndServeTLS("", ""); err != nil {
-		return err
+	ln, err := net.Listen("tcp", srv.Addr)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	go func() {
+		if err := srv.ServeTLS(ln, "", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			base.Error("管理后台运行异常:", err)
+		}
+	}()
+	return srv, nil
 }
 
 func location(url string) http.HandlerFunc {

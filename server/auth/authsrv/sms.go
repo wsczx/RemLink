@@ -1,6 +1,7 @@
 package authsrv
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"math/big"
@@ -49,23 +50,25 @@ const (
 	smsCleanupEvery = 30 * time.Second
 )
 
-func init() {
-	auth.Registry.Register("sms", func() auth.Authenticator {
-		return &SmsAuth{}
-	})
-
+// 启动后台 goroutine 清理过期短信验证码
+func StartSmsCleaner(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(smsCleanupEvery)
 		defer ticker.Stop()
-		for range ticker.C {
-			smsCodeMu.Lock()
-			now := time.Now()
-			for k, v := range smsCodes {
-				if now.After(v.expires) {
-					delete(smsCodes, k)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				smsCodeMu.Lock()
+				now := time.Now()
+				for k, v := range smsCodes {
+					if now.After(v.expires) {
+						delete(smsCodes, k)
+					}
 				}
+				smsCodeMu.Unlock()
 			}
-			smsCodeMu.Unlock()
 		}
 	}()
 }
@@ -80,8 +83,7 @@ func generateSmsCode() string {
 	return string(code)
 }
 
-// SendSmsCode 发送短信验证码（供 Portal API 直接调用）
-// 返回验证码和错误，调用方不应向外部泄露 code。
+// 发送短信验证码（供 Portal API 直接调用）
 func SendSmsCode(phone string, fromIP ...string) (string, error) {
 	now := time.Now()
 	// 同一手机号 60 秒内只能发一次
@@ -114,7 +116,7 @@ func SendSmsCode(phone string, fromIP ...string) (string, error) {
 
 	code := generateSmsCode()
 
-	err := notify.GetNotify().SendSms(notify.Message{
+	err := notify.SendSms(notify.Message{
 		To:     phone,
 		Body:   "",
 		Params: map[string]string{"1": code, "2": "5"},
@@ -164,8 +166,8 @@ func VerifySmsCode(phone, code string) (string, error) {
 	return username, nil
 }
 
-// SmsAuth 短信验证码认证器，作为管道中的一步。
-// 首次进入发送验证码并返回 StepPending；恢复时校验用户输入的验证码。
+// 短信验证码认证器，作为管道中的一步
+// 首次进入发送验证码并返回 StepPending；恢复时校验用户输入的验证码
 type SmsAuth struct {
 	auth.NopChallenger
 }
@@ -175,7 +177,7 @@ func (a *SmsAuth) Name() string { return "sms" }
 func (a *SmsAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 	sms := ctx.GetSMS()
 	if sms.Phone == "" {
-		// 优先从已加载的 UserInfo 读取手机号；未加载时通过 LoadUserInfo 加载一次并缓存。
+		// 优先从已加载的 UserInfo 读取手机号；未加载时通过 LoadUserInfo 加载一次并缓存
 		if ub := ctx.UserInfoLoaded(); ub != nil && ub.Phone != "" {
 			sms.Phone = ub.Phone
 		} else if ctx.Conn.Username != "" {
@@ -213,7 +215,7 @@ func (a *SmsAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 		sms.Code = "" // 清除旧码，允许重试
 		return auth.StepPending, nil
 	}
-	base.Info("SMS认证成功: user=", dbdata.UserLabel(ctx.Conn.Username, ctx.Conn.Nickname))
+	base.Info("SMS认证成功: user=", dbdata.Users.Label(ctx.Conn.Username, ctx.Conn.Nickname))
 	return auth.StepPass, nil
 }
 

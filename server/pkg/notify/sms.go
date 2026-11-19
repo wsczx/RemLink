@@ -2,11 +2,9 @@ package notify
 
 import (
 	"fmt"
-
-	"github.com/wsczx/remlink/dbdata"
 )
 
-// SmsSender 短信发送接口，各厂商实现此接口
+// 短信发送接口，各厂商实现此接口
 type SmsSender interface {
 	// Send 发送短信
 	// phone: 目标手机号
@@ -15,7 +13,7 @@ type SmsSender interface {
 }
 
 // 根据配置创建短信发送器
-func newSmsSender(smsCfg *dbdata.SettingSms) (SmsSender, error) {
+func newSmsSender(smsCfg *SmsConfig) (SmsSender, error) {
 	switch smsCfg.Provider {
 	case "aliyun":
 		return newAliyunSender(smsCfg), nil

@@ -13,7 +13,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/skip2/go-qrcode"
-	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/auth/authsrv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
@@ -28,12 +27,12 @@ var (
 )
 
 // 登陆接口（两步登录：先验密码，OTP 启用时返回 otp_required）
-func Login(w http.ResponseWriter, r *http.Request) {
+func (a *Api) Login(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	adminUser := r.PostFormValue("admin_user")
 	adminPass := r.PostFormValue("admin_pass")
 
-	lm := auth.GetLockManager()
+	lm := a.Locks
 
 	// 防暴力破解：检查是否已被锁定
 	if !lm.Check(adminUser, r.RemoteAddr) {
@@ -76,7 +75,7 @@ func Login(w http.ResponseWriter, r *http.Request) {
 }
 
 // 第二步验证
-func LoginOTP(w http.ResponseWriter, r *http.Request) {
+func (a *Api) LoginOTP(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		OtpToken string `json:"otp_token"`
@@ -104,7 +103,7 @@ func LoginOTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 检查是否已被锁定
-	lm := auth.GetLockManager()
+	lm := a.Locks
 	if !lm.Check(adminUser, r.RemoteAddr) {
 		RespError(w, RespParamErr, "登录过于频繁，请稍后再试")
 		base.Error(adminUser, "管理员 OTP 登录尝试次数超限，已锁定:", r.RemoteAddr)
@@ -164,7 +163,7 @@ func ChangeAdminPassword(w http.ResponseWriter, r *http.Request) {
 	newCfg := *cfg
 	newCfg.AdminPass = hashed
 	newCfg.AdminTemp = false
-	if err := dbdata.SettingSaveServerConfigWith(&newCfg); err != nil {
+	if err := dbdata.Settings.Save(&dbdata.SettingServerConfig{Config: newCfg}); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
@@ -181,7 +180,7 @@ func ChangeAdminPassword(w http.ResponseWriter, r *http.Request) {
 		base.Info("管理员改密，已吊销", n, "个有效会话")
 	}
 
-	dbdata.AdminLog("安全设置", "管理员密码", "修改了管理员登录密码", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("安全设置", "管理员密码", "修改了管理员登录密码", r.RemoteAddr)
 	RespSuccess(w, map[string]string{"message": "密码修改成功"})
 }
 
@@ -233,7 +232,7 @@ func AdminOtpQr(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dbdata.AdminLog("安全设置", "两步验证", "查看了OTP密钥和二维码", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("安全设置", "两步验证", "查看了OTP密钥和二维码", r.RemoteAddr)
 	RespSuccess(w, map[string]any{
 		"enabled":   true,
 		"secret":    cfg.AdminOtp,
@@ -257,7 +256,7 @@ func AdminOtpGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dbdata.AdminLog("安全设置", "两步验证", "生成了新的OTP密钥（预览）", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("安全设置", "两步验证", "生成了新的OTP密钥（预览）", r.RemoteAddr)
 	RespSuccess(w, map[string]any{
 		"secret":    secret,
 		"qr_base64": qrBase64,
@@ -329,7 +328,7 @@ func AdminOtpConfirm(w http.ResponseWriter, r *http.Request) {
 	cfg = base.GetCfg()
 	newCfg := *cfg
 	newCfg.AdminOtp = secret
-	if err := dbdata.SettingSaveServerConfigWith(&newCfg); err != nil {
+	if err := dbdata.Settings.Save(&dbdata.SettingServerConfig{Config: newCfg}); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
@@ -344,7 +343,7 @@ func AdminOtpConfirm(w http.ResponseWriter, r *http.Request) {
 	if cfg.AdminOtp != "" {
 		action = "重新绑定了两步验证密钥"
 	}
-	dbdata.AdminLog("安全设置", "两步验证", action, r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("安全设置", "两步验证", action, r.RemoteAddr)
 	RespSuccess(w, map[string]string{"message": "两步验证已启用"})
 }
 
@@ -382,7 +381,7 @@ func AdminOtpDisable(w http.ResponseWriter, r *http.Request) {
 	// 先构造新配置快照并持久化
 	newCfg := *cfg
 	newCfg.AdminOtp = ""
-	if err := dbdata.SettingSaveServerConfigWith(&newCfg); err != nil {
+	if err := dbdata.Settings.Save(&dbdata.SettingServerConfig{Config: newCfg}); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
@@ -393,7 +392,7 @@ func AdminOtpDisable(w http.ResponseWriter, r *http.Request) {
 	})
 	base.Info("管理员两步验证已禁用")
 
-	dbdata.AdminLog("安全设置", "两步验证", "禁用了两步验证", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("安全设置", "两步验证", "禁用了两步验证", r.RemoteAddr)
 	RespSuccess(w, map[string]string{"message": "两步验证已禁用"})
 }
 
@@ -436,7 +435,7 @@ func issueLoginJWT(w http.ResponseWriter, r *http.Request, adminUser string) {
 		Value:    tokenString,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   isTLS(r),
+		Secure:   utils.IsTLS(r),
 		SameSite: http.SameSiteLaxMode,
 	}
 	http.SetCookie(w, ck)
@@ -469,15 +468,10 @@ func Logout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   isTLS(r),
+		Secure:   utils.IsTLS(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 	RespSuccess(w, nil)
-}
-
-// 判断请求是否通过 TLS/HTTPS 传输
-func isTLS(r *http.Request) bool {
-	return utils.IsTLS(r)
 }
 
 // 从请求头、表单或 Cookie 中提取 JWT token
@@ -533,7 +527,7 @@ func adminSameOrigin(r *http.Request) bool {
 			return false
 		}
 		return strings.EqualFold(u.Host, r.Host) &&
-			((u.Scheme == "https" && isTLS(r)) || (u.Scheme == "http" && !isTLS(r)))
+			((u.Scheme == "https" && utils.IsTLS(r)) || (u.Scheme == "http" && !utils.IsTLS(r)))
 	}
 	if ref := r.Header.Get("Referer"); ref != "" {
 		u, err := url.Parse(ref)
@@ -548,7 +542,6 @@ func recoverHttp(next http.Handler) http.Handler {
 			if err := recover(); err != nil {
 				stack := debug.Stack()
 				base.Error(err, string(stack))
-				// http.Error(w, "Internal Server Error", 500)
 				RespError(w, 500, "Internal Server Error")
 			}
 		}()

@@ -55,24 +55,15 @@ type ipListItem struct {
 	CIDR *net.IPNet
 }
 
-var (
-	lm     *LockManager
-	lmOnce sync.Once
-)
-
-// 获取全局 LockManager 单例
-func GetLockManager() *LockManager {
-	lmOnce.Do(func() {
-		lm = &LockManager{
-			ipLocks:        make(map[string]*LockState),
-			userLocks:      make(map[string]*LockState),
-			ipUserLocks:    make(map[string]map[string]*LockState),
-			challengeLocks: make(map[string]map[string]*LockState),
-			ipLists:        make(map[IPListType][]ipListItem),
-			warnLimiter:    base.NewWarnLimiter(warnLogInterval),
-		}
-	})
-	return lm
+func NewLockManager() *LockManager {
+	return &LockManager{
+		ipLocks:        make(map[string]*LockState),
+		userLocks:      make(map[string]*LockState),
+		ipUserLocks:    make(map[string]map[string]*LockState),
+		challengeLocks: make(map[string]map[string]*LockState),
+		ipLists:        make(map[IPListType][]ipListItem),
+		warnLimiter:    base.NewWarnLimiter(warnLogInterval),
+	}
 }
 
 // 默认锁定过期时间（秒）
@@ -282,7 +273,7 @@ func (m *LockManager) UnlockUserIP(username, ipaddr string) {
 }
 
 // 返回所有锁定状态（供管理后台查询）
-func (m *LockManager) LockInfo() []LockInfo {
+func (m *LockManager) Info() []LockInfo {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

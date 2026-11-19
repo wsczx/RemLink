@@ -5,6 +5,8 @@ import (
 	"net"
 	"net/http"
 
+	"github.com/wsczx/remlink/pkg/utils"
+
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/mask"
@@ -61,8 +63,8 @@ func ProviderList(w http.ResponseWriter, r *http.Request) {
 	page, _ := parsePaging(r)
 	pageSize := dbdata.PageSize
 
-	datas, count, err := dbdata.ProviderList(pageSize, page)
-	if err != nil && !dbdata.CheckErrNotFound(err) {
+	datas, count, err := dbdata.Providers.List(pageSize, page)
+	if err != nil && !utils.CheckErrNotFound(err) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
@@ -76,7 +78,7 @@ func ProviderList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 统计卡片按"全量数据"聚合，不受分页影响
-	statActive := dbdata.FindWhereCount(&dbdata.Provider{}, "status=1")
+	statActive := dbdata.Providers.CountActive()
 
 	RespSuccess(w, map[string]any{
 		"count":        count,
@@ -91,7 +93,7 @@ func ProviderList(w http.ResponseWriter, r *http.Request) {
 func ProviderNames(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	typ := r.FormValue("type")
-	names := dbdata.ProviderNamesByType(typ)
+	names := dbdata.Providers.NamesByType(typ)
 	if names == nil {
 		names = []string{}
 	}
@@ -109,7 +111,7 @@ func ProviderDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var data dbdata.Provider
-	err := dbdata.One("Id", id, &data)
+	err := dbdata.Providers.GetByID(id, &data)
 	if err != nil {
 		RespError(w, RespInternalErr, err)
 		return
@@ -152,17 +154,16 @@ func ProviderSet(w http.ResponseWriter, r *http.Request) {
 	// 更新时保留未修改的敏感字段
 	if v.Id > 0 {
 		old := &dbdata.Provider{}
-		if err := dbdata.One("Id", v.Id, old); err == nil {
+		if err := dbdata.Providers.GetByID(v.Id, old); err == nil {
 			keepProviderSecrets(v, old)
 		}
 	}
 
-	if err := dbdata.SetProvider(v); err != nil {
+	if err := dbdata.Providers.Set(v); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-
-	dbdata.AdminLog("Provider管理", v.Name, "创建/修改了认证源", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("Provider管理", v.Name, "创建/修改了认证源", r.RemoteAddr)
 	RespSuccess(w, nil)
 }
 
@@ -175,19 +176,19 @@ func ProviderDel(w http.ResponseWriter, r *http.Request) {
 
 	// 检查是否被引用
 	p := &dbdata.Provider{}
-	if err := dbdata.One("Id", id, p); err != nil {
+	if err := dbdata.Providers.GetByID(id, p); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	if dbdata.CheckProviderInUse(p.Name) {
+	if dbdata.Providers.InUse(p.Name) {
 		RespError(w, RespParamErr, "该 Provider 正被认证流程引用，无法删除")
 		return
 	}
 
-	if err := dbdata.DelProvider(id); err != nil {
+	if err := dbdata.Providers.Del(id); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	dbdata.AdminLog("Provider管理", p.Name, "删除了认证源", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("Provider管理", p.Name, "删除了认证源", r.RemoteAddr)
 	RespSuccess(w, nil)
 }

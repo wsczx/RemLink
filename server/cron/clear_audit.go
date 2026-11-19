@@ -15,6 +15,6 @@ func ClearAudit() {
 	if lifeDay <= 0 {
 		return
 	}
-	affected, err := dbdata.ClearAccessAudit(getTimeAgo(lifeDay))
+	affected, err := dbdata.Audits.ClearAccessAudit(getTimeAgo(lifeDay))
 	base.Info("Cron ClearAudit: ", affected, err)
 }

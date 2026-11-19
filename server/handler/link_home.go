@@ -23,7 +23,7 @@ func LinkHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	index := &dbdata.SettingOther{}
-	if err := dbdata.SettingGet(index); err != nil {
+	if err := dbdata.Settings.Get(index); err != nil {
 		return
 	}
 
@@ -47,7 +47,7 @@ func LinkHome(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, index.Homeindex)
 }
 
-func LinkOtpQr(w http.ResponseWriter, r *http.Request) {
+func (s *LinkAuthService) OTPQR(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cross-Origin-Resource-Policy", "cross-origin")
 
 	_ = r.ParseForm()

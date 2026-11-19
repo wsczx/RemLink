@@ -1,6 +1,7 @@
 package authsrv
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"sync"
@@ -9,6 +10,7 @@ import (
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/notify"
 	"github.com/xlzd/gotp"
 )
 
@@ -63,24 +65,25 @@ func otpSendAllowed(username, remoteAddr string) (bool, int) {
 	return true, 0
 }
 
-func init() {
-	auth.Registry.Register("otp", func() auth.Authenticator {
-		return &OTPAuth{}
-	})
-
-	// 每 10 秒清理超过 120 秒的旧 OTP 记录（与验证窗口 ±60s 对齐，跨度 120s）
+// 启动后台 goroutine，每 10 秒清理超过 120 秒的旧 OTP 记录
+func StartOtpCleaner(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
-		for range ticker.C {
-			userOtpMux.Lock()
-			expire := time.Now().Add(-120 * time.Second)
-			for k, v := range userOtp {
-				if v.Before(expire) {
-					delete(userOtp, k)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				userOtpMux.Lock()
+				expire := time.Now().Add(-120 * time.Second)
+				for k, v := range userOtp {
+					if v.Before(expire) {
+						delete(userOtp, k)
+					}
 				}
+				userOtpMux.Unlock()
 			}
-			userOtpMux.Unlock()
 		}
 	}()
 }
@@ -114,7 +117,7 @@ type OTPAuth struct {
 func (a *OTPAuth) Name() string { return "otp" }
 
 func (a *OTPAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
-	// 确保用户信息已加载：首步非 local 时由 Authenticate 预加载，否则在此通过 LoadUserInfo 加载一次。
+	// 确保用户信息已加载：首步非 local 时由 Authenticate 预加载，否则在此通过 LoadUserInfo 加载一次
 	if ctx.UserInfoLoaded() == nil {
 		LoadUserInfo(ctx)
 	}
@@ -164,13 +167,13 @@ func (a *OTPAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 	}
 
 	if !CheckOtp(ub.Username, code, otpSecret) {
-		// 保留会话允许重试，锁定计数由上层 LockManager 处理。
+		// 保留会话允许重试，锁定计数由上层 LockManager 处理
 		ctx.GetOTP().Code = "" // 清除旧码，等待用户重新输入
 		base.Warn("OTP验证失败：动态码错误 user=", ctx.Conn.Username)
 		return auth.StepPending, nil
 	}
 
-	base.Info("OTP验证成功: user=", dbdata.UserLabel(ctx.Conn.Username, ctx.Conn.Nickname))
+	base.Info("OTP验证成功: user=", dbdata.Users.Label(ctx.Conn.Username, ctx.Conn.Nickname))
 	return auth.StepPass, nil
 }
 
@@ -182,15 +185,56 @@ func (a *OTPAuth) Challenge() *auth.ChallengeInfo {
 	}
 }
 
-// SendOtpFunc 由 handler 层注入，避免 auth 与 handler 循环依赖。
-var SendOtpFunc func(info *auth.UserInfo) error
+// 发送 OTP 的依赖接口，测试可替换为 spy
+type OTPSender interface {
+	SendOTP(info *auth.UserInfo) error
+}
+
+type defaultOTPSender struct{}
+
+func (defaultOTPSender) SendOTP(info *auth.UserInfo) error {
+	if info == nil {
+		return fmt.Errorf("用户信息为空")
+	}
+	otpSecret, phone, email := info.OtpSecret, info.Phone, info.Email
+	if otpSecret == "" {
+		return fmt.Errorf("用户未启用 OTP")
+	}
+	otp := gotp.NewDefaultTOTP(otpSecret).Now()
+	switch base.GetCfg().SendOtpType {
+	case "mail":
+		if email == "" {
+			return fmt.Errorf("用户邮箱为空")
+		}
+		return notify.SendEmail(notify.Message{
+			Subject: base.GetCfg().Issuer,
+			To:      email,
+			Body:    fmt.Sprintf("您的 OTP 验证码是: %s，有效期60秒", otp),
+		})
+	case "phone":
+		if phone == "" {
+			return fmt.Errorf("用户手机号为空")
+		}
+		return notify.SendSms(notify.Message{
+			To:     phone,
+			Params: map[string]string{"1": otp, "2": "1"},
+		})
+	default:
+		return fmt.Errorf("未知的发送方式: %s", base.GetCfg().SendOtpType)
+	}
+}
+
+var otpSender OTPSender = defaultOTPSender{}
+
+// 替换 OTP 发送实现，供测试注入 spy
+func SetOTPSender(s OTPSender) { otpSender = s }
 
 func sendOtpToUser(info *auth.UserInfo) {
-	if SendOtpFunc == nil {
-		base.Warn("SendOtpFunc 未注入，无法发送 OTP")
+	if otpSender == nil {
+		base.Warn("OTPSender 未注入，无法发送 OTP")
 		return
 	}
-	if err := SendOtpFunc(info); err != nil {
+	if err := otpSender.SendOTP(info); err != nil {
 		base.Error("发送 OTP 失败:", err)
 		return
 	}

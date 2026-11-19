@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/wsczx/remlink/base"
-	"github.com/wsczx/remlink/dbdata"
 )
 
 type tencentSender struct {
@@ -26,14 +25,14 @@ type tencentSender struct {
 	region     string
 }
 
-func newTencentSender(cfg *dbdata.SettingSms) *tencentSender {
+func newTencentSender(cfg *SmsConfig) *tencentSender {
 	region := cfg.TencentRegion
 	if region == "" {
 		region = "ap-guangzhou"
 	}
 	return &tencentSender{
 		secretId:   cfg.TencentSecretId,
-		secretKey:  string(cfg.TencentSecretKey),
+		secretKey:  cfg.TencentSecretKey,
 		sdkAppId:   cfg.TencentSdkAppId,
 		signName:   cfg.TencentSignName,
 		templateId: cfg.TencentTemplateId,

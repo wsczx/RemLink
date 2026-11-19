@@ -11,42 +11,13 @@ import (
 
 // 三端（原生 XML 回调 / WebAuth 回调 / 门户）共用
 type ssoCallback interface {
-	// getUser 用授权码换取 (用户ID, 昵称)
-	getUser(code string) (userID, name string, err error)
-	// checkDept 部门过滤（内部自行判断是否配置了允许部门；未配置直接通过）
-	checkDept(userID string) error
-	// isBlocked 用户是否在拒绝名单中
-	isBlocked(userID string) bool
+	getUser(code string) (userID, name string, err error) // 用授权码获取 (用户ID, 昵称)
+	checkDept(userID string) error                        // 部门过滤
+	isBlocked(userID string) bool                         // 用户过滤
 }
 
-// SSO 源回调适配器注册表（与 sso.go 的 ssoProviders 对称）
-// 新增 SSO 类型时在此加一项，三端回调自动获得支持
-var ssoCallbacks = map[string]func(groupName string) (ssoCallback, error){
-	"wxwork": func(groupName string) (ssoCallback, error) {
-		cfg, err := dbdata.GetAuthWework(groupName)
-		if err != nil {
-			return nil, err
-		}
-		return &wxworkSSOCallback{cfg: cfg}, nil
-	},
-	"feishu": func(groupName string) (ssoCallback, error) {
-		cfg, err := dbdata.GetAuthFeishu(groupName)
-		if err != nil {
-			return nil, err
-		}
-		return &feishuSSOCallback{cfg: cfg}, nil
-	},
-	"dingtalk": func(groupName string) (ssoCallback, error) {
-		cfg, err := dbdata.GetAuthDingtalk(groupName)
-		if err != nil {
-			return nil, err
-		}
-		return &dingtalkSSOCallback{cfg: cfg}, nil
-	},
-}
-
-func ssoCallbackFor(ssoType, groupName string) (ssoCallback, error) {
-	resolve, ok := ssoCallbacks[ssoType]
+func (h *SSOHandler) CallbackFor(ssoType, groupName string) (ssoCallback, error) {
+	resolve, ok := h.callbacks[ssoType]
 	if !ok {
 		return nil, fmt.Errorf("不支持的 SSO 类型: %s", ssoType)
 	}
@@ -69,7 +40,7 @@ func ssoAuthorize(cb ssoCallback, userID string) error {
 
 // 处理 SSO 回调公共流程：参数校验 → state 校验（防重放/IP 绑定）→
 // 换取用户 → 访问控制 → 完成登录
-func ssoCallbackHandler(w http.ResponseWriter, r *http.Request, ssoType, name string) {
+func (h *SSOHandler) ssoCallbackHandler(w http.ResponseWriter, r *http.Request, ssoType, name string) {
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
 
@@ -79,12 +50,12 @@ func ssoCallbackHandler(w http.ResponseWriter, r *http.Request, ssoType, name st
 		return
 	}
 
-	pending, groupname, ok := verifySAMLPending(w, r, state)
+	pending, groupname, ok := h.verifySAMLPending(w, r, state)
 	if !ok {
 		return
 	}
 
-	cb, err := ssoCallbackFor(ssoType, groupname)
+	cb, err := h.CallbackFor(ssoType, groupname)
 	if err != nil {
 		base.Error("获取"+name+"配置失败", err)
 		SAMLError(w, err)
@@ -105,7 +76,7 @@ func ssoCallbackHandler(w http.ResponseWriter, r *http.Request, ssoType, name st
 		return
 	}
 
-	finishSAMLOAuth(w, r, state, ssoType, userID, pending)
+	h.finishSAMLOAuth(w, r, state, ssoType, userID, pending)
 }
 
 type wxworkSSOCallback struct {

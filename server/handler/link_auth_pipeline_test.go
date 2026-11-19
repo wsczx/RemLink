@@ -16,7 +16,7 @@ import (
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
-	"github.com/wsczx/remlink/pkg/dbtest"
+	"github.com/wsczx/remlink/dbtest"
 	"github.com/wsczx/remlink/pkg/security"
 	"github.com/xlzd/gotp"
 )
@@ -28,9 +28,9 @@ func createTestPolicyGroup(t *testing.T, groupName string, authProfile json.RawM
 		ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}},
 		Status:    1,
 	}
-	err := dbdata.SetPolicy(pt)
+	err := dbdata.Policies.SetPolicy(pt)
 	ast.Nil(err)
-	err = dbdata.SetGroup(&dbdata.Group{
+	err = dbdata.Groups.SetGroup(&dbdata.Group{
 		Name:        groupName,
 		Status:      1,
 		PolicyId:    pt.Id,
@@ -39,7 +39,7 @@ func createTestPolicyGroup(t *testing.T, groupName string, authProfile json.RawM
 	ast.Nil(err)
 }
 
-func TestLocalPlusOtp_FullFlow(t *testing.T) {
+func TestLocalPlusOTP_FullFlow(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
 	dbtest.SetupDB(t)
@@ -58,7 +58,7 @@ func TestLocalPlusOtp_FullFlow(t *testing.T) {
 	profileBytes, _ := json.Marshal(profile)
 	createTestPolicyGroup(t, group, profileBytes)
 
-	_ = dbdata.SetUser(&dbdata.User{
+	_ = dbdata.Users.SetUser(&dbdata.User{
 		Username:  username,
 		Groups:    []string{group},
 		Status:    1,
@@ -69,7 +69,7 @@ func TestLocalPlusOtp_FullFlow(t *testing.T) {
 	body1 := buildAuthReplyBody(username, password, group, "")
 	req1 := newAuthRequest(body1)
 	w1 := httptest.NewRecorder()
-	LinkAuth(w1, req1)
+	testLinkAuth.Handle(w1, req1)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusOK, w1.Code)
@@ -88,16 +88,16 @@ func TestLocalPlusOtp_FullFlow(t *testing.T) {
 	req2 := newAuthRequest(body2)
 	req2.AddCookie(&http.Cookie{Name: "auth-session-id", Value: sessionID})
 	w2 := httptest.NewRecorder()
-	LinkAuth(w2, req2)
+	testLinkAuth.Handle(w2, req2)
 
 	ast.Equal(http.StatusOK, w2.Code)
 	ast.Contains(w2.Body.String(), "session-token", "OTP 通过后应返回会话令牌")
 
-	_, err := AuthSessionManager.Get(sessionID)
+	_, err := testAuthSession.Get(sessionID)
 	ast.NotNil(err, "认证完成后旧会话应删除")
 }
 
-func TestLocalPlusOtp_WrongPassword(t *testing.T) {
+func TestLocalPlusOTP_WrongPassword(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
 	dbtest.SetupDB(t)
@@ -109,7 +109,7 @@ func TestLocalPlusOtp_WrongPassword(t *testing.T) {
 	profile := auth.GroupAuthProfile{Step: []auth.AuthMethodConfig{{Type: "local"}, {Type: "otp"}}}
 	profileBytes, _ := json.Marshal(profile)
 	createTestPolicyGroup(t, group, profileBytes)
-	_ = dbdata.SetUser(&dbdata.User{
+	_ = dbdata.Users.SetUser(&dbdata.User{
 		Username: username, Groups: []string{group}, Status: 1,
 		PinCode: password, OtpSecret: "JBSWY3DPEHPK3PXP",
 	})
@@ -117,14 +117,14 @@ func TestLocalPlusOtp_WrongPassword(t *testing.T) {
 	body := buildAuthReplyBody(username, "wrongpassword", group, "")
 	req := newAuthRequest(body)
 	w := httptest.NewRecorder()
-	LinkAuth(w, req)
+	testLinkAuth.Handle(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusOK, w.Code)
 	ast.Contains(w.Body.String(), "密码错误")
 }
 
-func TestCertPlusOtp_CertPassesThenOtpChallenge(t *testing.T) {
+func TestCertPlusOTP_CertPassesThenOTPChallenge(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
 	dbtest.SetupDB(t)
@@ -141,7 +141,7 @@ func TestCertPlusOtp_CertPassesThenOtpChallenge(t *testing.T) {
 	}
 	profileBytes, _ := json.Marshal(profile)
 	createTestPolicyGroup(t, group, profileBytes)
-	_ = dbdata.SetUser(&dbdata.User{
+	_ = dbdata.Users.SetUser(&dbdata.User{
 		Username: username, Groups: []string{group}, Status: 1,
 		OtpSecret: otpSecret,
 	})
@@ -154,7 +154,7 @@ func TestCertPlusOtp_CertPassesThenOtpChallenge(t *testing.T) {
 		}},
 	}
 	w := httptest.NewRecorder()
-	LinkAuth(w, req)
+	testLinkAuth.Handle(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusOK, w.Code)
@@ -162,7 +162,7 @@ func TestCertPlusOtp_CertPassesThenOtpChallenge(t *testing.T) {
 	ast.Contains(w.Body.String(), "证书")
 }
 
-func TestCertPlusOtp_NoTLS_ImmediateFail(t *testing.T) {
+func TestCertPlusOTP_NoTLS_ImmediateFail(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
 	dbtest.SetupDB(t)
@@ -176,7 +176,7 @@ func TestCertPlusOtp_NoTLS_ImmediateFail(t *testing.T) {
 	req := newAuthRequest(body)
 	// 不设置 TLS
 	w := httptest.NewRecorder()
-	LinkAuth(w, req)
+	testLinkAuth.Handle(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusOK, w.Code)
@@ -193,7 +193,7 @@ func TestResume_InvalidSessionCookie(t *testing.T) {
 	req := newAuthRequest(body)
 	req.AddCookie(&http.Cookie{Name: "auth-session-id", Value: "nonexistent-session-id-123456"})
 	w := httptest.NewRecorder()
-	LinkAuth(w, req)
+	testLinkAuth.Handle(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusOK, w.Code, "无效会话+无组：通过认证服务统一返回 200 + 错误页面")
@@ -211,7 +211,7 @@ func TestResume_ExpiredSession(t *testing.T) {
 	profile := auth.GroupAuthProfile{Step: []auth.AuthMethodConfig{{Type: "local"}, {Type: "otp"}}}
 	profileBytes, _ := json.Marshal(profile)
 	createTestPolicyGroup(t, group, profileBytes)
-	_ = dbdata.SetUser(&dbdata.User{
+	_ = dbdata.Users.SetUser(&dbdata.User{
 		Username: username, Groups: []string{group}, Status: 1,
 		PinCode: "test12", OtpSecret: otpSecret,
 	})
@@ -222,17 +222,17 @@ func TestResume_ExpiredSession(t *testing.T) {
 		UserInfo: &auth.UserInfo{OtpSecret: otpSecret},
 	}
 	ctx.SetStepIdx(1)
-	AuthSessionManager.Save(sessionID, &AuthSession{
+	testAuthSession.Save(sessionID, &AuthSession{
 		Ctx: ctx,
 	})
 
-	AuthSessionManager.Delete(sessionID)
+	testAuthSession.Delete(sessionID)
 
 	body := buildAuthReplyBody(username, "", group, "123456")
 	req := newAuthRequest(body)
 	req.AddCookie(&http.Cookie{Name: "auth-session-id", Value: sessionID})
 	w := httptest.NewRecorder()
-	LinkAuth(w, req)
+	testLinkAuth.Handle(w, req)
 
 	ast := assert.New(t)
 	// 预期：回退首次认证，密码为空 → local 步骤 reject
@@ -250,14 +250,14 @@ func TestLinkAuth_Init_ReturnsLoginForm(t *testing.T) {
 	body := `<?xml version="1.0" encoding="UTF-8"?><config-auth client="vpn" type="init"><group-select>` + group + `</group-select></config-auth>`
 	req := newAuthRequest(body)
 	w := httptest.NewRecorder()
-	LinkAuth(w, req)
+	testLinkAuth.Handle(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusOK, w.Code)
 	ast.Contains(w.Body.String(), "auth-request")
 }
 
-func TestSsoToken_WithOtp_PreservesIdentity(t *testing.T) {
+func TestSSOToken_WithOTP_PreservesIdentity(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
 	dbtest.SetupDB(t)
@@ -266,7 +266,7 @@ func TestSsoToken_WithOtp_PreservesIdentity(t *testing.T) {
 	username := "sso-otp-flow-user"
 	otpSecret := "JBSWY3DPEHPK3PXP"
 
-	err := dbdata.SetProvider(&dbdata.Provider{
+	err := dbdata.Providers.Set(&dbdata.Provider{
 		Name:   "test-wxwork",
 		Type:   "wxwork",
 		Status: 1,
@@ -282,13 +282,13 @@ func TestSsoToken_WithOtp_PreservesIdentity(t *testing.T) {
 	}}
 	profileBytes, _ := json.Marshal(profile)
 	createTestPolicyGroup(t, group, profileBytes)
-	_ = dbdata.SetUser(&dbdata.User{
+	_ = dbdata.Users.SetUser(&dbdata.User{
 		Username: username, Groups: []string{group}, Status: 1,
 		OtpSecret: otpSecret,
 	})
 
 	ssoToken := "sso-token-for-otp-test"
-	AuthSessionManager.Save(ssoToken, &AuthSession{
+	testAuthSession.Save(ssoToken, &AuthSession{
 		Kind: AuthKindSSODone,
 		Ctx: &auth.Context{
 			Conn: auth.ConnInfo{Username: username, GroupName: group},
@@ -311,7 +311,7 @@ func TestSsoToken_WithOtp_PreservesIdentity(t *testing.T) {
 	req := newAuthRequest(body)
 	req.RemoteAddr = "192.168.1.100:12345"
 	w := httptest.NewRecorder()
-	LinkAuth(w, req)
+	testLinkAuth.Handle(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusOK, w.Code)
@@ -319,7 +319,7 @@ func TestSsoToken_WithOtp_PreservesIdentity(t *testing.T) {
 	ast.Contains(w.Body.String(), "secondary_password")
 	ast.NotContains(w.Body.String(), "<session-id>")
 
-	_, err = AuthSessionManager.Get(ssoToken)
+	_, err = testAuthSession.Get(ssoToken)
 	ast.NotNil(err, "SSO 临时会话应在处理后清理")
 }
 

@@ -5,14 +5,16 @@ import (
 	"net/http"
 	"regexp"
 
+	"github.com/wsczx/remlink/pkg/utils"
+
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/notify"
 )
 
 func setOtherGet(data any, w http.ResponseWriter) {
-	err := dbdata.SettingGet(data)
-	if err != nil && !dbdata.CheckErrNotFound(err) {
+	err := dbdata.Settings.Get(data)
+	if err != nil && !utils.CheckErrNotFound(err) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
@@ -35,13 +37,13 @@ func setOtherEdit(data any, w http.ResponseWriter, r *http.Request) {
 	case *dbdata.SettingSmtp:
 		if v.Password.IsPlaceholder() {
 			old := &dbdata.SettingSmtp{}
-			if err := dbdata.SettingGet(old); err == nil {
+			if err := dbdata.Settings.Get(old); err == nil {
 				v.Password = old.Password
 			}
 		}
 	case *dbdata.SettingSms:
 		old := &dbdata.SettingSms{}
-		if err := dbdata.SettingGet(old); err == nil {
+		if err := dbdata.Settings.Get(old); err == nil {
 			if v.Provider == "" {
 				// 关闭短信：仅置空 provider，保留其余已配置字段，避免清空已填配置
 				v.AliAccessKeyId = old.AliAccessKeyId
@@ -65,7 +67,7 @@ func setOtherEdit(data any, w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if err := dbdata.SettingSave(data); err != nil {
+	if err := dbdata.Settings.Save(data); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
@@ -87,7 +89,7 @@ func SetOtherSmtp(w http.ResponseWriter, r *http.Request) {
 func SetOtherSmtpEdit(w http.ResponseWriter, r *http.Request) {
 	data := &dbdata.SettingSmtp{}
 	setOtherEdit(data, w, r)
-	dbdata.AdminLog("系统设置", "SMTP配置", "修改了SMTP配置", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("系统设置", "SMTP配置", "修改了SMTP配置", r.RemoteAddr)
 }
 
 func SetOtherSmtpTest(w http.ResponseWriter, r *http.Request) {
@@ -103,7 +105,7 @@ func SetOtherSmtpTest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	smtpCfg := &dbdata.SettingSmtp{}
-	if err := dbdata.SettingGet(smtpCfg); err != nil {
+	if err := dbdata.Settings.Get(smtpCfg); err != nil {
 		RespError(w, RespInternalErr, errors.New("SMTP配置未找到"))
 		return
 	}
@@ -112,7 +114,7 @@ func SetOtherSmtpTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := notify.SendEmailTest(smtpCfg, req.To); err != nil {
+	if err := notify.SendEmailTest(dbdata.ToSmtpConfig(smtpCfg), req.To); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
@@ -127,11 +129,11 @@ func SetOther(w http.ResponseWriter, r *http.Request) {
 func SetOtherEdit(w http.ResponseWriter, r *http.Request) {
 	data := &dbdata.SettingOther{}
 	setOtherEdit(data, w, r)
-	dbdata.AdminLog("系统设置", "通用设置", "修改了通用设置", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("系统设置", "通用设置", "修改了通用设置", r.RemoteAddr)
 }
 
 func SetOtherAuditLog(w http.ResponseWriter, r *http.Request) {
-	data, err := dbdata.SettingGetAuditLog()
+	data, err := dbdata.Settings.GetAuditLog()
 	if err != nil {
 		RespError(w, RespInternalErr, err)
 		return
@@ -160,11 +162,11 @@ func SetOtherAuditLogEdit(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespParamErr, errors.New("每天清理时间填写有误"))
 		return
 	}
-	if err := dbdata.SettingSave(data); err != nil {
+	if err := dbdata.Settings.Save(data); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	dbdata.AdminLog("系统设置", "审计日志设置", "修改了审计日志设置", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("系统设置", "审计日志设置", "修改了审计日志设置", r.RemoteAddr)
 	RespSuccess(w, data)
 }
 
@@ -176,7 +178,7 @@ func SetOtherSms(w http.ResponseWriter, r *http.Request) {
 func SetOtherSmsEdit(w http.ResponseWriter, r *http.Request) {
 	data := &dbdata.SettingSms{}
 	setOtherEdit(data, w, r)
-	dbdata.AdminLog("系统设置", "短信配置", "修改了短信配置", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("系统设置", "短信配置", "修改了短信配置", r.RemoteAddr)
 }
 
 func SetPortalBrand(w http.ResponseWriter, r *http.Request) {
@@ -187,13 +189,13 @@ func SetPortalBrand(w http.ResponseWriter, r *http.Request) {
 func SetPortalBrandEdit(w http.ResponseWriter, r *http.Request) {
 	data := &dbdata.SettingPortalBrand{}
 	setOtherEdit(data, w, r)
-	dbdata.AdminLog("系统设置", "品牌展示", "修改了品牌展示配置", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("系统设置", "品牌展示", "修改了品牌展示配置", r.RemoteAddr)
 }
 func SetPortalDashboard(w http.ResponseWriter, r *http.Request) {
 	data := &dbdata.SettingPortalDashboard{}
-	err := dbdata.SettingGet(data)
+	err := dbdata.Settings.Get(data)
 	if err != nil {
-		if !dbdata.CheckErrNotFound(err) {
+		if !utils.CheckErrNotFound(err) {
 			RespError(w, RespInternalErr, err)
 			return
 		}
@@ -206,7 +208,7 @@ func SetPortalDashboard(w http.ResponseWriter, r *http.Request) {
 func SetPortalDashboardEdit(w http.ResponseWriter, r *http.Request) {
 	data := &dbdata.SettingPortalDashboard{}
 	setOtherEdit(data, w, r)
-	dbdata.AdminLog("系统设置", "门户首页", "修改了门户首页配置", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("系统设置", "门户首页", "修改了门户首页配置", r.RemoteAddr)
 }
 
 func SetOtherSmsTest(w http.ResponseWriter, r *http.Request) {
@@ -223,7 +225,7 @@ func SetOtherSmsTest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	smsCfg := &dbdata.SettingSms{}
-	if err := dbdata.SettingGet(smsCfg); err != nil {
+	if err := dbdata.Settings.Get(smsCfg); err != nil {
 		RespError(w, RespInternalErr, errors.New("短信配置未找到"))
 		return
 	}
@@ -232,17 +234,18 @@ func SetOtherSmsTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := notify.SendSmsTest(smsCfg, req.Phone); err != nil {
+	if err := notify.SendSmsTest(dbdata.ToSmsConfig(smsCfg), req.Phone); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
 	RespSuccess(w, "短信发送成功")
 }
 
-// 返回品牌展示配置，供管理后台侧边栏与登录页在 8800 端口直接加载
+// 返回品牌展示配置，供管理后台侧边栏与登录页直接加载
 func AdminPortalLoginConfig(w http.ResponseWriter, r *http.Request) {
 	brand := dbdata.SettingPortalBrand{}
-	_ = dbdata.SettingGet(&brand)
+	// 品牌配置缺失时用零值
+	_ = dbdata.Settings.Get(&brand)
 	RespSuccess(w, map[string]any{
 		"title":   brand.Title,
 		"logo":    brand.Logo,

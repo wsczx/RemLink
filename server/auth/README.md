@@ -216,7 +216,7 @@ dbdata.SyncExternalUsersForOTP(g)（dbdata/group.go）
 
 新增认证器分两类，复杂度差异很大：
 
-- **普通型（凭据 / 无交互）**：如 `ldap`/`radius`/简单密码类/换一家第三方凭据服务。只需下面 3 步，自注册即生效。
+- **普通型（凭据 / 无交互）**：如 `ldap`/`radius`/简单密码类/换一家第三方凭据服务。只需下面 3 步，在 `providers` 列表登记后即生效。
 - **SSO/OAuth2 型**：如 `wxwork`/`feishu`/钉钉。除认证器本体 3 步外，还需在 handler 层加回调端点、dbdata 层加配置读取与用户同步、前端加入口（见范式 B）。文件多，但多与现有 `wxwork`/`feishu` 对称，属"复制改名字"的机械活。
 
 ### 范式 A：普通型（无交互 / 凭据类）
@@ -248,12 +248,6 @@ package authsrv
 
 import "github.com/wsczx/remlink/auth"
 
-func init() {
-    auth.Register("example", func() auth.Authenticator {
-        return &ExampleAuth{}
-    })
-}
-
 type ExampleAuth struct {
     auth.NopChallenger    // 无交互挑战时嵌入；需交互则实现 Challenge()
     auth.ExampleConfig    // 嵌入配置结构体，Provider 配置自动注入
@@ -266,6 +260,15 @@ func (a *ExampleAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 }
 ```
 
+并在 `auth/authsrv/providers.go` 的 `providers` 列表登记一项（**没有 `init()` 自注册**）：
+
+```go
+{"example", func() auth.Authenticator { return &ExampleAuth{} }},
+```
+
+> 注册由 `app.Start` 启动时调 `authsrv.RegisterProviders(auth.Registry)` 统一执行；测试需自行调用同一函数完成装配。
+> `Registry.Register` 对重复注册 panic，`RegisterProviders` 会跳过已注册项，故可重复调用。
+
 > 此处 `example` 为无交互的凭据类认证器，故嵌入 `NopChallenger`。**若新增的是 SSO，则不能嵌入 `NopChallenger`，必须实现 `Challenger`**（见范式 B）。
 
 #### 第 3 步（可选）：Provider 配置注入
@@ -276,7 +279,7 @@ func (a *ExampleAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 { "step": [ {"type": "local"}, {"type": "example", "provider": "example_prod"}, {"type": "otp"} ] }
 ```
 
-`GetPipeline` 检测到 `cfg.Provider != ""` 时调用 `resolver("example_prod", "example")`（即 `dbdata.ResolveProviderConfig`）获取配置 map，再经 `GetProviderConfigFromMap` 反序列化到认证器实例。
+`GetPipeline` 检测到 `cfg.Provider != ""` 时调用 `resolver("example_prod", "example")`（即 `dbdata.Providers.ResolveConfig`）获取配置 map，再经 `GetProviderConfigFromMap` 反序列化到认证器实例。
 
 > `example` 此处为第三方凭据类（**非 SSO**），可出现在管道中间（如 `[local, example, otp]`）。SSO 类型不能和 `local` 同配（见「认证组合能力边界」），只能配 `[sso, otp]`。
 
@@ -284,7 +287,7 @@ func (a *ExampleAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 
 | 模式 | 说明 |
 |---|---|
-| `init() + Register` | 自注册，新增文件即生效 |
+| `providers` 显式列表 | 认证器工厂集中登记，`app.Start` 时统一注册 |
 | 嵌入配置结构体 + `json` tag | Provider 配置自动注入 |
 | 嵌入 `NopChallenger` | 无交互的认证器（local/ldap/radius/cert/admin） |
 | 实现 `Challenger` 接口 | 需要客户端交互的认证器（otp/sms/wxwork/feishu） |
@@ -299,8 +302,8 @@ SSO 认证器必须**实现** `Challenger` 接口（`Challenge().Type == Challen
 #### 认证器本体（3 步）
 
 - **第 1 步**：定义 `auth/config_dingtalk.go`（`DingtalkConfig`，含 `UseDefaultBrowser`/`AllowedDepartments`/`BlockedUserIDs` 等，实现 `ProviderConfig`；API 调用如 `GetDingtalkUser` 也写在此文件，因核心 `auth` 包才能被 `dbdata` 引用）。`BlockedUserIDs` 走 `ParseBlockedUserIDs` + `CheckUserID` 在 `Authenticate` 与回调阶段双重校验。
-- **第 2 步**：实现 `auth/authsrv/dingtalk.go`，`init()+Register("dingtalk", ...)`，**实现 `Challenger`**：`Challenge()` 返回 `ChallengeSSO` 且 `Data` 带 `sso_type:"dingtalk"`；`Authenticate` 处理三条路径——①回调已完成（`ctx.SSO.Authenticated` 直接放行）、②管道内用 OAuth `code` 换用户并校验部门/拒绝名单、③首次进入返回 `StepPending` 触发挑战。
-- **第 3 步**：Provider 注入同范式 A（配置经 `dbdata.ResolveProviderConfig` 注入）。
+- **第 2 步**：实现 `auth/authsrv/dingtalk.go`，并在 `auth/authsrv/providers.go` 的 `providers` 列表登记 `{"dingtalk", ...}`，**实现 `Challenger`**：`Challenge()` 返回 `ChallengeSSO` 且 `Data` 带 `sso_type:"dingtalk"`；`Authenticate` 处理三条路径——①回调已完成（`ctx.SSO.Authenticated` 直接放行）、②管道内用 OAuth `code` 换用户并校验部门/拒绝名单、③首次进入返回 `StepPending` 触发挑战。
+- **第 3 步**：Provider 注入同范式 A（配置经 `dbdata.Providers.ResolveConfig` 注入）。
 
 #### 还必须改的（让 OAuth2 回调真正落地）
 
@@ -330,12 +333,6 @@ SSO 认证器必须**实现** `Challenger` 接口（`Challenge().Type == Challen
 package authsrv
 
 import "github.com/wsczx/remlink/auth"
-
-func init() {
-    auth.Register("dingtalk", func() auth.Authenticator {
-        return &DingtalkAuth{}
-    })
-}
 
 // 实现 Challenger（不能嵌入 NopChallenger）
 type DingtalkAuth struct {
@@ -485,7 +482,7 @@ dbdata 存储 provider 配置（JSON，敏感字段加密）
 GroupAuthProfile.Step 引用 provider 名称
     │
     ▼
-GetPipeline 调用 resolver(providerName, stepType)  →  dbdata.ResolveProviderConfig
+GetPipeline 调用 resolver(providerName, stepType)  →  dbdata.Providers.ResolveConfig
     │
     ▼
 GetProviderConfigFromMap 反序列化到认证器实例
@@ -498,8 +495,8 @@ GetProviderConfigFromMap 反序列化到认证器实例
 ## 设计原则
 
 - **核心 `auth` 为稳定契约叶子**：`auth.go`/`pipeline.go`/`registry.go`/`config*.go`/`lockmanager.go` 不依赖 `dbdata`/`handler`，可独立测试与复用（测试用外部测试包 `package auth_test`）。
-- **工厂注册**：每个认证器通过 `init() + auth.Register()` 自注册，新增文件即可生效，无需改动其他代码。
-- **配置解耦**：认证器不关心配置从哪来（数据库/文件），由 `GetPipeline` 的 `resolver`（`dbdata.ResolveProviderConfig`）注入。
+- **工厂注册**：每个认证器在 `auth/authsrv/providers.go` 的 `providers` 列表登记一项，由 `app.Start` 调 `authsrv.RegisterProviders` 显式注册；新增认证器需改这一处，不会因包加载产生副作用。
+- **配置解耦**：认证器不关心配置从哪来（数据库/文件），由 `GetPipeline` 的 `resolver`（`dbdata.Providers.ResolveConfig`）注入。
 - **实现层查库**：需要查库的逻辑（认证器、组加载、SSO 检测、OTP 预载、用户信息投影、管道编排）统一放在 `auth/authsrv`，它直接 import `dbdata`，避开循环依赖。核心 `auth` 不依赖 `dbdata`，故编排函数作为 `authsrv.X` 暴露，调用方直接引用。
 - **并发安全**：认证器实例在 `GetPipeline` 时创建一次，管道单次执行中复用。认证器本身应无内部可变状态（跨请求的缓存如 SMS 验证码、admin OTP 防重放用包级带锁 map 单独管理）。
 - **handler 边界**：handler 只负责 XML/JSON 解析、会话管理（`AuthSession`/`SessionStore`）、构造 `Flow` 并注入三端回调（`OnPass`/`OnChallenge`/`OnFail`）、渲染响应。**「跑管道 → 按结果分发 → 统一锁定计数 → 存挑战断点」已由 `handler/authflow.go` 的 AuthFlow 统一收口**，三端不再各自写分发；认证编排逻辑仍全部在 `auth/authsrv` 内。

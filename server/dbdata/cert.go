@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"github.com/wsczx/remlink/pkg/utils"
 	"math/big"
 	"net"
 	"strings"
@@ -40,15 +41,6 @@ var (
 	tempCertMux       sync.Mutex
 )
 
-func init() {
-	c, err := selfsign.GenerateSelfSignedWithDNS("localhost")
-	if err != nil {
-		base.Error("生成默认自签名证书失败:", err)
-		return
-	}
-	tempCert = &c
-}
-
 type SettingLetsEncrypt struct {
 	Domain      string `json:"domain"`
 	Legomail    string `json:"legomail"`
@@ -72,11 +64,13 @@ type DNSProvider struct {
 		AuthToken security.EncryptedString `json:"authToken"`
 	} `json:"cfcloud"`
 }
+
 type LegoUserData struct {
 	Email        string                   `json:"email"`
 	Registration *registration.Resource   `json:"registration"`
 	Key          security.EncryptedString `json:"key"`
 }
+
 type LegoUser struct {
 	Email        string
 	Registration *registration.Resource
@@ -90,31 +84,14 @@ type LeGoClient struct {
 	LegoUserData
 }
 
-func GetDNSProvider(l *SettingLetsEncrypt) (Provider challenge.Provider, err error) {
-	switch l.Name {
-	case "aliyun":
-		if Provider, err = alidns.NewDNSProviderConfig(&alidns.Config{APIKey: l.DNSProvider.AliYun.APIKey, SecretKey: string(l.DNSProvider.AliYun.SecretKey), PropagationTimeout: 60 * time.Second, PollingInterval: 2 * time.Second, TTL: 600}); err != nil {
-			return
-		}
-	case "txcloud":
-		if Provider, err = tencentcloud.NewDNSProviderConfig(&tencentcloud.Config{SecretID: l.DNSProvider.TXCloud.SecretID, SecretKey: string(l.DNSProvider.TXCloud.SecretKey), PropagationTimeout: 60 * time.Second, PollingInterval: 2 * time.Second, TTL: 600}); err != nil {
-			return
-		}
-	case "cfcloud":
-		if Provider, err = cloudflare.NewDNSProviderConfig(&cloudflare.Config{AuthToken: string(l.DNSProvider.CfCloud.AuthToken), PropagationTimeout: 60 * time.Second, PollingInterval: 2 * time.Second, TTL: 600}); err != nil {
-			return
-		}
-	default:
-		return nil, fmt.Errorf("不支持的 DNS 提供商: %s", l.Name)
-	}
-	return
-}
 func (u *LegoUser) GetEmail() string {
 	return u.Email
 }
+
 func (u LegoUser) GetRegistration() *registration.Resource {
 	return u.Registration
 }
+
 func (u *LegoUser) GetPrivateKey() crypto.PrivateKey {
 	return u.Key
 }
@@ -127,17 +104,17 @@ func (l *LegoUserData) SaveUserData(u *LegoUser) error {
 	l.Email = u.Email
 	l.Registration = u.Registration
 	l.Key = security.EncryptedString(base64.StdEncoding.EncodeToString(key))
-	if err := SettingSave(l); err != nil {
+	if err := Settings.Save(l); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (l *LegoUserData) GetUserData(d *SettingLetsEncrypt) (*LegoUser, error) {
-	if err := SettingGet(l); err != nil {
-		if CheckErrNotFound(err) {
-			// 记录不存在时创建默认空记录，保证后续 SaveUserData 可更新
-			if saveErr := SettingSave(l); saveErr != nil {
+	if err := Settings.Get(l); err != nil {
+		if utils.CheckErrNotFound(err) {
+
+			if saveErr := Settings.Save(l); saveErr != nil {
 				base.Warn("创建默认 LegoUser 配置失败:", saveErr)
 			}
 		} else {
@@ -167,17 +144,6 @@ func (l *LegoUserData) GetUserData(d *SettingLetsEncrypt) (*LegoUser, error) {
 		Email: d.Legomail,
 		Key:   privateKey,
 	}, nil
-}
-
-// 检查证书过期时间，若距过期不足 7 天则自动续期
-func CheckAndRenewCert() {
-	config := &SettingLetsEncrypt{}
-	if err := SettingGet(config); err != nil {
-		base.Error(err)
-		return
-	}
-	renewSingleCert("主证书", false, config, ParseCert)
-	renewSingleCert("WebVPN 泛域名证书", true, config, ParseCertWild)
 }
 
 // 距过期不足 7 天则自动续期；slot 决定写回主证书还是泛域名证书，parse 注入对应证书的解析函数
@@ -225,7 +191,7 @@ func (c *LeGoClient) NewClient(l *SettingLetsEncrypt) error {
 	if err != nil {
 		return err
 	}
-	Provider, err := GetDNSProvider(l)
+	Provider, err := Certs.GetDNSProvider(l)
 	if err != nil {
 		return err
 	}
@@ -255,9 +221,9 @@ func (c *LeGoClient) NewClient(l *SettingLetsEncrypt) error {
 }
 
 func (c *LeGoClient) GetCert(domain string, wild bool) error {
-	// 申请证书
+
 	domains := []string{domain}
-	// 泛域名证书需申请 *.domain 形式，且需 DNS 挑战
+
 	if wild {
 		domains = []string{"*." + domain}
 	}
@@ -270,7 +236,7 @@ func (c *LeGoClient) GetCert(domain string, wild bool) error {
 		return err
 	}
 	c.Cert = certificates
-	// 保存证书
+
 	if err := c.SaveCert(wild); err != nil {
 		return err
 	}
@@ -286,16 +252,16 @@ func (c *LeGoClient) RenewCert(wild bool) error {
 	if cert == "" || key == "" {
 		return fmt.Errorf("证书内容为空，无法续期")
 	}
-	// 续期证书
-	renewcert, err := c.Client.Certificate.Renew(certificate.Resource{
+
+	renewcert, err := c.Client.Certificate.RenewWithOptions(certificate.Resource{
 		Certificate: []byte(cert),
 		PrivateKey:  []byte(key),
-	}, true, false, "")
+	}, &certificate.RenewOptions{Bundle: true})
 	if err != nil {
 		return err
 	}
 	c.Cert = renewcert
-	// 保存更新证书
+
 	if err := c.SaveCert(wild); err != nil {
 		return err
 	}
@@ -306,13 +272,13 @@ func (c *LeGoClient) RenewCert(wild bool) error {
 func loadStoredCert(wild bool) (cert, key string, err error) {
 	if wild {
 		tlsData := SettingTLSCertWild{}
-		if err = SettingGet(&tlsData); err != nil {
+		if err = Settings.Get(&tlsData); err != nil {
 			return
 		}
 		return tlsData.CertContent, string(tlsData.CertKeyContent), nil
 	}
 	tlsData := SettingTLSCert{}
-	if err = SettingGet(&tlsData); err != nil {
+	if err = Settings.Get(&tlsData); err != nil {
 		return
 	}
 	return tlsData.CertContent, string(tlsData.CertKeyContent), nil
@@ -323,24 +289,24 @@ func loadStoredCert(wild bool) (cert, key string, err error) {
 // 两者并存，不能互相覆盖
 func (c *LeGoClient) SaveCert(wild bool) error {
 	if wild {
-		if err := SettingSaveTLSCertWild(string(c.Cert.Certificate), string(c.Cert.PrivateKey)); err != nil {
+		if err := Settings.SaveTLSCertWild(string(c.Cert.Certificate), string(c.Cert.PrivateKey)); err != nil {
 			return fmt.Errorf("保存泛域名证书失败: %w", err)
 		}
 		if wildCert, _, err := ParseCertWild(); err != nil {
 			return err
 		} else if wildCert != nil {
-			LoadCertificates([]*tls.Certificate{wildCert})
+			Certs.LoadCertificates([]*tls.Certificate{wildCert})
 		}
 		return nil
 	}
-	// 证书 PEM 大字段独立存储
-	if err := SettingSaveTLSCert(string(c.Cert.Certificate), string(c.Cert.PrivateKey)); err != nil {
+
+	if err := Settings.SaveTLSCert(string(c.Cert.Certificate), string(c.Cert.PrivateKey)); err != nil {
 		return fmt.Errorf("保存TLS证书失败: %w", err)
 	}
 	if tlscert, _, err := ParseCert(); err != nil {
 		return err
 	} else {
-		LoadCertificate(tlscert)
+		Certs.LoadCertificate(tlscert)
 	}
 	return nil
 }
@@ -348,7 +314,7 @@ func (c *LeGoClient) SaveCert(wild bool) error {
 func ParseCert() (*tls.Certificate, *time.Time, error) {
 	cert, err := tryLoadCert()
 	if err != nil {
-		// 证书加载失败（文件不存在 或 key 不匹配），重新生成自签名证书
+
 		if e := PrivateCert(); e != nil {
 			return nil, nil, e
 		}
@@ -366,7 +332,7 @@ func ParseCert() (*tls.Certificate, *time.Time, error) {
 
 func tryLoadCert() (*tls.Certificate, error) {
 	tlsData := SettingTLSCert{}
-	if err := SettingGet(&tlsData); err != nil {
+	if err := Settings.Get(&tlsData); err != nil {
 		return nil, err
 	}
 	cert, err := tls.X509KeyPair([]byte(tlsData.CertContent), []byte(string(tlsData.CertKeyContent)))
@@ -394,8 +360,8 @@ func ParseCertWild() (*tls.Certificate, *time.Time, error) {
 
 func tryLoadCertWild() (*tls.Certificate, error) {
 	tlsData := SettingTLSCertWild{}
-	if err := SettingGet(&tlsData); err != nil {
-		if CheckErrNotFound(err) {
+	if err := Settings.Get(&tlsData); err != nil {
+		if utils.CheckErrNotFound(err) {
 			return nil, nil
 		}
 		return nil, err
@@ -411,14 +377,13 @@ func tryLoadCertWild() (*tls.Certificate, error) {
 }
 
 func PrivateCert() error {
-	// 创建一个RSA密钥对
+
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return err
 	}
 	pub := &priv.PublicKey
 
-	// 生成一个自签名证书
 	template := x509.Certificate{
 		SerialNumber:          big.NewInt(1658),
 		Subject:               pkix.Name{CommonName: "localhost"},
@@ -435,12 +400,10 @@ func PrivateCert() error {
 		return err
 	}
 
-	// 编码为 PEM 并存入数据库
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
 
-	// 证书 PEM 独立存储
-	if err := SettingSaveTLSCert(string(certPEM), string(keyPEM)); err != nil {
+	if err := Settings.SaveTLSCert(string(certPEM), string(keyPEM)); err != nil {
 		return fmt.Errorf("保存证书到数据库失败: %w", err)
 	}
 
@@ -460,45 +423,6 @@ func getTempCertificate() (*tls.Certificate, error) {
 	return tempCert, nil
 }
 
-func GetCertificateBySNI(commonName string) (*tls.Certificate, error) {
-	ntcMux.RLock()
-	defer ntcMux.RUnlock()
-
-	// Copy from tls.Config getCertificate()
-	name := strings.ToLower(commonName)
-	if cert, ok := nameToCertificate[name]; ok {
-		return cert, nil
-	}
-	if len(name) > 0 {
-		labels := strings.Split(name, ".")
-		labels[0] = "*"
-		wildcardName := strings.Join(labels, ".")
-		if cert, ok := nameToCertificate[wildcardName]; ok {
-			return cert, nil
-		}
-	}
-	// 默认证书 兼容不支持 SNI 的客户端
-	if cert, ok := nameToCertificate["default"]; ok {
-		return cert, nil
-	}
-
-	return getTempCertificate()
-}
-
-func LoadCertificate(cert *tls.Certificate) {
-	buildNameToCertificate(cert, true)
-}
-
-// 注入多张证书到 SNI 表（不清旧映射，实现多证书并存）
-// 用于 WebVPN 泛域名证书与主证书同时生效
-func LoadCertificates(certs []*tls.Certificate) {
-	for _, c := range certs {
-		if c != nil {
-			buildNameToCertificate(c, false)
-		}
-	}
-}
-
 // Copy from tls.Config BuildNameToCertificate()
 // setDefault=true 时该证书作为默认证书（default ），false 时仅按 SAN 注册
 func buildNameToCertificate(cert *tls.Certificate, setDefault bool) {
@@ -506,11 +430,11 @@ func buildNameToCertificate(cert *tls.Certificate, setDefault bool) {
 	defer ntcMux.Unlock()
 
 	if setDefault {
-		// 清理旧映射，避免换证书后残留域名指向旧证书
+
 		for k := range nameToCertificate {
 			delete(nameToCertificate, k)
 		}
-		// 设置默认证书
+
 		nameToCertificate["default"] = cert
 	}
 
@@ -532,5 +456,72 @@ func buildNameToCertificate(cert *tls.Certificate, setDefault bool) {
 		base.Info("┠╌╌ Start Time:     ", startTime)
 		base.Info("┖╌╌ Expired Time:   ", expiredTime)
 		nameToCertificate[san] = cert
+	}
+}
+
+func (st *CertStore) GetDNSProvider(l *SettingLetsEncrypt) (Provider challenge.Provider, err error) {
+	switch l.Name {
+	case "aliyun":
+		if Provider, err = alidns.NewDNSProviderConfig(&alidns.Config{APIKey: l.DNSProvider.AliYun.APIKey, SecretKey: string(l.DNSProvider.AliYun.SecretKey), PropagationTimeout: 60 * time.Second, PollingInterval: 2 * time.Second, TTL: 600}); err != nil {
+			return
+		}
+	case "txcloud":
+		if Provider, err = tencentcloud.NewDNSProviderConfig(&tencentcloud.Config{SecretID: l.DNSProvider.TXCloud.SecretID, SecretKey: string(l.DNSProvider.TXCloud.SecretKey), PropagationTimeout: 60 * time.Second, PollingInterval: 2 * time.Second, TTL: 600}); err != nil {
+			return
+		}
+	case "cfcloud":
+		if Provider, err = cloudflare.NewDNSProviderConfig(&cloudflare.Config{AuthToken: string(l.DNSProvider.CfCloud.AuthToken), PropagationTimeout: 60 * time.Second, PollingInterval: 2 * time.Second, TTL: 600}); err != nil {
+			return
+		}
+	default:
+		return nil, fmt.Errorf("不支持的 DNS 提供商: %s", l.Name)
+	}
+	return
+}
+
+// 检查证书过期时间，若距过期不足 7 天则自动续期
+func (st *CertStore) CheckAndRenewCert() {
+	config := &SettingLetsEncrypt{}
+	if err := Settings.Get(config); err != nil {
+		base.Error(err)
+		return
+	}
+	renewSingleCert("主证书", false, config, ParseCert)
+	renewSingleCert("WebVPN 泛域名证书", true, config, ParseCertWild)
+}
+func (st *CertStore) GetCertificateBySNI(commonName string) (*tls.Certificate, error) {
+	ntcMux.RLock()
+	defer ntcMux.RUnlock()
+
+	name := strings.ToLower(commonName)
+	if cert, ok := nameToCertificate[name]; ok {
+		return cert, nil
+	}
+	if len(name) > 0 {
+		labels := strings.Split(name, ".")
+		labels[0] = "*"
+		wildcardName := strings.Join(labels, ".")
+		if cert, ok := nameToCertificate[wildcardName]; ok {
+			return cert, nil
+		}
+	}
+
+	if cert, ok := nameToCertificate["default"]; ok {
+		return cert, nil
+	}
+
+	return getTempCertificate()
+}
+func (st *CertStore) LoadCertificate(cert *tls.Certificate) {
+	buildNameToCertificate(cert, true)
+}
+
+// 注入多张证书到 SNI 表（不清旧映射，实现多证书并存）
+// 用于 WebVPN 泛域名证书与主证书同时生效
+func (st *CertStore) LoadCertificates(certs []*tls.Certificate) {
+	for _, c := range certs {
+		if c != nil {
+			buildNameToCertificate(c, false)
+		}
 	}
 }

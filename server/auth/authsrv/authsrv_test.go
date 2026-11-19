@@ -2,14 +2,21 @@ package authsrv
 
 import (
 	"encoding/json"
+	"os"
 	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/dbdata"
-	"github.com/wsczx/remlink/pkg/dbtest"
+	"github.com/wsczx/remlink/dbtest"
 )
+
+func TestMain(m *testing.M) {
+	auth.SetRegistry(auth.NewProviderRegistry())
+	RegisterProviders(auth.Registry)
+	os.Exit(m.Run())
+}
 
 func preTestData(t *testing.T) {
 	dbtest.SetupDB(t)
@@ -28,19 +35,21 @@ func preTestData(t *testing.T) {
 }
 
 func defaultGroup() {
-	groups := dbdata.GetGroupNames()
+	groups := dbdata.Groups.GetGroupNames()
 	if slices.Contains(groups, "default") {
 		return
 	}
-	_ = dbdata.SetPolicy(&dbdata.Policy{Name: "test-policy", Status: 1, ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}}})
-	_ = dbdata.SetGroup(&dbdata.Group{Name: "default", Status: 1, PolicyId: 1})
+	_ = dbdata.Policies.SetPolicy(&dbdata.Policy{Name: "test-policy", Status: 1, ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}}})
+	_ = dbdata.Groups.SetGroup(&dbdata.Group{Name: "default", Status: 1, PolicyId: 1})
 }
 func TestAuthenticate_PassesForGroupWithoutLocalRecord(t *testing.T) {
 	preTestData(t)
 
-	auth.Registry.Register("test_noop_group", func() auth.Authenticator {
-		return &testStubAuth{name: "test_noop_group"}
-	})
+	if !auth.Registry.IsRegistered("test_noop_group") {
+		auth.Registry.Register("test_noop_group", func() auth.Authenticator {
+			return &testStubAuth{name: "test_noop_group"}
+		})
+	}
 
 	groupB := &dbdata.Group{
 		Name:        "group-b",
@@ -48,7 +57,7 @@ func TestAuthenticate_PassesForGroupWithoutLocalRecord(t *testing.T) {
 		PolicyId:    1,
 		AuthProfile: json.RawMessage(`{"step":[{"type":"test_noop_group"}]}`),
 	}
-	assert.NoError(t, dbdata.SetGroup(groupB))
+	assert.NoError(t, dbdata.Groups.SetGroup(groupB))
 
 	// 该用户在本地库中没有任何记录
 	ctx := &auth.Context{
@@ -81,7 +90,7 @@ func TestAuthenticate_DisabledGroup(t *testing.T) {
 		Status:      2,
 		AuthProfile: json.RawMessage(`{"step":[{"type":"local"}]}`),
 	}
-	assert.NoError(t, dbdata.SetGroup(disabledGroup))
+	assert.NoError(t, dbdata.Groups.SetGroup(disabledGroup))
 
 	ctx := &auth.Context{
 		Conn: auth.ConnInfo{
@@ -104,7 +113,7 @@ func TestCertAutoAuth_DisabledGroup(t *testing.T) {
 		Status:      2,
 		AuthProfile: json.RawMessage(`{"step":[{"type":"cert"}]}`),
 	}
-	assert.NoError(t, dbdata.SetGroup(disabledGroup))
+	assert.NoError(t, dbdata.Groups.SetGroup(disabledGroup))
 
 	assert.False(t, CertAutoAuth("disabled_cert_group"))
 }

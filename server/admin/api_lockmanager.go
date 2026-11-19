@@ -8,13 +8,13 @@ import (
 )
 
 // 查询锁定信息
-func GetLocksInfo(w http.ResponseWriter, r *http.Request) {
-	infos := auth.GetLockManager().LockInfo()
+func (a *Api) GetLocksInfo(w http.ResponseWriter, r *http.Request) {
+	infos := a.Locks.Info()
 	names := make([]string, 0, len(infos))
 	for _, info := range infos {
 		names = append(names, info.Username)
 	}
-	nickMap := dbdata.NicknameMap(names)
+	nickMap := dbdata.Users.NicknameMap(names)
 	for i := range infos {
 		infos[i].Nickname = nickMap[infos[i].Username]
 	}
@@ -22,7 +22,7 @@ func GetLocksInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 // 解锁用户/IP
-func UnlockUser(w http.ResponseWriter, r *http.Request) {
+func (a *Api) UnlockUser(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Description string          `json:"description"`
 		Username    string          `json:"username"`
@@ -37,7 +37,7 @@ func UnlockUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lm := auth.GetLockManager()
+	lm := a.Locks
 	switch {
 	case req.Username != "" && req.IP != "":
 		// 单用户IP锁定
@@ -50,6 +50,6 @@ func UnlockUser(w http.ResponseWriter, r *http.Request) {
 		lm.UnlockIP(req.IP)
 	}
 
-	dbdata.AdminLog("用户管理", req.Username, "解锁了用户/IP:"+req.Description, r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("用户管理", req.Username, "解锁了用户/IP:"+req.Description, r.RemoteAddr)
 	RespSuccess(w, "解锁成功！")
 }

@@ -93,8 +93,9 @@ func TestSetGroupNATFiltersByProtocol(t *testing.T) {
 				ClientCidr6:   "2001:db8:" + string(rune('5'+i)) + "::/64",
 				OutDev:        "lo",
 			}
-			setGroupNAT(&sessdata.ConnSession{
-				IpPool: sessdata.GetGroupIpPool(group),
+			m := installGroupNATTestFirewall(t, fw)
+			setGroupNAT(m, &sessdata.ConnSession{
+				IpPool: m.Pools().GetGroupPool(group),
 				Group:  group,
 			})
 			require.Len(t, fw.v4Calls, tc.wantV4)
@@ -120,12 +121,12 @@ func TestRemoveGroupNATUsesTrackedEgress(t *testing.T) {
 		cfg.GlobalNat6 = false
 	})
 	fw := &groupNATTestFirewall{}
-	installGroupNATTestFirewall(t, fw)
+	m := installGroupNATTestFirewall(t, fw)
 	group := &dbdata.Group{Name: "engineering-remove", ClientCidr: "10.3.10.0/24", ClientStart: "10.3.10.10", ClientEnd: "10.3.10.200", ClientGateway: "10.3.10.1", OutDev: "lo"}
-	sessdata.RemoveGroupNAT(group.ClientCidr, "", "")
+	m.RemoveGroupNAT(group.ClientCidr, "", "")
 	fw.v4Dels = nil
-	sessdata.SyncGroupNAT(group.ClientCidr, "", "eth-old")
-	sessdata.RemoveGroupNAT(group.ClientCidr, "", "eth-new")
+	m.SyncGroupNAT(group.ClientCidr, "", "eth-old")
+	m.RemoveGroupNAT(group.ClientCidr, "", "eth-new")
 	require.Equal(t, []groupNATCall{{cidr: group.ClientCidr, egress: "eth-old"}}, fw.v4Dels)
 }
 
@@ -146,25 +147,22 @@ func TestSetGroupNATUsesMasterDevWhenGroupOutDevEmpty(t *testing.T) {
 		ClientGateway: "10.3.9.1",
 	}
 	fw := &groupNATTestFirewall{}
-	installGroupNATTestFirewall(t, fw)
-	setGroupNAT(&sessdata.ConnSession{
-		IpPool: sessdata.GetGroupIpPool(group),
+	m := installGroupNATTestFirewall(t, fw)
+	setGroupNAT(m, &sessdata.ConnSession{
+		IpPool: m.Pools().GetGroupPool(group),
 		Group:  group,
 	})
 	require.Equal(t, []groupNATCall{{cidr: group.ClientCidr, egress: "lo"}}, fw.v4Calls)
 }
 
-func installGroupNATTestFirewall(t *testing.T, fw *groupNATTestFirewall) {
-	sessdata.GlobalFirewallMu.Lock()
-	oldFirewall := sessdata.GlobalFirewall
-	oldDone := sessdata.GlobalFirewallDone
-	sessdata.GlobalFirewall = fw
-	sessdata.GlobalFirewallDone = true
-	sessdata.GlobalFirewallMu.Unlock()
+func installGroupNATTestFirewall(t *testing.T, fw *groupNATTestFirewall) *sessdata.SessionManager {
+	m := sessdata.NewSessionManager()
+	fm := m.Firewall()
+	oldFirewall := fm.GetFirewallInstance()
+	oldDone := fm.IsInitialized()
+	fm.SetFirewallInstance(fw, true)
 	t.Cleanup(func() {
-		sessdata.GlobalFirewallMu.Lock()
-		sessdata.GlobalFirewall = oldFirewall
-		sessdata.GlobalFirewallDone = oldDone
-		sessdata.GlobalFirewallMu.Unlock()
+		fm.SetFirewallInstance(oldFirewall, oldDone)
 	})
+	return m
 }

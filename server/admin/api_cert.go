@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"github.com/wsczx/remlink/pkg/utils"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -59,7 +60,7 @@ func CustomCert(w http.ResponseWriter, r *http.Request) {
 func applyUploadedCert(w http.ResponseWriter, wild bool, certBytes, keyBytes []byte, r *http.Request) error {
 	certStr, keyStr := string(certBytes), string(keyBytes)
 	if wild {
-		if err := dbdata.SettingSaveTLSCertWild(certStr, keyStr); err != nil {
+		if err := dbdata.Settings.SaveTLSCertWild(certStr, keyStr); err != nil {
 			RespError(w, RespInternalErr, err)
 			return err
 		}
@@ -68,12 +69,12 @@ func applyUploadedCert(w http.ResponseWriter, wild bool, certBytes, keyBytes []b
 			RespError(w, RespInternalErr, fmt.Sprintf("泛域名证书加载失败:%v", err))
 			return err
 		} else if wildCert != nil {
-			dbdata.LoadCertificates([]*tls.Certificate{wildCert})
+			dbdata.Certs.LoadCertificates([]*tls.Certificate{wildCert})
 		}
-		dbdata.AdminLog("证书管理", "WebVPN泛域名证书", "上传了自定义泛域名TLS证书", r.RemoteAddr)
+		dbdata.AdminLogs.AdminLog("证书管理", "WebVPN泛域名证书", "上传了自定义泛域名TLS证书", r.RemoteAddr)
 		return nil
 	}
-	if err := dbdata.SettingSaveTLSCert(certStr, keyStr); err != nil {
+	if err := dbdata.Settings.SaveTLSCert(certStr, keyStr); err != nil {
 		RespError(w, RespInternalErr, err)
 		return err
 	}
@@ -82,16 +83,16 @@ func applyUploadedCert(w http.ResponseWriter, wild bool, certBytes, keyBytes []b
 		RespError(w, RespInternalErr, fmt.Sprintf("证书加载失败:%v", err))
 		return err
 	}
-	dbdata.LoadCertificate(tlscert)
-	dbdata.AdminLog("证书管理", "TLS证书", "上传了自定义TLS证书", r.RemoteAddr)
+	dbdata.Certs.LoadCertificate(tlscert)
+	dbdata.AdminLogs.AdminLog("证书管理", "TLS证书", "上传了自定义TLS证书", r.RemoteAddr)
 	return nil
 }
 func GetCertSetting(w http.ResponseWriter, r *http.Request) {
 	data := &dbdata.SettingLetsEncrypt{}
-	if err := dbdata.SettingGet(data); err != nil {
-		if dbdata.CheckErrNotFound(err) {
+	if err := dbdata.Settings.Get(data); err != nil {
+		if utils.CheckErrNotFound(err) {
 			// 记录不存在时创建默认记录
-			if saveErr := dbdata.SettingSave(data); saveErr != nil {
+			if saveErr := dbdata.Settings.Save(data); saveErr != nil {
 				base.Warn("创建默认LetsEncrypt配置失败:", saveErr)
 			}
 		} else {
@@ -133,7 +134,7 @@ func CreatCert(w http.ResponseWriter, r *http.Request) {
 	}
 	// 保留未修改的 DNS 密钥
 	old := &dbdata.SettingLetsEncrypt{}
-	if dbdata.SettingGet(old) == nil {
+	if dbdata.Settings.Get(old) == nil {
 		if config.DNSProvider.AliYun.SecretKey.IsPlaceholder() {
 			config.DNSProvider.AliYun.SecretKey = old.DNSProvider.AliYun.SecretKey
 		}
@@ -144,7 +145,7 @@ func CreatCert(w http.ResponseWriter, r *http.Request) {
 			config.DNSProvider.CfCloud.AuthToken = old.DNSProvider.CfCloud.AuthToken
 		}
 	}
-	if err := dbdata.SettingSave(config); err != nil {
+	if err := dbdata.Settings.Save(config); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
@@ -171,9 +172,9 @@ func CreatCert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if wild {
-		dbdata.AdminLog("证书管理", "*."+domain, "通过LetsEncrypt生成了WebVPN泛域名证书", r.RemoteAddr)
+		dbdata.AdminLogs.AdminLog("证书管理", "*."+domain, "通过LetsEncrypt生成了WebVPN泛域名证书", r.RemoteAddr)
 	} else {
-		dbdata.AdminLog("证书管理", config.Domain, "通过LetsEncrypt生成了证书", r.RemoteAddr)
+		dbdata.AdminLogs.AdminLog("证书管理", config.Domain, "通过LetsEncrypt生成了证书", r.RemoteAddr)
 	}
 	RespSuccess(w, "生成证书成功")
 }
@@ -181,7 +182,7 @@ func CreatCert(w http.ResponseWriter, r *http.Request) {
 // 查询客户端 CA 是否已初始化
 func CheckCAStatus(w http.ResponseWriter, r *http.Request) {
 	ca := dbdata.SettingClientCA{}
-	err := dbdata.SettingGet(&ca)
+	err := dbdata.Settings.Get(&ca)
 	initialized := err == nil && ca.CertContent != "" && ca.KeyContent != ""
 	RespSuccess(w, map[string]bool{"initialized": initialized})
 }
@@ -192,21 +193,21 @@ func InitClientCA(w http.ResponseWriter, r *http.Request) {
 	force := r.FormValue("force") == "true"
 	if !force {
 		ca := dbdata.SettingClientCA{}
-		if err := dbdata.SettingGet(&ca); err == nil && ca.CertContent != "" && ca.KeyContent != "" {
+		if err := dbdata.Settings.Get(&ca); err == nil && ca.CertContent != "" && ca.KeyContent != "" {
 			RespError(w, RespInternalErr, "客户端 CA 已存在，如需强制重置请使用 force=true 参数")
 			return
 		}
 	}
-	err := dbdata.GenerateClientCA()
+	err := dbdata.Certs.GenerateClientCA()
 	if err != nil {
 		RespError(w, RespInternalErr, fmt.Sprintf("客户端 CA 生成失败: %v", err))
 		return
 	}
 	if force {
-		dbdata.AdminLog("证书管理", "客户端CA", "强制重置了客户端CA（旧证书已失效）", r.RemoteAddr)
+		dbdata.AdminLogs.AdminLog("证书管理", "客户端CA", "强制重置了客户端CA（旧证书已失效）", r.RemoteAddr)
 		RespSuccess(w, "客户端 CA 强制重置成功（旧客户端证书已失效）")
 	} else {
-		dbdata.AdminLog("证书管理", "客户端CA", "初始化了客户端CA", r.RemoteAddr)
+		dbdata.AdminLogs.AdminLog("证书管理", "客户端CA", "初始化了客户端CA", r.RemoteAddr)
 		RespSuccess(w, "客户端 CA 初始化成功")
 	}
 }
@@ -245,7 +246,7 @@ func GenerateClientCert(w http.ResponseWriter, r *http.Request) {
 
 	// 检查用户是否存在
 	user := &dbdata.User{}
-	if err := dbdata.One("Username", username, user); err != nil {
+	if err := dbdata.Users.GetByUsername(username, user); err != nil {
 		RespError(w, RespInternalErr, "用户不存在")
 		return
 	}
@@ -253,16 +254,16 @@ func GenerateClientCert(w http.ResponseWriter, r *http.Request) {
 	// 生成客户端证书
 	var certData *dbdata.ClientCertData
 	if csrData != "" {
-		certData, err = dbdata.GenerateClientCert(username, groupname, deviceBindingEnabled, maxDevices, csrData)
+		certData, err = dbdata.Certs.GenerateClientCert(username, groupname, deviceBindingEnabled, maxDevices, csrData)
 	} else {
-		certData, err = dbdata.GenerateClientCert(username, groupname, deviceBindingEnabled, maxDevices)
+		certData, err = dbdata.Certs.GenerateClientCert(username, groupname, deviceBindingEnabled, maxDevices)
 	}
 	if err != nil {
 		RespError(w, RespInternalErr, fmt.Sprintf("证书生成失败: %v", err))
 		return
 	}
 
-	dbdata.AdminLog("证书管理", username, "为用户生成客户端证书(组:"+groupname+")", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("证书管理", username, "为用户生成客户端证书(组:"+groupname+")", r.RemoteAddr)
 	certData.PrivateKey = certData.PrivateKey.Masked()
 	RespSuccess(w, certData)
 }
@@ -298,8 +299,8 @@ func BatchGenerateClientCert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	success, failed := dbdata.BatchGenerateClientCert(usernames, groupname, deviceBindingEnabled, maxDevices)
-	dbdata.AdminLog("证书管理", "批量", fmt.Sprintf("批量生成客户端证书 %d 个(组:%s)", success, groupname), r.RemoteAddr)
+	success, failed := dbdata.Certs.BatchGenerateClientCert(usernames, groupname, deviceBindingEnabled, maxDevices)
+	dbdata.AdminLogs.AdminLog("证书管理", "批量", fmt.Sprintf("批量生成客户端证书 %d 个(组:%s)", success, groupname), r.RemoteAddr)
 	RespSuccess(w, map[string]any{
 		"success": success,
 		"failed":  failed,
@@ -323,15 +324,15 @@ func RenewClientCert(w http.ResponseWriter, r *http.Request) {
 	var certData *dbdata.ClientCertData
 	var err error
 	if csrData != "" {
-		certData, err = dbdata.RenewClientCert(username, groupname, csrData)
+		certData, err = dbdata.Certs.RenewClientCert(username, groupname, csrData)
 	} else {
-		certData, err = dbdata.RenewClientCert(username, groupname)
+		certData, err = dbdata.Certs.RenewClientCert(username, groupname)
 	}
 	if err != nil {
 		RespError(w, RespInternalErr, fmt.Sprintf("证书续期失败: %v", err))
 		return
 	}
-	dbdata.AdminLog("证书管理", username, "续期了客户端证书(组:"+groupname+")", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("证书管理", username, "续期了客户端证书(组:"+groupname+")", r.RemoteAddr)
 	certData.PrivateKey = certData.PrivateKey.Masked()
 	RespSuccess(w, certData)
 }
@@ -363,7 +364,7 @@ func UpdateClientCertMaxDevices(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 获取证书记录
-	certData, err := dbdata.GetClientCert(username, groupname)
+	certData, err := dbdata.Certs.GetClientCert(username, groupname)
 	if err != nil {
 		RespError(w, RespInternalErr, fmt.Sprintf("获取证书失败: %v", err))
 		return
@@ -383,7 +384,7 @@ func UpdateClientCertMaxDevices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dbdata.AdminLog("证书管理", username, "更新了证书最大设备数(组:"+groupname+",最大设备:"+maxDevicesStr+")", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("证书管理", username, "更新了证书最大设备数(组:"+groupname+",最大设备:"+maxDevicesStr+")", r.RemoteAddr)
 	certData.PrivateKey = certData.PrivateKey.Masked()
 	RespSuccess(w, certData)
 }
@@ -403,12 +404,8 @@ func DownloadClientP12(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// password == "" {
-	// = "123456" // 默认密码
-	// }
-
 	// 下载CSR模式的证书
-	clientCert, err := dbdata.GetClientCert(username, groupname)
+	clientCert, err := dbdata.Certs.GetClientCert(username, groupname)
 	if err != nil {
 		RespError(w, RespInternalErr, fmt.Sprintf("获取证书失败: %v", err))
 		return
@@ -417,13 +414,13 @@ func DownloadClientP12(w http.ResponseWriter, r *http.Request) {
 	if clientCert.IsCSRBased {
 		w.Header().Set("Content-Type", "application/x-pem-file")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.cer", username))
-		dbdata.AdminLog("证书管理", username, "下载了客户端证书(组:"+groupname+")", r.RemoteAddr)
+		dbdata.AdminLogs.AdminLog("证书管理", username, "下载了客户端证书(组:"+groupname+")", r.RemoteAddr)
 		w.Write([]byte(clientCert.Certificate))
 		return
 	}
 
 	// 生成 P12 证书
-	p12Data, err := dbdata.GenerateClientP12FromDB(username, groupname, password)
+	p12Data, err := dbdata.Certs.GenerateClientP12FromDB(username, groupname, password)
 	if err != nil {
 		RespError(w, RespInternalErr, fmt.Sprintf("证书下载失败: %v", err))
 		return
@@ -433,7 +430,7 @@ func DownloadClientP12(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/x-pkcs12")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.p12", username))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(p12Data)))
-	dbdata.AdminLog("证书管理", username, "下载了客户端P12证书(组:"+groupname+")", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("证书管理", username, "下载了客户端P12证书(组:"+groupname+")", r.RemoteAddr)
 	w.Write(p12Data)
 }
 
@@ -450,7 +447,7 @@ func ChangeClientCertStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clientCert, err := dbdata.GetClientCert(username, groupname)
+	clientCert, err := dbdata.Certs.GetClientCert(username, groupname)
 	if err != nil {
 		RespError(w, RespInternalErr, "证书不存在")
 		return
@@ -467,7 +464,7 @@ func ChangeClientCertStatus(w http.ResponseWriter, r *http.Request) {
 		statusText = "禁用"
 	}
 
-	dbdata.AdminLog("证书管理", username, statusText+"客户端证书(组:"+groupname+")", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("证书管理", username, statusText+"客户端证书(组:"+groupname+")", r.RemoteAddr)
 	RespSuccess(w, fmt.Sprintf("证书%s成功", statusText))
 }
 
@@ -484,7 +481,7 @@ func DeleteClientCert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clientCert, err := dbdata.GetClientCert(username, groupname)
+	clientCert, err := dbdata.Certs.GetClientCert(username, groupname)
 	if err != nil {
 		RespError(w, RespInternalErr, "证书不存在")
 		return
@@ -496,7 +493,7 @@ func DeleteClientCert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dbdata.AdminLog("证书管理", username, "删除了客户端证书(组:"+groupname+")", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("证书管理", username, "删除了客户端证书(组:"+groupname+")", r.RemoteAddr)
 	RespSuccess(w, "证书删除成功")
 }
 
@@ -519,7 +516,7 @@ func BatchDeleteClientCert(w http.ResponseWriter, r *http.Request) {
 	var failDetails []string
 
 	for _, item := range req.Certs {
-		clientCert, err := dbdata.GetClientCert(item.Username, item.Groupname)
+		clientCert, err := dbdata.Certs.GetClientCert(item.Username, item.Groupname)
 		if err != nil {
 			failCount++
 			failDetails = append(failDetails, fmt.Sprintf("%s/%s: 证书不存在", item.Username, item.Groupname))
@@ -534,7 +531,7 @@ func BatchDeleteClientCert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	msg := fmt.Sprintf("批量删除完成，成功：%d，失败：%d", successCount, failCount)
-	dbdata.AdminLog("证书管理", "批量删除", "批量删除了"+strconv.Itoa(successCount)+"个客户端证书", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("证书管理", "批量删除", "批量删除了"+strconv.Itoa(successCount)+"个客户端证书", r.RemoteAddr)
 	if len(failDetails) > 0 {
 		msg += "；失败详情: " + strings.Join(failDetails, "；")
 	}
@@ -568,12 +565,12 @@ func BatchDownloadClientP12(w http.ResponseWriter, r *http.Request) {
 	zipWriter := zip.NewWriter(buf)
 
 	for _, item := range req.Certs {
-		cert, err := dbdata.GetClientCert(item.Username, item.Groupname)
+		cert, err := dbdata.Certs.GetClientCert(item.Username, item.Groupname)
 		if err != nil || cert.IsCSRBased {
 			// CSR 模式跳过
 			continue
 		}
-		p12Data, err := dbdata.GenerateClientP12FromDB(item.Username, item.Groupname, req.Password)
+		p12Data, err := dbdata.Certs.GenerateClientP12FromDB(item.Username, item.Groupname, req.Password)
 		if err != nil {
 			continue
 		}
@@ -590,7 +587,7 @@ func BatchDownloadClientP12(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", "attachment; filename=certificates.zip")
-	dbdata.AdminLog("证书管理", "批量下载", "批量下载了"+strconv.Itoa(len(req.Certs))+"个客户端P12证书", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("证书管理", "批量下载", "批量下载了"+strconv.Itoa(len(req.Certs))+"个客户端P12证书", r.RemoteAddr)
 	w.Write(buf.Bytes())
 }
 
@@ -621,7 +618,7 @@ func GetClientCertList(w http.ResponseWriter, r *http.Request) {
 	groupname := r.FormValue("groupname")
 	status := r.FormValue("status")
 
-	certs, total, err := dbdata.GetClientCertList(pageSize, pageIndex, username, groupname, status)
+	certs, total, err := dbdata.Certs.GetClientCertList(pageSize, pageIndex, username, groupname, status)
 	if err != nil {
 		RespError(w, RespInternalErr, fmt.Sprintf("获取证书列表失败: %v", err))
 		return
@@ -644,16 +641,16 @@ func UserCertInfo(w http.ResponseWriter, r *http.Request) {
 
 	// 获取所有启用的用户
 	var users []dbdata.User
-	err := dbdata.Find(&users, 1000, 1)
-	if err != nil && !dbdata.CheckErrNotFound(err) {
+	err := dbdata.Users.FindAll(&users)
+	if err != nil && !utils.CheckErrNotFound(err) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
 
 	// 获取所有启用的组
 	var groups []dbdata.Group
-	err = dbdata.Find(&groups, 1000, 1)
-	if err != nil && !dbdata.CheckErrNotFound(err) {
+	err = dbdata.Groups.FindAll(&groups)
+	if err != nil && !utils.CheckErrNotFound(err) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
@@ -685,27 +682,27 @@ func UserCertInfo(w http.ResponseWriter, r *http.Request) {
 func UnbindDevice(w http.ResponseWriter, r *http.Request) {
 	username := r.FormValue("username")
 	groupname := r.FormValue("groupname")
-	deviceId := r.FormValue("device_id")
+	deviceID := r.FormValue("device_id")
 
-	if username == "" || groupname == "" || deviceId == "" {
+	if username == "" || groupname == "" || deviceID == "" {
 		RespError(w, RespParamErr, "用户名、用户组和设备ID不能为空")
 		return
 	}
 
 	// 获取证书信息
-	cert, err := dbdata.GetClientCert(username, groupname)
+	cert, err := dbdata.Certs.GetClientCert(username, groupname)
 	if err != nil {
 		RespError(w, RespInternalErr, fmt.Sprintf("获取证书失败: %v", err))
 		return
 	}
 
 	// 解绑设备
-	if err := cert.UnbindDevice(deviceId); err != nil {
+	if err := cert.UnbindDevice(deviceID); err != nil {
 		RespError(w, RespInternalErr, fmt.Sprintf("解绑设备失败: %v", err))
 		return
 	}
 
-	dbdata.AdminLog("证书管理", username, "解绑了证书设备(组:"+groupname+",设备:"+deviceId+")", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("证书管理", username, "解绑了证书设备(组:"+groupname+",设备:"+deviceID+")", r.RemoteAddr)
 	RespSuccess(w, nil)
 }
 
@@ -730,7 +727,7 @@ func UpdateClientCertDeviceBinding(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 获取证书记录
-	certData, err := dbdata.GetClientCert(username, groupname)
+	certData, err := dbdata.Certs.GetClientCert(username, groupname)
 	if err != nil {
 		RespError(w, RespInternalErr, fmt.Sprintf("获取证书失败: %v", err))
 		return
@@ -748,7 +745,7 @@ func UpdateClientCertDeviceBinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dbdata.AdminLog("证书管理", username, "更新了证书设备绑定(组:"+groupname+")", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("证书管理", username, "更新了证书设备绑定(组:"+groupname+")", r.RemoteAddr)
 	certData.PrivateKey = certData.PrivateKey.Masked()
 	RespSuccess(w, certData)
 }
@@ -781,7 +778,7 @@ func SendClientCertMail(w http.ResponseWriter, r *http.Request) {
 
 	// 获取 LinkAddr 与证书邮件模板
 	dataOther := &dbdata.SettingOther{}
-	if err := dbdata.SettingGet(dataOther); err != nil {
+	if err := dbdata.Settings.Get(dataOther); err != nil {
 		base.Error("获取设置失败:", err)
 	}
 
@@ -793,7 +790,7 @@ func SendClientCertMail(w http.ResponseWriter, r *http.Request) {
 
 	// 检查 SMTP 是否配置
 	smtpCfg := &dbdata.SettingSmtp{}
-	if err := dbdata.SettingGet(smtpCfg); err != nil || smtpCfg.Host == "" {
+	if err := dbdata.Settings.Get(smtpCfg); err != nil || smtpCfg.Host == "" {
 		RespError(w, RespInternalErr, "邮件服务未配置，请先在系统设置中配置SMTP")
 		return
 	}
@@ -816,7 +813,7 @@ func SendClientCertMail(w http.ResponseWriter, r *http.Request) {
 			defer func() { <-concurrency }()
 
 			// 获取证书记录
-			cert, err := dbdata.GetClientCert(username, groupname)
+			cert, err := dbdata.Certs.GetClientCert(username, groupname)
 			if err != nil {
 				mu.Lock()
 				failCount++
@@ -836,7 +833,7 @@ func SendClientCertMail(w http.ResponseWriter, r *http.Request) {
 
 			// 查用户邮箱
 			user := &dbdata.User{}
-			if err := dbdata.One("Username", username, user); err != nil {
+			if err := dbdata.Users.GetByUsername(username, user); err != nil {
 				mu.Lock()
 				failCount++
 				failDetails = append(failDetails, fmt.Sprintf("%s/%s: 用户不存在", username, groupname))
@@ -852,7 +849,7 @@ func SendClientCertMail(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// 生成 P12 文件
-			p12Data, err := dbdata.GenerateClientP12FromDB(username, groupname, password)
+			p12Data, err := dbdata.Certs.GenerateClientP12FromDB(username, groupname, password)
 			if err != nil {
 				mu.Lock()
 				failCount++
@@ -878,7 +875,7 @@ func SendClientCertMail(w http.ResponseWriter, r *http.Request) {
 				Inline:   false,
 			}
 
-			err = notify.GetNotify().SendEmail(notify.Message{
+			err = notify.SendEmail(notify.Message{
 				Subject:    fmt.Sprintf("[%s] 客户端证书", base.GetCfg().Issuer),
 				To:         user.Email,
 				Body:       body,
@@ -897,7 +894,7 @@ func SendClientCertMail(w http.ResponseWriter, r *http.Request) {
 
 	wg.Wait()
 
-	dbdata.AdminLog("证书管理", "批量发送邮件", fmt.Sprintf("批量发送证书邮件(成功:%d,失败:%d)", successCount, failCount), r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("证书管理", "批量发送邮件", fmt.Sprintf("批量发送证书邮件(成功:%d,失败:%d)", successCount, failCount), r.RemoteAddr)
 
 	msg := fmt.Sprintf("批量发送完成，成功：%d，失败：%d", successCount, failCount)
 	if len(failDetails) > 0 {

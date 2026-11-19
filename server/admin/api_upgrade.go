@@ -26,7 +26,7 @@ type UpgradeState struct {
 // 读取用户配置的更新源（github / gitee）
 func getUpgradeSource() string {
 	sc := &dbdata.SettingServerConfig{}
-	if err := dbdata.SettingGet(sc); err != nil {
+	if err := dbdata.Settings.Get(sc); err != nil {
 		return "github"
 	}
 	return sc.Config.UpgradeSource
@@ -88,7 +88,7 @@ func StartUpgrade(w http.ResponseWriter, r *http.Request) {
 		upgradeMux.Unlock()
 	}()
 
-	dbdata.AdminLog("系统设置", "在线升级", fmt.Sprintf("从 %s 升级到 %s", base.APP_VER, info.Version), r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("系统设置", "在线升级", fmt.Sprintf("从 %s 升级到 %s", base.APP_VER, info.Version), r.RemoteAddr)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")

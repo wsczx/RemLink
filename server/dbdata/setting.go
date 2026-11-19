@@ -5,12 +5,19 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"reflect"
+
+	"github.com/wsczx/remlink/pkg/utils"
 
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/pkg/security"
 	"xorm.io/xorm"
 )
+
+// 系统设置的存储入口
+type SettingStore struct{ *table[Setting] }
+
+// 系统设置的存储入口实例，由 SetDB 注入持久化实现
+var Settings = &SettingStore{}
 
 type SettingInstall struct {
 	Installed bool `json:"installed"`
@@ -140,16 +147,8 @@ type SettingPortalResetTokens struct {
 	Tokens map[string]int64 `json:"tokens"` // -> used_at unix timestamp
 }
 
-func StructName(data any) string {
-	t := reflect.TypeOf(data)
-	if t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	return t.Name()
-}
-
-func SettingSessAdd(sess *xorm.Session, data any) error {
-	name := StructName(data)
+func (st *SettingStore) SessAdd(sess *xorm.Session, data any) error {
+	name := utils.StructName(data)
 	v, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("marshal %s: %w", name, err)
@@ -159,30 +158,61 @@ func SettingSessAdd(sess *xorm.Session, data any) error {
 	return err
 }
 
-func SettingSave(data any) error {
-	name := StructName(data)
+// 已存在的配置保留原值，避免初始化重跑覆盖管理员配置
+func (st *SettingStore) SessAddIfAbsent(sess *xorm.Session, data any) error {
+	name := utils.StructName(data)
+	has, err := sess.Where("name = ?", name).Exist(new(Setting))
+	if err != nil || has {
+		return err
+	}
+	v, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("marshal %s: %w", name, err)
+	}
+	_, err = sess.InsertOne(&Setting{Name: name, Data: v})
+	return err
+}
+func (st *SettingStore) SessUpsert(sess *xorm.Session, data any) error {
+	name := utils.StructName(data)
+	v, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("marshal %s: %w", name, err)
+	}
+	exist := &Setting{}
+	has, err := sess.Where("name = ?", name).Get(exist)
+	if err != nil {
+		return err
+	}
+	if has {
+		_, err = sess.ID(exist.Id).Cols("Data").Update(&Setting{Id: exist.Id, Data: v})
+		return err
+	}
+	_, err = sess.InsertOne(&Setting{Name: name, Data: v})
+	return err
+}
+func (st *SettingStore) Save(data any) error {
+	name := utils.StructName(data)
 	v, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("marshal %s: %w", name, err)
 	}
 	// 尝试插入
-	_, err = xdb.InsertOne(&Setting{Name: name, Data: v})
+	_, err = GetDB().Engine().InsertOne(&Setting{Name: name, Data: v})
 	if err == nil {
 		return nil
 	}
 	// 插入失败，回退到更新
 	exist := &Setting{}
-	if getErr := One("name", name, exist); getErr != nil {
+	if getErr := GetDB().Get("name", name, exist); getErr != nil {
 		return getErr
 	}
-	_, err = xdb.ID(exist.Id).Cols("Data").Update(&Setting{Id: exist.Id, Data: v})
+	_, err = GetDB().Engine().ID(exist.Id).Cols("Data").Update(&Setting{Id: exist.Id, Data: v})
 	return err
 }
-
-func SettingGet(data any) error {
-	name := StructName(data)
+func (st *SettingStore) Get(data any) error {
+	name := utils.StructName(data)
 	s := &Setting{}
-	err := One("name", name, s)
+	err := GetDB().Get("name", name, s)
 	if err != nil {
 		return err
 	}
@@ -190,9 +220,9 @@ func SettingGet(data any) error {
 	return err
 }
 
-// 在指定 session 内读取 (用于事务)
-func SettingSessGet(sess *xorm.Session, data any) error {
-	name := StructName(data)
+// 在指定 session 内读取（用于事务）
+func (st *SettingStore) SessGet(sess *xorm.Session, data any) error {
+	name := utils.StructName(data)
 	s := &Setting{}
 	has, err := sess.Where("name = ?", name).Get(s)
 	if err != nil {
@@ -203,122 +233,72 @@ func SettingSessGet(sess *xorm.Session, data any) error {
 	}
 	return json.Unmarshal(s.Data, data)
 }
-
-func SettingGetAuditLog() (SettingAuditLog, error) {
+func (st *SettingStore) GetAuditLog() (SettingAuditLog, error) {
 	data := SettingAuditLog{}
-	err := SettingGet(&data)
+	err := st.Get(&data)
 	if err == nil {
 		return data, nil
 	}
-	if CheckErrNotFound(err) {
-		return SettingGetAuditLogDefault(), nil
+	if utils.CheckErrNotFound(err) {
+		return st.AuditLogDefault(), nil
 	}
 	return data, err
 }
-
-func SettingGetAuditLogDefault() SettingAuditLog {
+func (st *SettingStore) AuditLogDefault() SettingAuditLog {
 	return SettingAuditLog{
 		LifeDay:   0,
 		ClearTime: "05:00",
 	}
 }
 
-func SettingLoadServerConfig() error {
-	data := &SettingServerConfig{}
-	err := SettingGet(data)
-	if err == nil {
-		base.LoadPersistedConfig(data.Config)
-		return nil
-	}
-	if !CheckErrNotFound(err) {
-		return err
-	}
-	// 中无记录，写入默认值（首次全新安装）
-	data.Config = *base.GetCfg()
-	base.CompleteConfig(&data.Config)
-
-	name := StructName(data)
-	v, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("marshal %s: %w", name, err)
-	}
-	if err := Add(&Setting{Name: name, Data: v}); err != nil {
-		return err
-	}
-	base.LoadPersistedConfig(data.Config)
-	return nil
-}
-
-func SettingSaveServerConfig() error {
-	data := &SettingServerConfig{Config: *base.GetCfg()}
-	return saveServerConfig(data)
-}
-
-func SettingSaveServerConfigWith(cfg *base.ServerConfig) error {
-	data := &SettingServerConfig{Config: *cfg}
-	return saveServerConfig(data)
-}
-
-func saveServerConfig(data *SettingServerConfig) error {
-	return SettingSave(data)
-}
-
-func SettingSaveTLSCert(certContent, keyContent string) error {
+// 持久化服务端配置
+func (st *SettingStore) SaveTLSCert(certContent, keyContent string) error {
 	tls := SettingTLSCert{
 		CertContent:    certContent,
 		CertKeyContent: security.EncryptedString(keyContent),
 	}
-	return SettingSave(&tls)
+	return st.Save(&tls)
 }
 
 // 保存 WebVPN 泛域名证书
-func SettingSaveTLSCertWild(certContent, keyContent string) error {
+func (st *SettingStore) SaveTLSCertWild(certContent, keyContent string) error {
 	tls := SettingTLSCertWild{
 		CertContent:    certContent,
 		CertKeyContent: security.EncryptedString(keyContent),
 	}
-	return SettingSave(&tls)
+	return st.Save(&tls)
 }
-
-func SettingSaveClientCA(certContent, keyContent string) error {
+func (st *SettingStore) SaveClientCA(certContent, keyContent string) error {
 	ca := SettingClientCA{
 		CertContent: certContent,
 		KeyContent:  security.EncryptedString(keyContent),
 	}
-	if err := SettingSave(&ca); err != nil {
+	if err := st.Save(&ca); err != nil {
 		return err
 	}
 	resetClientCA()
 	return nil
 }
-
-func SettingGetProfile() (SettingProfile, error) {
+func (st *SettingStore) GetProfile() (SettingProfile, error) {
 	data := SettingProfile{}
-	err := SettingGet(&data)
+	err := st.Get(&data)
 	if err == nil {
 		return data, nil
 	}
-	if CheckErrNotFound(err) {
+	if utils.CheckErrNotFound(err) {
 		return SettingProfile{Content: base.DefaultProfileXML}, nil
 	}
 	return data, err
 }
-
-func SettingSetProfile(content string) error {
-	data := &SettingProfile{Content: content}
-	return SettingSave(data)
-}
-
-func GetProfileXML() ([]byte, error) {
-	data, err := SettingGetProfile()
+func (st *SettingStore) GetProfileXML() ([]byte, error) {
+	data, err := st.GetProfile()
 	if err != nil {
 		return nil, err
 	}
 	return []byte(data.Content), nil
 }
-
-func GetProfileHash() (string, error) {
-	b, err := GetProfileXML()
+func (st *SettingStore) GetProfileHash() (string, error) {
+	b, err := st.GetProfileXML()
 	if err != nil {
 		return "", err
 	}

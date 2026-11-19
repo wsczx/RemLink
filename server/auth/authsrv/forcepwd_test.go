@@ -20,7 +20,7 @@ func createForcePwdUser(username, userType string, forcePwd bool) *dbdata.User {
 		Type:       userType,
 		ForcePwd:   forcePwd,
 	}
-	if err := dbdata.SetUser(u); err != nil {
+	if err := dbdata.Users.SetUser(u); err != nil {
 		panic("createForcePwdUser failed: " + err.Error())
 	}
 	return u
@@ -110,7 +110,7 @@ func TestForcePwd_ResumeNilUserInfo_Pending(t *testing.T) {
 }
 
 // 信任管道内已加载的 ctx.UserInfo：即便库中 ForcePwd=true，
-// 只要 ctx.UserInfo 已存在且 ForcePwd=false，即按 StepPass（不重复查库覆盖）。
+// 只要 ctx.UserInfo 已存在且 ForcePwd=false，即按 StepPass（不重复查库覆盖）
 func TestForcePwd_TrustInMemoryUserInfo(t *testing.T) {
 	preTestData(t)
 	createForcePwdUser("fp_trust", "", true) // 库中 ForcePwd=true

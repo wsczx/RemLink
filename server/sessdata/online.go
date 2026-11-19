@@ -52,15 +52,12 @@ func (o Onlines) Swap(i, j int) {
 }
 
 // 返回在线会话列表，支持按用户名/组/MAC/IP/远端地址模糊搜索
-func GetOnlineSess(search_cate string, search_text string, show_sleeper bool) []Online {
+func (m *SessionManager) GetOnlineSess(search_cate string, search_text string, show_sleeper bool) []Online {
 	var datas Onlines
 	if strings.TrimSpace(search_text) == "" {
 		search_cate = ""
 	}
-	sessMux.Lock()
-	defer sessMux.Unlock()
-
-	for _, v := range sessions {
+	m.Range(func(v *Session) {
 		func() {
 			v.mux.Lock()
 			defer v.mux.Unlock()
@@ -79,20 +76,16 @@ func GetOnlineSess(search_cate string, search_text string, show_sleeper bool) []
 			case "mac_addr":
 				compareText = v.MacAddr
 			case "ip":
-				if cSess != nil {
-					compareText = cSess.IpAddr.String()
-				}
+				compareText = cSess.IpAddr.String()
 			case "remote_addr":
-				if cSess != nil {
-					compareText = cSess.RemoteAddr
-				}
+				compareText = cSess.RemoteAddr
 			}
 			if search_cate != "" && !strings.Contains(compareText, search_text) {
 				return
 			}
 
 			// 真实在线：活跃且仍有活动连接；show_sleeper 额外展示已掉线但仍在等待清理/重连的休眠态
-			if (show_sleeper && !v.IsActive) || (v.IsActive && cSess != nil && cSess.IpAddr != nil) {
+			if (show_sleeper && !v.IsActive) || (v.IsActive && cSess.IpAddr != nil) {
 				transportProtocol := "TCP"
 				dSess := cSess.GetDtlsSession()
 				if dSess != nil {
@@ -100,7 +93,7 @@ func GetOnlineSess(search_cate string, search_text string, show_sleeper bool) []
 				}
 				quotaStr, usedStr, resetStr := "", "", ""
 				u := &dbdata.User{}
-				dbdata.One("Username", v.Username, u)
+				dbdata.Users.GetByUsername(v.Username, u)
 				if cSess.Policy != nil && cSess.Policy.TrafficQuota > 0 {
 					quotaStr = utils.HumanByte(uint64(cSess.Policy.TrafficQuota))
 					usedStr = utils.HumanByte(uint64(u.TrafficUsed))
@@ -134,7 +127,7 @@ func GetOnlineSess(search_cate string, search_text string, show_sleeper bool) []
 				datas = append(datas, val)
 			}
 		}()
-	}
+	})
 	sort.Sort(&datas)
 	return datas
 }

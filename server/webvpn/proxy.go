@@ -24,9 +24,9 @@ var remLinkSessionCookies = []string{
 	"acSamlv2Token",   // SAML SSO 会话令牌
 }
 
-// 构造 WebVPN 应用的反向代理
+// 构造应用反向代理
 func NewReverseProxy(app *dbdata.WebVpnApp, originalHost string) (*httputil.ReverseProxy, error) {
-	target, err := dbdata.ParseWebVpnBackendURL(app.Backend)
+	target, err := dbdata.ParseBackendURL(app.Backend)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func NewReverseProxy(app *dbdata.WebVpnApp, originalHost string) (*httputil.Reve
 		},
 		ErrorHandler: func(ew http.ResponseWriter, req *http.Request, e error) {
 			origin := req.Header.Get("Origin")
-			if origin != "" && dbdata.WebVpnCorsOriginAllowed(app, origin) {
+			if origin != "" && dbdata.WebVpn.CorsOriginAllowed(app, origin) {
 				ew.Header().Set("Access-Control-Allow-Origin", origin)
 				ew.Header().Set("Access-Control-Allow-Credentials", "true")
 				ew.Header().Set("Vary", "Origin")
@@ -94,7 +94,6 @@ func NewReverseProxy(app *dbdata.WebVpnApp, originalHost string) (*httputil.Reve
 	return proxy, nil
 }
 
-// 校验用户/组/IP/路径白名单（请求级完整授权）
 func pathAllowed(path, prefix string) bool {
 	path = strings.TrimSpace(path)
 	prefix = strings.TrimSpace(prefix)
@@ -112,15 +111,15 @@ func pathAllowed(path, prefix string) bool {
 	return path == prefix || (prefix == "/" && strings.HasPrefix(path, "/")) || strings.HasPrefix(path, prefix+"/")
 }
 
-func Authorized(app *dbdata.WebVpnApp, user *dbdata.User, r *http.Request) bool {
+func RequestAuthorized(app *dbdata.WebVpnApp, user *dbdata.User, r *http.Request) bool {
 	if app.Status != 1 {
 		return false
 	}
-	if !dbdata.WebVpnUserAllowed(app, user) {
+	if !dbdata.WebVpn.UserAllowed(app, user) {
 		return false
 	}
 	if len(app.IpAllowList) > 0 {
-		ip := net.ParseIP(realClientIP(r))
+		ip := net.ParseIP(ClientIP(r))
 		if ip == nil {
 			return false
 		}
@@ -144,9 +143,7 @@ func Authorized(app *dbdata.WebVpnApp, user *dbdata.User, r *http.Request) bool 
 }
 
 // 使用 TCP 连接地址，避免信任客户端提供的 X-Forwarded-For
-func RealClientIP(r *http.Request) string { return realClientIP(r) }
-
-func realClientIP(r *http.Request) string {
+func ClientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

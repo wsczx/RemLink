@@ -1,13 +1,12 @@
 // 将 auth.PipelineResult 的挑战信息收敛为与渲染格式无关的ChallengeView
-// 再由各端序列化为 XML / WebAuth-JSON / Portal-JSON。
+// 再由各端序列化为 XML / WebAuth-JSON / Portal-JSON
 // 本文件只负责"挑战如何渲染"，不负责流程分发与锁定计数
 //
 // 分层关系（与 AuthFlow 的边界）：
-//   - authflow.go 的 Flow 负责"按 StepPass/Fail/Pending 分发 + 统一锁定计数 +
-//     存挑战断点"，分发到各端的 OnChallenge 回调；
-//   - 本文件是各端 OnChallenge 回调内部共用的序列化工具：BuildChallengeView
-//     构造一次与格式无关的挑战模型，ToXML/ToWebAuthJSON/ToPortalJSON 是三种
-//     序列化出口。
+// - authflow.go 的 Flow 负责"按 StepPass/Fail/Pending 分发 + 统一锁定计数 +
+// 存挑战断点"，分发到各端的 OnChallenge 回调；
+// - 本文件是各端 OnChallenge 回调内部共用的序列化工具：BuildChallengeView
+// 构造一次与格式无关的挑战模型，ToXML/ToWebAuthJSON/ToPortalJSON 是三种序列化出口
 // 挑战字段来源唯一，各端渲染差异（XML 标签 / JSON 字段名 / 状态码）收敛到各自的 ToXxx 方法
 
 package handler
@@ -116,7 +115,7 @@ func maskPhone(phone string) string {
 
 // 将挑战视图序列化为原生管道 XML 渲染数据
 func (v *ChallengeView) ToXML() RequestData {
-	data := RequestData{Group: v.Group, Groups: dbdata.GetGroupNamesNormal()}
+	data := RequestData{Group: v.Group, Groups: dbdata.Groups.GetGroupNamesNormal()}
 	switch v.Type {
 	case auth.ChallengeOTP:
 		data.Error = v.Message

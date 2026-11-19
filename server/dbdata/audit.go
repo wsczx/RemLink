@@ -7,8 +7,14 @@ import (
 	"xorm.io/xorm"
 )
 
-func GetAuditSession(values url.Values) *xorm.Session {
-	session := xdb.Where("1=1")
+// 访问审计的存储入口
+type AccessAuditStore struct{ *table[AccessAudit] }
+
+// 访问审计与管理日志的存储入口实例，由 SetDB 注入持久化实现
+var Audits = &AccessAuditStore{}
+
+func (st *AccessAuditStore) GetAuditSession(values url.Values) *xorm.Session {
+	session := st.engine().Where("1=1")
 	if v := values.Get("search[username]"); v != "" {
 		fuzzy := "%" + v + "%"
 		session.And("username IN (SELECT username FROM "+QuoteIdent("user")+" WHERE username LIKE ? OR nickname LIKE ?)", fuzzy, fuzzy)
@@ -30,10 +36,6 @@ func GetAuditSession(values url.Values) *xorm.Session {
 	}
 	if v := values.Get("search[access_proto]"); v != "" {
 		session.And("access_proto = ?", v)
-	}
-	if v := values.Get("search[date][]"); v != "" {
-		// 日期区间可能以 "date[0]"/"date[1]" 形式出现，下面单独处理
-		_ = v
 	}
 	if dates, ok := values["search[date][]"]; ok && len(dates) == 2 && dates[0] != "" {
 		session.And("created_at BETWEEN ? AND ?", dates[0], dates[1])
@@ -57,8 +59,7 @@ func GetAuditSession(values url.Values) *xorm.Session {
 	}
 	return session
 }
-
-func ClearAccessAudit(ts string) (int64, error) {
-	affected, err := xdb.Where("created_at < ?", ts).Delete(&AccessAudit{})
+func (st *AccessAuditStore) ClearAccessAudit(ts string) (int64, error) {
+	affected, err := st.engine().Where("created_at < ?", ts).Delete(&AccessAudit{})
 	return affected, err
 }

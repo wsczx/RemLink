@@ -9,35 +9,13 @@ import (
 	"time"
 
 	"github.com/skip2/go-qrcode"
-	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/jwt"
-	"github.com/wsczx/remlink/sessdata"
+	"github.com/wsczx/remlink/pkg/utils"
+	"github.com/wsczx/remlink/service"
 	"github.com/xlzd/gotp"
 )
-
-func portalCheckLocalPassword(user *dbdata.User, password string) error {
-	if password == "" || !dbdata.VerifyPassword(password, user.PinCode) {
-		return fmt.Errorf("密码错误")
-	}
-	return nil
-}
-
-func portalIssueToken(user *dbdata.User) (string, error) {
-	token, err := jwt.SetJwtData(map[string]any{
-		"portal_user_id": user.Id,
-		"portal_user":    user.Username,
-		"portal_type":    user.Type,
-		"portal_groups":  user.Groups,
-	}, time.Now().Unix()+3600*3)
-	if err != nil {
-		return "", err
-	}
-	// 用户改密/停用/删号时可批量吊销其全部未过期 JWT
-	jwt.RegisterJwt(user.Username, token)
-	return token, nil
-}
 
 func portalCurrentUser(r *http.Request) (*dbdata.User, bool) {
 	cookie, err := r.Cookie(portalCookieName)
@@ -53,7 +31,7 @@ func portalCurrentUser(r *http.Request) (*dbdata.User, bool) {
 		return nil, false
 	}
 	user := &dbdata.User{}
-	if err := dbdata.One("Username", username, user); err == nil {
+	if err := dbdata.Users.GetByUsername(username, user); err == nil {
 		return user, user.Status == 1 && !user.IsExpired()
 	}
 
@@ -81,149 +59,7 @@ func portalCurrentUser(r *http.Request) (*dbdata.User, bool) {
 	}, true
 }
 
-func portalUserInfo(user *dbdata.User, r *http.Request) map[string]any {
-	cfg := base.GetCfg()
-	serverAddr := cfg.ServerAddr
-	if r != nil {
-		serverAddr = getServerAddr(r)
-	}
-	result := map[string]any{
-		"id":                  user.Id,
-		"username":            user.Username,
-		"name":                user.Nickname,
-		"email":               user.Email,
-		"groups":              user.Groups,
-		"type":                user.Type,
-		"status":              user.Status,
-		"limittime":           user.LimitTime,
-		"mtu":                 user.Mtu,
-		"disable_otp":         user.DisableOtp,
-		"otp_enabled":         user.OtpSecret != "" && !user.DisableOtp,
-		"can_change_password": user.Type == "" || user.Type == "local",
-		"created_at":          user.CreatedAt.Unix(),
-		"server_addr":         serverAddr,
-		"issuer":              cfg.Issuer,
-		"groups_detail":       portalGroupsDetail(user.Groups, user.PolicyId),
-		"user_policy":         portalPolicyInfo(user.PolicyId),
-		"traffic_used":        user.TrafficUsed,
-		"traffic_reset_at":    user.TrafficResetAt,
-	}
-
-	dash := dbdata.SettingPortalDashboard{}
-	if err := dbdata.SettingGet(&dash); err != nil {
-		if dbdata.CheckErrNotFound(err) {
-			// 默认值
-			dash.ClientDownloadHtml = base.DefaultDownloadHtml
-		}
-	}
-	result["dashboard"] = map[string]any{
-		"announcement_enabled": dash.AnnouncementEnabled,
-		"announcement":         dash.Announcement,
-		"announcement_level":   dash.AnnouncementLevel,
-		"quick_links_enabled":  dash.QuickLinksEnabled,
-		"quick_links":          dash.QuickLinks,
-		"cards_visible":        dash.CardsVisible,
-		"theme_color":          dash.ThemeColor,
-		"custom_css":           dash.CustomCss,
-		"client_guide":         dash.ClientGuide,
-		"client_guide_enabled": dash.ClientGuideEnabled,
-		"client_download_html": dash.ClientDownloadHtml,
-	}
-	return result
-}
-func portalGroupsDetail(groupNames []string, userPolicyId int) []map[string]any {
-	allGroups, err := dbdata.GetAllGroups()
-	if err != nil {
-		return nil
-	}
-	groupMap := make(map[string]dbdata.Group, len(allGroups))
-	for _, g := range allGroups {
-		groupMap[g.Name] = g
-	}
-
-	result := make([]map[string]any, 0, len(groupNames))
-	for _, gname := range groupNames {
-		g, ok := groupMap[gname]
-		if !ok {
-			continue
-		}
-		info := map[string]any{
-			"name":       g.Name,
-			"note":       g.Note,
-			"auth_types": portalAuthTypeLabels(g.AuthProfile),
-			"dns":        portalDnsList(g.SplitDns),
-			"status":     g.Status,
-		}
-		if userPolicyId == 0 && g.PolicyId > 0 {
-			info["policy"] = portalPolicyInfo(g.PolicyId)
-		}
-		result = append(result, info)
-	}
-	return result
-}
-
-func portalAuthTypeLabels(raw json.RawMessage) []string {
-	profile, err := auth.ParseAuthProfile(raw)
-	if err != nil {
-		return nil
-	}
-	labelMap := map[string]string{
-		"local":    "本地密码",
-		"ldap":     "LDAP",
-		"radius":   "RADIUS",
-		"cert":     "TLS证书",
-		"otp":      "动态验证码",
-		"wxwork":   "企微",
-		"feishu":   "飞书",
-		"dingtalk": "钉钉",
-	}
-	labels := make([]string, 0, len(profile.Step))
-	for _, step := range profile.Step {
-		label, ok := labelMap[step.Type]
-		if !ok {
-			label = step.Type
-		}
-		labels = append(labels, label)
-	}
-	return labels
-}
-
-func portalDnsList(splitDns []dbdata.ValData) []string {
-	vals := make([]string, 0, len(splitDns))
-	for _, d := range splitDns {
-		if d.Val != "" {
-			vals = append(vals, d.Val)
-		}
-	}
-	return vals
-}
-
-func portalPolicyInfo(policyId int) map[string]any {
-	if policyId <= 0 {
-		return nil
-	}
-	var policy dbdata.Policy
-	if err := dbdata.One("Id", policyId, &policy); err != nil {
-		return nil
-	}
-	return map[string]any{
-		"id":               policy.Id,
-		"name":             policy.Name,
-		"note":             policy.Note,
-		"allow_lan":        policy.AllowLan,
-		"bandwidth":        policy.Bandwidth,
-		"bandwidth_up":     policy.BandwidthUp,
-		"traffic_quota":    policy.TrafficQuota,
-		"traffic_reset":    policy.TrafficReset,
-		"route_include":    len(policy.RouteInclude),
-		"route_exclude":    len(policy.RouteExclude),
-		"ds_include_count": len(policy.DsIncludeDomains),
-		"ds_exclude_count": len(policy.DsExcludeDomains),
-		"acl_count":        len(policy.LinkAcl),
-	}
-}
-
-func PortalMyGroups(w http.ResponseWriter, r *http.Request) {
+func (p *PortalService) MyGroups(w http.ResponseWriter, r *http.Request) {
 	if !base.GetCfg().EnableUserPortal {
 		http.NotFound(w, r)
 		return
@@ -233,10 +69,10 @@ func PortalMyGroups(w http.ResponseWriter, r *http.Request) {
 		portalUnauthorized(w)
 		return
 	}
-	portalOK(w, portalGroupsDetail(user.Groups, user.PolicyId))
+	portalOK(w, service.PortalGroupsDetail(user.Groups, user.PolicyId))
 }
 
-func PortalOTPStatus(w http.ResponseWriter, r *http.Request) {
+func (p *PortalService) OTPStatus(w http.ResponseWriter, r *http.Request) {
 	if !base.GetCfg().EnableUserPortal {
 		http.NotFound(w, r)
 		return
@@ -253,7 +89,7 @@ func PortalOTPStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 已设置 OTP 时返回状态及密钥，方便用户绑定多设备
-	qrBase64, _ := portalGenerateOtpQr(user.Email, user.OtpSecret)
+	qrBase64, _ := generateOTPQR(user.Email, user.OtpSecret)
 	portalOK(w, map[string]any{
 		"enabled":   true,
 		"disabled":  user.DisableOtp,
@@ -262,7 +98,7 @@ func PortalOTPStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func PortalOTPRegenerate(w http.ResponseWriter, r *http.Request) {
+func (p *PortalService) RegenerateOTP(w http.ResponseWriter, r *http.Request) {
 	if !base.GetCfg().EnableUserPortal {
 		http.NotFound(w, r)
 		return
@@ -289,25 +125,25 @@ func PortalOTPRegenerate(w http.ResponseWriter, r *http.Request) {
 		portalError(w, "请输入当前密码确认")
 		return
 	}
-	if err := portalCheckLocalPassword(user, req.Password); err != nil {
+	if err := service.VerifyLocalPassword(user, req.Password); err != nil {
 		portalError(w, "密码错误")
 		return
 	}
 
 	secret := gotp.RandomSecret(32)
-	if err := dbdata.Update("Id", user.Id, &dbdata.User{OtpSecret: secret, DisableOtp: false}); err != nil {
+	if err := dbdata.GetDB().Update("Id", user.Id, &dbdata.User{OtpSecret: secret, DisableOtp: false}); err != nil {
 		base.Error("用户门户重置 OTP 失败:", err)
 		portalError(w, "重置失败")
 		return
 	}
-	qrBase64, _ := portalGenerateOtpQr(user.Email, secret)
+	qrBase64, _ := generateOTPQR(user.Email, secret)
 	portalOK(w, map[string]any{
 		"secret":    secret,
 		"qr_base64": qrBase64,
 	})
 }
 
-func portalGenerateOtpQr(email, secret string) (string, error) {
+func generateOTPQR(email, secret string) (string, error) {
 	issuer := url.QueryEscape(base.GetCfg().Issuer)
 	qrstr := fmt.Sprintf("otpauth://totp/%s:%s?issuer=%s&secret=%s", issuer, email, issuer, secret)
 	qr, err := qrcode.New(qrstr, qrcode.High)
@@ -322,7 +158,7 @@ func portalGenerateOtpQr(email, secret string) (string, error) {
 }
 
 // 返回当前用户的所有客户端证书（不含私钥）
-func PortalCertList(w http.ResponseWriter, r *http.Request) {
+func (p *PortalService) CertList(w http.ResponseWriter, r *http.Request) {
 	if !base.GetCfg().EnableUserPortal {
 		http.NotFound(w, r)
 		return
@@ -333,7 +169,7 @@ func PortalCertList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	certs, err := dbdata.GetClientCertsByUsername(user.Username)
+	certs, err := dbdata.Certs.GetClientCertsByUsername(user.Username)
 	if err != nil {
 		portalError(w, "获取证书列表失败")
 		return
@@ -381,7 +217,7 @@ func PortalCertList(w http.ResponseWriter, r *http.Request) {
 }
 
 // 下载当前用户的 P12 客户端证书（POST，密码在请求体中）
-func PortalCertDownload(w http.ResponseWriter, r *http.Request) {
+func (p *PortalService) DownloadCert(w http.ResponseWriter, r *http.Request) {
 	if !base.GetCfg().EnableUserPortal {
 		http.NotFound(w, r)
 		return
@@ -412,9 +248,9 @@ func PortalCertDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 安全校验：确保证书属于当前用户
-	cert, err := dbdata.GetClientCert(user.Username, req.Groupname)
+	cert, err := dbdata.Certs.GetClientCert(user.Username, req.Groupname)
 	if err != nil {
-		if dbdata.CheckErrNotFound(err) {
+		if utils.CheckErrNotFound(err) {
 			portalError(w, "未找到该证书")
 		} else {
 			portalError(w, "获取证书失败")
@@ -431,7 +267,7 @@ func PortalCertDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 生成 P12
-	p12Data, err := dbdata.GenerateClientP12FromDB(user.Username, req.Groupname, req.Password)
+	p12Data, err := dbdata.Certs.GenerateClientP12FromDB(user.Username, req.Groupname, req.Password)
 	if err != nil {
 		portalError(w, fmt.Sprintf("证书下载失败: %v", err))
 		return
@@ -444,7 +280,7 @@ func PortalCertDownload(w http.ResponseWriter, r *http.Request) {
 }
 
 // 返回当前用户的在线设备列表
-func PortalDevices(w http.ResponseWriter, r *http.Request) {
+func (p *PortalService) Devices(w http.ResponseWriter, r *http.Request) {
 	if !base.GetCfg().EnableUserPortal {
 		http.NotFound(w, r)
 		return
@@ -455,7 +291,7 @@ func PortalDevices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessions := sessdata.GetOnlineSess("username", user.Username, false)
+	sessions := p.sessions.GetOnlineSess("username", user.Username, false)
 	type deviceItem struct {
 		Token            string `json:"token"`
 		Ip               string `json:"ip"`
@@ -493,7 +329,7 @@ func PortalDevices(w http.ResponseWriter, r *http.Request) {
 }
 
 // 踢下线指定设备
-func PortalDeviceOffline(w http.ResponseWriter, r *http.Request) {
+func (p *PortalService) DeviceOffline(w http.ResponseWriter, r *http.Request) {
 	if !base.GetCfg().EnableUserPortal {
 		http.NotFound(w, r)
 		return
@@ -514,7 +350,7 @@ func PortalDeviceOffline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 校验该 session 属于当前用户
-	sessions := sessdata.GetOnlineSess("username", user.Username, false)
+	sessions := p.sessions.GetOnlineSess("username", user.Username, false)
 	found := false
 	for _, s := range sessions {
 		if s.Token == req.Token {
@@ -527,7 +363,7 @@ func PortalDeviceOffline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessdata.CloseSess(req.Token, dbdata.UserLogoutClient)
+	p.sessions.CloseSess(req.Token, dbdata.UserLogoutClient)
 	portalOK(w, map[string]string{"message": "已断开该设备连接"})
 }
 

@@ -8,16 +8,17 @@ import (
 	"reflect"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/wsczx/remlink/base"
 	"xorm.io/xorm"
 )
 
-const backupFileDir = "./conf/backup"
-const currentBackupVersion = 1
-const restoreBatchSize = 500
+const (
+	backupFileDir        = "./conf/backup"
+	currentBackupVersion = 1
+	restoreBatchSize     = 500
+)
 
 type backupTable struct {
 	Name  string // 表名
@@ -65,33 +66,27 @@ func backupTableByNameMap() map[string]backupTable {
 	return m
 }
 
-// 备份/还原子系统的中心对象（单例）
-// 聚合 Exporter（导出）与 Importer（导入）两个子组件
-// 各子组件通过构造函数持有 *xorm.Engine，避免 *xorm.Session 在调用链中层层透传
+// 备份/还原子系统的中心对象（单例），持有表清单及其索引
 type BackupManager struct {
 	Tables      []backupTable
 	TableByName map[string]backupTable
 }
 
-var (
-	backupManagerOnce sync.Once
-	backupManagerInst *BackupManager
-)
+// 全局备份管理器实例，由 App 在启动时注入
+var Backups *BackupManager
 
-// 返回全局唯一的 BackupManager 单例
-func GetBackupManager() *BackupManager {
-	backupManagerOnce.Do(func() {
-		backupManagerInst = &BackupManager{
-			Tables:      backupTables,
-			TableByName: backupTableByNameMap(),
-		}
-	})
-	return backupManagerInst
+func SetBackups(m *BackupManager) { Backups = m }
+
+func NewBackupManager() *BackupManager {
+	return &BackupManager{
+		Tables:      backupTables,
+		TableByName: backupTableByNameMap(),
+	}
 }
 
-// 返回默认引擎（xdb）的备份导出器
+// 返回默认引擎（GetDB().Engine()）的备份导出器
 func (m *BackupManager) Exporter() *Exporter {
-	return NewExporter(xdb)
+	return NewExporter(GetDB().Engine())
 }
 
 // 返回绑定指定引擎的备份导入器
@@ -99,9 +94,9 @@ func (m *BackupManager) NewImporter(engine *xorm.Engine) *Importer {
 	return NewImporter(engine)
 }
 
-// 还原到默认引擎（xdb），成功后热加载配置
+// 还原到默认引擎（GetDB().Engine()），成功后热加载配置
 func (m *BackupManager) Restore(filename string) error {
-	return NewImporter(xdb).Restore(filename)
+	return NewImporter(GetDB().Engine()).Restore(filename)
 }
 
 // 返回所有已注册备份表的名称（已排序）
@@ -145,7 +140,7 @@ func (m *BackupManager) TableCount(name string) int64 {
 	if !ok {
 		return 0
 	}
-	n, err := xdb.Count(bt.newPtr())
+	n, err := GetDB().Engine().Count(bt.newPtr())
 	if err != nil {
 		base.Error("TableCount:", name, err)
 		return 0
@@ -246,18 +241,18 @@ func (e *Exporter) Create(backupType string, includeTables []string) (string, er
 	}
 
 	var tlsCert SettingTLSCert
-	if err := SettingGet(&tlsCert); err == nil && tlsCert.CertContent != "" {
+	if err := Settings.Get(&tlsCert); err == nil && tlsCert.CertContent != "" {
 		data.TLSCert = &tlsCert
 	}
 	var clientCA SettingClientCA
-	if err := SettingGet(&clientCA); err == nil && clientCA.CertContent != "" {
+	if err := Settings.Get(&clientCA); err == nil && clientCA.CertContent != "" {
 		data.ClientCA = &clientCA
 	}
 
 	if backupType == "full" {
 		tables := includeTables
 		if tables == nil {
-			tables = GetBackupManager().BusinessTableNames()
+			tables = Backups.BusinessTableNames()
 		}
 		data.Tables = make(map[string]json.RawMessage, len(tables))
 		for _, t := range tables {
@@ -292,7 +287,7 @@ func (e *Exporter) Create(backupType string, includeTables []string) (string, er
 }
 
 func (e *Exporter) exportTable(name string) (json.RawMessage, error) {
-	bt, ok := GetBackupManager().TableByName[name]
+	bt, ok := Backups.TableByName[name]
 	if !ok {
 		return nil, fmt.Errorf("unknown table: %s", name)
 	}
@@ -323,7 +318,7 @@ func NewImporter(engine *xorm.Engine) *Importer {
 	return &Importer{engine: engine}
 }
 
-// 还原到默认引擎（xdb），并在成功后热加载配置
+// 还原到默认引擎（GetDB().Engine()），并在成功后热加载配置
 func (im *Importer) Restore(filename string) error {
 	data, err := im.ReadFile(filename)
 	if err != nil {
@@ -391,7 +386,7 @@ func (im *Importer) restoreTables(sess *xorm.Session, data *BackupData) error {
 
 	existing := make(map[string]bool, len(data.Tables))
 	for name := range data.Tables {
-		bt, ok := GetBackupManager().TableByName[name]
+		bt, ok := Backups.TableByName[name]
 		if !ok {
 			continue
 		}
@@ -425,7 +420,7 @@ func (im *Importer) restoreTables(sess *xorm.Session, data *BackupData) error {
 
 // 清空指定表的所有行
 func (im *Importer) ClearTable(sess *xorm.Session, name string) error {
-	bt, ok := GetBackupManager().TableByName[name]
+	bt, ok := Backups.TableByName[name]
 	if !ok {
 		return fmt.Errorf("unknown table: %s", name)
 	}
@@ -435,7 +430,7 @@ func (im *Importer) ClearTable(sess *xorm.Session, name string) error {
 
 // 将单张表的 JSON 行批量写入
 func (im *Importer) ImportTable(sess *xorm.Session, name string, raw json.RawMessage) error {
-	bt, ok := GetBackupManager().TableByName[name]
+	bt, ok := Backups.TableByName[name]
 	if !ok {
 		return fmt.Errorf("unknown table: %s", name)
 	}
@@ -478,7 +473,7 @@ func (im *Importer) restoreConfig(sess *xorm.Session, data *BackupData) (*base.S
 
 	// 恢复密钥
 	var currentSC SettingServerConfig
-	if err := SettingSessGet(sess, &currentSC); err == nil {
+	if err := Settings.SessGet(sess, &currentSC); err == nil {
 		if cfgCopy.JwtSecret == "" {
 			cfgCopy.JwtSecret = currentSC.Config.JwtSecret
 		}
@@ -494,7 +489,7 @@ func (im *Importer) restoreConfig(sess *xorm.Session, data *BackupData) (*base.S
 	if _, err := sess.Where("name = ?", "SettingServerConfig").Delete(&Setting{}); err != nil {
 		return nil, err
 	}
-	if err := SettingSessAdd(sess, sc); err != nil {
+	if err := Settings.SessAdd(sess, sc); err != nil {
 		return nil, fmt.Errorf("还原配置失败: %w", err)
 	}
 

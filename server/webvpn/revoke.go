@@ -5,29 +5,29 @@ import (
 	"github.com/wsczx/remlink/dbdata"
 )
 
-// 整用户/批量踢出：通过抬高吊销阈值（O(1)）使此前签发的会话立即失效
-type Revoker struct{}
-
-func NewRevoker() *Revoker { return &Revoker{} }
+// 抬高吊销阈值使既有会话失效
+type Revoker struct {
+	mgr *WebVPNManager
+}
 
 // 吊销指定用户的全部 WebVPN 会话
-func (r *Revoker) RevokeUser(username string) {
-	GetManager().Session().RevokeUser(username)
+func (r *Revoker) User(username string) {
+	r.mgr.Session().RevokeUser(username)
 }
 
 // 批量吊销一批用户的 WebVPN 会话
-func (r *Revoker) RevokeUsers(usernames []string) {
+func (r *Revoker) Users(usernames []string) {
 	for _, u := range usernames {
-		r.RevokeUser(u)
+		r.User(u)
 	}
 }
 
 // 吊销指定用户组全部成员的 WebVPN 会话
-func (r *Revoker) RevokeGroupMembers(groupNames []string) {
+func (r *Revoker) GroupMembers(groupNames []string) {
 	if len(groupNames) == 0 {
 		return
 	}
-	users, err := dbdata.UsersInGroups(groupNames)
+	users, err := dbdata.Users.InGroups(groupNames)
 	if err != nil {
 		base.Error("WebVPN 查询组成员失败:", err)
 		return
@@ -37,12 +37,7 @@ func (r *Revoker) RevokeGroupMembers(groupNames []string) {
 		if kicked[u.Username] {
 			continue
 		}
-		r.RevokeUser(u.Username)
+		r.User(u.Username)
 		kicked[u.Username] = true
 	}
-}
-
-// 返回指定用户的吊销阈值（0 表示未吊销）
-func (r *Revoker) BeforeOf(username string) int64 {
-	return dbdata.WebVpnRevokeBeforeOf(username)
 }

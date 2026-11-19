@@ -94,17 +94,18 @@ func TestParseDNSQuery(t *testing.T) {
 }
 
 func TestLogAudit_v4_HTTPS_Domain(t *testing.T) {
-	auditPayload = &AuditPayload{Pool: utils.NewWorkerPool(1, 16), IpAuditMap: &sync.Map{}}
-	logBatch = &LogBatch{LogChan: make(chan dbdata.AccessAudit, 16)}
+	aa := NewAccessAudit(sessdata.NewSessionManager())
+	aa.Payload = &AuditPayload{Pool: utils.NewWorkerPool(1, 16), IpAuditMap: &sync.Map{}}
+	aa.Batch = &LogBatch{LogChan: make(chan dbdata.AccessAudit, 16)}
 
 	pkt := buildV4Raw(6, net.ParseIP("203.0.113.5"), net.ParseIP("203.0.113.1"),
 		buildTCPSegment(buildTLSClientHello("www.example.com")))
-	buf := make([]byte, len(pkt), BufferSize)
+	buf := make([]byte, len(pkt), sessdata.PayloadBufferSize)
 	copy(buf, pkt)
-	logAudit("user", "group", &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: buf})
+	aa.log("user", "group", &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: buf})
 
 	select {
-	case audit := <-logBatch.LogChan:
+	case audit := <-aa.Batch.LogChan:
 		if audit.Info != "www.example.com" {
 			t.Fatalf("Info = %q, want www.example.com", audit.Info)
 		}
@@ -117,17 +118,18 @@ func TestLogAudit_v4_HTTPS_Domain(t *testing.T) {
 }
 
 func TestLogAudit_v6_HTTPS_Domain(t *testing.T) {
-	auditPayload = &AuditPayload{Pool: utils.NewWorkerPool(1, 16), IpAuditMap: &sync.Map{}}
-	logBatch = &LogBatch{LogChan: make(chan dbdata.AccessAudit, 16)}
+	aa := NewAccessAudit(sessdata.NewSessionManager())
+	aa.Payload = &AuditPayload{Pool: utils.NewWorkerPool(1, 16), IpAuditMap: &sync.Map{}}
+	aa.Batch = &LogBatch{LogChan: make(chan dbdata.AccessAudit, 16)}
 
 	pkt := buildV6Packet(6, net.ParseIP("2001:db8::2"), net.ParseIP("2001:db8::1"), 20+len(buildTLSClientHello("v6.example.com")))
 	copy(pkt[40:], buildTCPSegment(buildTLSClientHello("v6.example.com")))
-	buf := make([]byte, len(pkt), BufferSize)
+	buf := make([]byte, len(pkt), sessdata.PayloadBufferSize)
 	copy(buf, pkt)
-	logAudit("user", "group", &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: buf})
+	aa.log("user", "group", &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: buf})
 
 	select {
-	case audit := <-logBatch.LogChan:
+	case audit := <-aa.Batch.LogChan:
 		if audit.Info != "v6.example.com" {
 			t.Fatalf("Info = %q, want v6.example.com", audit.Info)
 		}
@@ -137,19 +139,20 @@ func TestLogAudit_v6_HTTPS_Domain(t *testing.T) {
 }
 
 func TestLogAudit_v4_DNS_Domain(t *testing.T) {
-	auditPayload = &AuditPayload{Pool: utils.NewWorkerPool(1, 16), IpAuditMap: &sync.Map{}}
-	logBatch = &LogBatch{LogChan: make(chan dbdata.AccessAudit, 16)}
+	aa := NewAccessAudit(sessdata.NewSessionManager())
+	aa.Payload = &AuditPayload{Pool: utils.NewWorkerPool(1, 16), IpAuditMap: &sync.Map{}}
+	aa.Batch = &LogBatch{LogChan: make(chan dbdata.AccessAudit, 16)}
 
 	dns := buildDNSQuery("dns.google.com")
 	pkt := buildV4Raw(17, net.ParseIP("203.0.113.5"), net.ParseIP("8.8.8.8"), dns)
 	binary.BigEndian.PutUint16(pkt[20:22], 12345)
 	binary.BigEndian.PutUint16(pkt[22:24], 53) // 目的端口 53
-	buf := make([]byte, len(pkt), BufferSize)
+	buf := make([]byte, len(pkt), sessdata.PayloadBufferSize)
 	copy(buf, pkt)
-	logAudit("user", "group", &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: buf})
+	aa.log("user", "group", &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: buf})
 
 	select {
-	case audit := <-logBatch.LogChan:
+	case audit := <-aa.Batch.LogChan:
 		if audit.Info != "dns.google.com" {
 			t.Fatalf("Info = %q, want dns.google.com", audit.Info)
 		}

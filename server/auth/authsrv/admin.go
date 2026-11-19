@@ -1,6 +1,7 @@
 package authsrv
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -11,30 +12,31 @@ import (
 	"github.com/xlzd/gotp"
 )
 
-// 管理员 OTP 动态码防重放攻击。
+// 管理员 OTP 动态码防重放攻击
 var (
 	adminOtpUsed   = make(map[string]time.Time)
 	adminOtpUsedMu sync.Mutex
 )
 
-func init() {
-	auth.Registry.Register("admin", func() auth.Authenticator {
-		return &AdminAuth{}
-	})
-
-	// 每 10 秒清理超过 90 秒的旧 OTP 记录
+// 启动后台 goroutine，每 10 秒清理超过 90 秒的旧 admin OTP 记录
+func StartAdminOTPCleaner(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
-		for range ticker.C {
-			adminOtpUsedMu.Lock()
-			expire := time.Now().Add(-90 * time.Second)
-			for code, t := range adminOtpUsed {
-				if t.Before(expire) {
-					delete(adminOtpUsed, code)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				adminOtpUsedMu.Lock()
+				expire := time.Now().Add(-90 * time.Second)
+				for code, t := range adminOtpUsed {
+					if t.Before(expire) {
+						delete(adminOtpUsed, code)
+					}
 				}
+				adminOtpUsedMu.Unlock()
 			}
-			adminOtpUsedMu.Unlock()
 		}
 	}()
 }
@@ -83,8 +85,8 @@ func VerifyAdminOTP(otpCode string) error {
 	return nil
 }
 
-// OTP 验证不由本方法处理：Web 登录走两步 Login/LoginOTP 流程，
-// Pipeline 中如需 OTP 应配置独立的 "otp" step。
+// OTP 验证不由本方法处理：Web 登录走两步 Login/LoginOTP 流程
+// Pipeline 中如需 OTP 应配置独立的 "otp" step
 func (a *AdminAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 	if err := CheckAdminPassword(ctx.Conn.Username, ctx.Conn.Password); err != nil {
 		return auth.StepFail, err

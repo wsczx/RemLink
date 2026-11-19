@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/wsczx/remlink/pkg/utils"
+
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/xlzd/gotp"
@@ -49,11 +51,10 @@ func syncExternalUsers(g *Group, userType, sourceName string,
 			Status:     1,
 		}
 
-		// 查现有用户
 		u := &User{}
-		if err := One("username", ru.ID, u); err != nil {
-			if CheckErrNotFound(err) {
-				if err := Add(newUser); err != nil {
+		if err := GetDB().Get("username", ru.ID, u); err != nil {
+			if utils.CheckErrNotFound(err) {
+				if err := GetDB().Insert(newUser); err != nil {
 					base.Error("新增"+sourceName+"用户失败", ru.ID, err)
 					continue
 				}
@@ -92,7 +93,7 @@ func syncExternalUsers(g *Group, userType, sourceName string,
 		if !slices.Contains(u.Groups, g.Name) {
 			u.Groups = append(u.Groups, g.Name)
 		}
-		if err := Set(u); err != nil {
+		if err := GetDB().Save(u); err != nil {
 			base.Error("更新"+sourceName+"用户失败", u.Username, err)
 		} else {
 			updated++
@@ -106,7 +107,7 @@ func syncExternalUsers(g *Group, userType, sourceName string,
 // 清理失联用户：从组中移除；无其他组时删除
 func cleanupAbsentExternalUsers(g *Group, userType, sourceName string, syncedUsers map[string]bool, isBlocked func(string) bool) error {
 	var localUsers []User
-	if err := FindWhere(&localUsers, 0, 0, "type = ?", userType); err != nil {
+	if err := GetDB().FindWhere(&localUsers, 0, 0, "type = ?", userType); err != nil {
 		base.Error("查询本地"+sourceName+"用户失败:", err)
 		return fmt.Errorf("查询本地%s用户失败: %w", sourceName, err)
 	}
@@ -119,13 +120,13 @@ func cleanupAbsentExternalUsers(g *Group, userType, sourceName string, syncedUse
 				localUser.Groups = slices.Delete(localUser.Groups, i, i+1)
 			}
 			if len(localUser.Groups) == 0 {
-				if err := Del(&localUser); err != nil {
+				if err := GetDB().Delete(&localUser); err != nil {
 					base.Error("删除本地"+sourceName+"用户失败:", localUser.Username, err)
 				} else {
 					base.Info("成功删除本地"+sourceName+"用户:", localUser.Username)
 				}
 			} else {
-				if err := Set(&localUser); err != nil {
+				if err := GetDB().Save(&localUser); err != nil {
 					base.Error("更新用户组失败:", localUser.Username, err)
 				} else {
 					base.Info("成功从组 '"+g.Name+"' 移除用户:", localUser.Username)
@@ -148,7 +149,7 @@ func resolveProviderConfigMap(g *Group, stepType, name string) (map[string]any, 
 			if step.Provider == "" {
 				return nil, fmt.Errorf("%s步骤未设置 Provider", name)
 			}
-			resolved, err := ResolveProviderConfig(step.Provider, stepType)
+			resolved, err := Providers.ResolveConfig(step.Provider, stepType)
 			if err != nil {
 				return nil, fmt.Errorf("解析%s Provider %q: %w", name, step.Provider, err)
 			}
@@ -162,20 +163,20 @@ func resolveProviderConfigMap(g *Group, stepType, name string) (map[string]any, 
 type extSyncSource struct {
 	authType string // 认证步骤类型
 	name     string // 中文源名（日志用）
-	// resolve 解析配置，返回 (是否启用同步, 同步执行函数)
+	// 解析配置，返回 (是否启用同步, 同步执行函数)
 	resolve func(g *Group) (enabled bool, save func(*Group) error, err error)
 }
 
 // 遍历所有组，对配置了该认证源且开启 sync_users 的组
 // 异步执行用户同步（四源共用）
 func syncExternalUsersBySource(src extSyncSource) {
-	groups, err := GetAllGroups()
+	groups, err := Groups.GetAllGroups()
 	if err != nil {
 		base.Error("获取所有组失败:", err)
 		return
 	}
 	for _, g := range groups {
-		if !HasAuthType(g.AuthProfile, src.authType) {
+		if !Groups.HasAuthType(g.AuthProfile, src.authType) {
 			continue
 		}
 		enabled, save, err := src.resolve(&g)

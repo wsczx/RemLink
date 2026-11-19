@@ -24,7 +24,7 @@ func ClearStatsInfo() {
 
 // 判断是否到达清理时间
 func isClearTime() (int, bool) {
-	dataLog, err := dbdata.SettingGetAuditLog()
+	dataLog, err := dbdata.Settings.GetAuditLog()
 	if err != nil {
 		base.Error("Cron SettingGetLog: ", err)
 		return -1, false

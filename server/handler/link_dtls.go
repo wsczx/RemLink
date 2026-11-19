@@ -10,8 +10,8 @@ import (
 	"github.com/wsczx/remlink/sessdata"
 )
 
-func LinkDtls(conn net.Conn, cSess *sessdata.ConnSession) {
-	base.Debug("LinkDtls connect ip:", cSess.IpAddr, "user:", cSess.Username, "udp-rip:", conn.RemoteAddr())
+func LinkDTLS(conn net.Conn, cSess *sessdata.ConnSession) {
+	base.Debug("LinkDTLS connect ip:", cSess.IpAddr, "user:", cSess.Username, "udp-rip:", conn.RemoteAddr())
 	dSess := cSess.NewDtlsConn()
 	if dSess == nil {
 		// 创建失败，直接关闭链接
@@ -22,171 +22,109 @@ func LinkDtls(conn net.Conn, cSess *sessdata.ConnSession) {
 	defer func() {
 		// 解析畸形报文等异常不应带崩整个进程
 		if err := recover(); err != nil {
-			base.Error("LinkDtls panic", cSess.Username, err)
+			base.Error("LinkDTLS panic", cSess.Username, err)
 		}
-		base.Debug("LinkDtls return", cSess.Username, cSess.IpAddr)
+		base.Debug("LinkDTLS return", cSess.Username, cSess.IpAddr)
 		_ = conn.Close()
 		dSess.Close()
 	}()
 
-	var (
-		err  error
-		n    int
-		dead = time.Duration(cSess.CstpDpd+5) * time.Second
-	)
-
-	go dtlsWrite(conn, dSess, cSess)
-
-	for {
-		err = conn.SetReadDeadline(utils.NowSec().Add(dead))
-		if err != nil {
-			base.Error("SetDeadline: ", cSess.Username, cSess.IpAddr, err)
-			return
+	dead := time.Second * time.Duration(cSess.CstpDpd+5)
+	readFn := func(pl *sessdata.Payload) (int, error) {
+		if err := conn.SetReadDeadline(utils.NowSec().Add(dead)); err != nil {
+			dSess.Close()
+			return 0, err
 		}
-
-		pl := getPayload()
-		n, err = conn.Read(pl.Data)
+		n, err := conn.Read(pl.Data)
 		if err != nil {
-			base.Warn("read hdata: ", cSess.Username, cSess.IpAddr, err)
-			return
+			dSess.Close()
+			return n, err
 		}
-
-		// DTLS 头部至少需要 1 字节（type）
-		if n < 1 {
-			continue
-		}
-
-		// 限流设置
-		err = cSess.RateLimit(n, true)
-		if err != nil {
+		// 读侧上行限速
+		if err = cSess.RateLimit(n, true); err != nil {
 			base.Error(err)
 		}
-
-		switch pl.Data[0] {
-		case 0x07: // KEEPALIVE
-			// do nothing
-			base.Trace("recv LinkDtls Keepalive", cSess.Username, cSess.IpAddr, conn.RemoteAddr())
-		case 0x05: // DISCONNECT
-			cSess.SetLogoutCode(dbdata.UserLogoutClient)
-			base.Info("DISCONNECT DTLS", dbdata.UserLabel(cSess.Username, cSess.Nickname), cSess.IpAddr, conn.RemoteAddr())
-			return
-		case 0x03: // DPD-REQ
-			base.Trace("recv LinkDtls DPD-REQ", cSess.Username, cSess.IpAddr, conn.RemoteAddr(), n)
-			pl.PType = 0x04
-			// 从零开始 可以直接赋值
-			pl.Data = pl.Data[:n]
-			if payloadOutDtls(cSess, dSess, pl) {
-				return
-			}
-		case 0x04:
-			base.Trace("recv LinkDtls DPD-RESP", cSess.Username, cSess.IpAddr, conn.RemoteAddr())
-		case 0x08: // decompress
-			if cSess.DtlsPickCmp == nil || n < 2 {
-				continue
-			}
-			dst := getByteFull()
-			// 只解压实际读到的数据，避免把缓冲区残留脏数据一起解压
-			nn, err := cSess.DtlsPickCmp.Uncompress(pl.Data[1:n], *dst)
-			if err != nil {
-				putByte(dst)
-				base.Error("dtls decompress error", err, n)
-				continue
-			}
-			if nn <= 0 || nn+1 > BufferSize {
-				putByte(dst)
-				base.Error("dtls decompress invalid len:", cSess.Username, nn)
-				continue
-			}
-			pl.Data = append(pl.Data[:1], (*dst)[:nn]...)
-			putByte(dst)
-			n = nn + 1
-			fallthrough
-		case 0x00: // DATA
-			// n==1 时载荷为空，下游 payloadIn 读 pl.Data[0] 会越界
-			if n < 2 {
-				continue
-			}
-			// 去除 1 字节类型头，取 n-1 字节载荷
-			pl.Data = append(pl.Data[:0], pl.Data[1:n]...)
-			if payloadIn(cSess, pl) {
-				return
-			}
-			// 只记录返回正确的数据时间
-			cSess.LastDataTime.Store(utils.NowSec().Unix())
-		}
-
+		return n, nil
 	}
-}
-
-func dtlsWrite(conn net.Conn, dSess *sessdata.DtlsSession, cSess *sessdata.ConnSession) {
-	defer func() {
-		base.Debug("dtlsWrite return", cSess.Username, cSess.IpAddr)
-		_ = conn.Close()
-		dSess.Close()
-	}()
-
-	var (
-		pl *sessdata.Payload
-	)
-
-	for {
-		// dtls优先推送数据
-		select {
-		case pl = <-cSess.PayloadOutDtls:
-		case <-dSess.CloseChan:
-			return
-		}
-
+	decoder := &dtlsDecoder{sess: cSess, conn: conn, dSess: dSess}
+	writeFn := func(pl *sessdata.Payload) (int, error) {
 		if pl.LType != sessdata.LTypeIPData {
-			continue
+			return 0, nil
 		}
-
-		// header = []byte{payload.PType}
-		if pl.PType == 0x00 { // data
-			isCompress := false
-			if cSess.DtlsPickCmp != nil && len(pl.Data) > base.GetCfg().NoCompressLimit {
-				dst := getByteFull()
-				size, err := cSess.DtlsPickCmp.Compress(pl.Data, (*dst)[1:])
-				if err == nil && size < len(pl.Data) {
-					(*dst)[0] = 0x08
-					pl.Data = append(pl.Data[:0], (*dst)[:size+1]...)
-					isCompress = true
-				}
-				putByte(dst)
-			}
-			// 未压缩：在载荷前加 1 字节类型头
-			if !isCompress {
-				// 缓冲区容量不足时丢弃，避免 reslice 越界 panic
-				// （tun/tap MTU 配置超过 2047 的异常场景）
-				if len(pl.Data)+1 > cap(pl.Data) {
-					base.Warn("dtlsWrite 载荷超出缓冲区容量，丢弃:", cSess.Username, cSess.IpAddr)
-					putPayload(pl)
-					continue
-				}
-				pl.Data = pl.Data[:len(pl.Data)+1]
-				copy(pl.Data[1:], pl.Data[:len(pl.Data)-1])
-				pl.Data[0] = pl.PType
-			}
-		} else {
-			// 设置头类型
-			if pl.PType == 0x04 {
-				pl.Data[0] = pl.PType
-			} else {
-				pl.Data = append(pl.Data[:0], pl.PType)
-			}
+		// 数据报文(0x00/0x08)由 DTLS 承载；DPD-RESP(0x04) 等控制报文也走 DTLS，
+		// Frame 对控制类型仅写 1 字节类型头，客户端据此判活（CSTP 收到的 DPD 已改走 CSTP 应答）
+		if dtlsFormat.Encode(cSess.DtlsPickCmp, pl) {
+			// 缓冲越界，丢弃（不写）
+			base.Warn("dtlsWrite 载荷超出缓冲区容量，丢弃:", cSess.Username, cSess.IpAddr)
+			return 0, nil
 		}
 		n, err := conn.Write(pl.Data)
 		if err != nil {
-			base.Warn("write err", cSess.Username, cSess.IpAddr, err)
-			return
+			// 写失败需关闭本通道，否则 LinkDTLS 永久等待 CloseChan
+			dSess.Close()
+			return n, err
 		}
-
-		putPayload(pl)
-
-		// 限流设置
-		err = cSess.RateLimit(n, false)
-		if err != nil {
-			base.Error(err)
+		if n > 0 {
+			_ = cSess.RateLimit(n, false)
 		}
+		return n, nil
 	}
+
+	go runSessionReadLoop(cSess, readFn, decoder.decode, false)
+	go runSessionWriteLoop(cSess, cSess.PayloadOutDtls, dSess.CloseChan, writeFn, sessdata.Payloads.PutPayload, false)
+	go runSessionIdleCheck(cSess, dSess.CloseChan)
+
+	// DTLS 通道关闭即返回并触发 defer 清理；主会话不受影响
+	<-dSess.CloseChan
+}
+
+type dtlsDecoder struct {
+	sess  *sessdata.ConnSession
+	conn  net.Conn
+	dSess *sessdata.DtlsSession
+}
+
+func (d *dtlsDecoder) decode(pl *sessdata.Payload, n int) bool {
+	sess, conn := d.sess, d.conn
+
+	switch pl.Data[0] {
+	case 0x07: // KEEPALIVE
+		base.Trace("recv LinkDTLS Keepalive", sess.Username, sess.IpAddr, conn.RemoteAddr())
+	case 0x05: // DISCONNECT
+		sess.SetLogoutCode(dbdata.UserLogoutClient)
+		base.Info("DISCONNECT DTLS", dbdata.Users.Label(sess.Username, sess.Nickname), sess.IpAddr, conn.RemoteAddr())
+		d.dSess.Close()
+		return true
+	case 0x03: // DPD-REQ
+		base.Trace("recv LinkDTLS DPD-REQ", sess.Username, sess.IpAddr, conn.RemoteAddr(), n)
+		pl.PType = 0x04
+		pl.Data = pl.Data[:n]
+		if sess.PayloadOut(pl) {
+			return true
+		}
+	case 0x04:
+		base.Trace("recv LinkDTLS DPD-RESP", sess.Username, sess.IpAddr, conn.RemoteAddr())
+	case 0x08: // COMPRESSED DATA：解压后按 DATA 处理
+		var ok bool
+		if n, ok = dtlsFormat.Decompress(sess.DtlsPickCmp, pl, n); !ok {
+			return false
+		}
+		return d.handleData(pl, n)
+	case 0x00: // DATA
+		return d.handleData(pl, n)
+	}
+	return false
+}
+
+func (d *dtlsDecoder) handleData(pl *sessdata.Payload, n int) bool {
+	data, ok := dtlsFormat.Decode(pl, n)
+	if !ok {
+		return false
+	}
+	pl.Data = append(pl.Data[:0], data...)
+	if d.sess.PayloadInbound(pl) {
+		return true
+	}
+	d.sess.LastDataTime.Store(utils.NowSec().Unix())
+	return false
 }

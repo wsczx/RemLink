@@ -8,12 +8,6 @@ import (
 	"github.com/wsczx/remlink/dbdata"
 )
 
-func init() {
-	auth.Registry.Register("cert", func() auth.Authenticator {
-		return &CertAuth{}
-	})
-}
-
 // 证书步骤仅验证客户端证书的有效性（未过期、未被吊销、匹配已签发的证书记录），
 // 证书身份缺失时以 CN 回填用户名
 type CertAuth struct {
@@ -43,7 +37,7 @@ func (a *CertAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 	}
 
 	deviceID := ctx.Conn.DeviceID
-	if !dbdata.ValidateClientCert(clientCert, deviceID) {
+	if !dbdata.Certs.ValidateClientCert(clientCert, deviceID) {
 		return auth.StepFail, fmt.Errorf("客户端证书验证失败")
 	}
 
@@ -55,19 +49,19 @@ func (a *CertAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 	ctx.Identity = username
 	// 加载用户信息（含过期时间），供后续步骤与会话创建后 checkSession 检测在线期间到期
 	u := &dbdata.User{}
-	if dbdata.One("Username", username, u) == nil {
+	if dbdata.Users.GetByUsername(username, u) == nil {
 		// 状态/过期校验
 		if u.Status != 1 {
-			base.Info("用户已被禁用，拒绝证书认证:", dbdata.UserLabel(username, u.Nickname))
+			base.Info("用户已被禁用，拒绝证书认证:", dbdata.Users.Label(username, u.Nickname))
 			return auth.StepFail, fmt.Errorf("用户已被禁用")
 		}
 		if u.IsExpired() {
-			base.Info("用户已过期，拒绝证书认证:", dbdata.UserLabel(username, u.Nickname))
+			base.Info("用户已过期，拒绝证书认证:", dbdata.Users.Label(username, u.Nickname))
 			return auth.StepFail, fmt.Errorf("用户已过期")
 		}
 		ctx.SetUserInfo(u.ToAuthInfo())
 		ctx.Conn.Nickname = u.Nickname
 	}
-	base.Info("用户通过证书认证:", dbdata.UserLabel(username, u.Nickname))
+	base.Info("用户通过证书认证:", dbdata.Users.Label(username, u.Nickname))
 	return auth.StepPass, nil
 }

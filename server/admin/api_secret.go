@@ -11,7 +11,7 @@ import (
 // 返回加密状态
 func SecretStatus(w http.ResponseWriter, r *http.Request) {
 	enabled := security.IsEnabled()
-	dbEncrypted := dbdata.HasEncryptedData()
+	dbEncrypted := dbdata.Secrets.HasEncryptedData()
 	RespSuccess(w, map[string]any{
 		"enabled":      enabled,
 		"db_encrypted": dbEncrypted,
@@ -34,12 +34,12 @@ func SecretEnable(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, fmt.Errorf("生成密钥失败: %w", err))
 		return
 	}
-	stats, err := dbdata.EnableEncryption()
+	stats, err := dbdata.Secrets.EnableEncryption()
 	if err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	dbdata.AdminLog("安全设置", "加密", "启用了敏感字段加密", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("安全设置", "加密", "启用了敏感字段加密", r.RemoteAddr)
 	RespSuccess(w, map[string]any{
 		"stats":    stats,
 		"key_path": security.KeyFilePath(),
@@ -67,16 +67,16 @@ func SecretUpload(w http.ResponseWriter, r *http.Request) {
 	restartMux.Lock()
 	defer restartMux.Unlock()
 
-	if err := dbdata.ImportEncryptionKey(req.Key); err != nil {
+	if err := dbdata.Secrets.ImportEncryptionKey(req.Key); err != nil {
 		RespError(w, RespInternalErr, fmt.Errorf("导入密钥失败: %w", err))
 		return
 	}
-	stats, err := dbdata.EnableEncryption()
+	stats, err := dbdata.Secrets.EnableEncryption()
 	if err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	dbdata.AdminLog("安全设置", "加密", "上传密钥并启用了敏感字段加密", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("安全设置", "加密", "上传密钥并启用了敏感字段加密", r.RemoteAddr)
 	RespSuccess(w, stats)
 }
 
@@ -90,12 +90,12 @@ func SecretDisable(w http.ResponseWriter, r *http.Request) {
 	restartMux.Lock()
 	defer restartMux.Unlock()
 
-	stats, warnings, err := dbdata.DisableEncryption()
+	stats, warnings, err := dbdata.Secrets.DisableEncryption()
 	if err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	dbdata.AdminLog("安全设置", "加密", "关闭了敏感字段加密", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("安全设置", "加密", "关闭了敏感字段加密", r.RemoteAddr)
 	RespSuccess(w, map[string]any{
 		"stats":    stats,
 		"warnings": warnings,

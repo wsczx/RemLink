@@ -8,35 +8,9 @@ import (
 	"github.com/wsczx/remlink/base"
 )
 
-// AuthFeishu 飞书认证配置（嵌入共享 FeishuConfig）
+// 飞书认证配置（嵌入共享 FeishuConfig）
 type AuthFeishu struct {
 	auth.FeishuConfig
-}
-
-// 从组的 AuthProfile 中获取飞书认证配置
-func GetAuthFeishu(groupName string) (*AuthFeishu, error) {
-	groupData := &Group{}
-	if err := One("Name", groupName, groupData); err != nil {
-		return nil, fmt.Errorf("用户组错误: %v", err)
-	}
-	return ResolveFeishuConfig(groupData)
-}
-
-// 从 Group 的 AuthProfile 解析飞书配置
-func ResolveFeishuConfig(g *Group) (*AuthFeishu, error) {
-	cfg, err := resolveProviderConfigMap(g, "feishu", "飞书")
-	if err != nil {
-		return nil, err
-	}
-
-	result := &AuthFeishu{}
-	if err := auth.GetProviderConfigFromMap(cfg, &result.FeishuConfig); err != nil {
-		return nil, err
-	}
-	if result.AppID == "" || result.AppSecret == "" {
-		return nil, fmt.Errorf("飞书配置不完整")
-	}
-	return result, nil
 }
 
 // 从飞书同步用户到本地数据库
@@ -46,11 +20,10 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 		return fmt.Errorf("获取飞书 access_token 失败: %w", err)
 	}
 
-	needOTP := HasAuthType(g.AuthProfile, "otp")
+	needOTP := Groups.HasAuthType(g.AuthProfile, "otp")
 	blocked := a.ParseBlockedUserIDs()
 	isBlocked := func(id string) bool { return a.CheckUserID(id, blocked) != nil }
 
-	// 拉取允许部门内的成员；未配置部门时拉取权限范围内全部用户
 	remote := make(map[string]RemoteUser)
 	if departments := a.ParseDepartments(); len(departments) > 0 {
 		for _, deptID := range departments {
@@ -78,7 +51,6 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 		}
 	}
 
-	// 飞书明细手机号带 +86 国际前缀，需去除
 	for id, ru := range remote {
 		if isBlocked(id) {
 			continue
@@ -103,13 +75,39 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 	return syncExternalUsers(g, "feishu", "飞书", remote, needOTP, isBlocked, false)
 }
 
+// 从组的 AuthProfile 中获取飞书认证配置
+func (st *GroupStore) GetAuthFeishu(groupName string) (*AuthFeishu, error) {
+	groupData := &Group{}
+	if err := GetDB().Get("Name", groupName, groupData); err != nil {
+		return nil, fmt.Errorf("用户组错误: %w", err)
+	}
+	return st.ResolveFeishuConfig(groupData)
+}
+
+// 从 Group 的 AuthProfile 解析飞书配置
+func (st *GroupStore) ResolveFeishuConfig(g *Group) (*AuthFeishu, error) {
+	cfg, err := resolveProviderConfigMap(g, "feishu", "飞书")
+	if err != nil {
+		return nil, err
+	}
+
+	result := &AuthFeishu{}
+	if err := auth.GetProviderConfigFromMap(cfg, &result.FeishuConfig); err != nil {
+		return nil, err
+	}
+	if result.AppID == "" || result.AppSecret == "" {
+		return nil, fmt.Errorf("飞书配置不完整")
+	}
+	return result, nil
+}
+
 // 同步所有飞书认证源用户（按各飞书认证源的 sync_users 独立控制）
-func SyncFeishuUsers() {
+func (st *GroupStore) SyncFeishuUsers() {
 	syncExternalUsersBySource(extSyncSource{
 		authType: "feishu",
 		name:     "飞书",
 		resolve: func(g *Group) (bool, func(*Group) error, error) {
-			cfg, err := ResolveFeishuConfig(g)
+			cfg, err := st.ResolveFeishuConfig(g)
 			if err != nil {
 				return false, nil, err
 			}

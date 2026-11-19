@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-
 	"strings"
 
 	"github.com/wsczx/remlink/base"
@@ -50,17 +49,7 @@ func (c *FeishuConfig) ParseDepartments() []string {
 
 // 解析拒绝的用户 ID 列表
 func (c *FeishuConfig) ParseBlockedUserIDs() []string {
-	if c.BlockedUserIDs == "" {
-		return nil
-	}
-	var ids []string
-	parts := strings.SplitSeq(c.BlockedUserIDs, ",")
-	for part := range parts {
-		if part = strings.TrimSpace(part); part != "" {
-			ids = append(ids, part)
-		}
-	}
-	return ids
+	return parseCSVList(c.BlockedUserIDs)
 }
 
 // 校验用户是否在拒绝名单中

@@ -26,9 +26,9 @@ func TestReloadAndCheckUser(t *testing.T) {
 
 	// 停用 → 拒绝
 	u := &dbdata.User{}
-	ast.NoError(dbdata.One("Username", "resumecheck", u))
+	ast.NoError(dbdata.Users.GetByUsername("resumecheck", u))
 	u.Status = 2
-	ast.NoError(dbdata.SetUser(u))
+	ast.NoError(dbdata.Users.SetUser(u))
 	ctxDisabled := &auth.Context{Conn: auth.ConnInfo{Username: "resumecheck", GroupName: "default"}}
 	err := ReloadAndCheckUser(ctxDisabled)
 	ast.Error(err, "停用用户必须被拒绝")
@@ -36,11 +36,11 @@ func TestReloadAndCheckUser(t *testing.T) {
 
 	// 过期 → 拒绝
 	u2 := &dbdata.User{}
-	ast.NoError(dbdata.One("Username", "resumecheck", u2))
+	ast.NoError(dbdata.Users.GetByUsername("resumecheck", u2))
 	u2.Status = 1
 	past := u2.CreatedAt.AddDate(-1, 0, 0)
 	u2.LimitTime = &past
-	ast.NoError(dbdata.SetUser(u2))
+	ast.NoError(dbdata.Users.SetUser(u2))
 	ctxExpired := &auth.Context{Conn: auth.ConnInfo{Username: "resumecheck", GroupName: "default"}}
 	err = ReloadAndCheckUser(ctxExpired)
 	ast.Error(err, "过期用户必须被拒绝")

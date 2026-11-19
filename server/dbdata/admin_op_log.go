@@ -14,36 +14,11 @@ var (
 	adminOpLogPool = utils.NewWorkerPool(1, 100)
 )
 
-// 异步写入管理员操作日志（安全审计）
-// opType: 操作类型, opTarget: 操作目标, detail: 详情, clientIP: 操作者IP
-func AdminLog(opType, opTarget, detail, clientIP string) {
-	adminUser := substr(base.GetCfg().AdminUser, 0, 60)
-	// 截断字段防止超长
-	opType = substr(opType, 0, 60)
-	opTarget = substr(opTarget, 0, 255)
-	detail = substr(detail, 0, 512)
-	clientIP = substr(clientIP, 0, 42)
+// 管理操作日志的存储入口
+type AdminOpLogStore struct{ *table[AdminOpLog] }
 
-	logEntry := AdminOpLog{
-		AdminUser: adminUser,
-		OpType:    opType,
-		OpTarget:  opTarget,
-		Detail:    detail,
-		ClientIp:  clientIP,
-	}
-
-	adminOpLogPool.JobQueue <- func() {
-		if err := Add(&logEntry); err != nil {
-			base.Error("写入管理员操作日志失败:", err)
-		}
-	}
-}
-
-// 清除管理员操作日志
-func ClearAdminOpLog(ts string) (int64, error) {
-	affected, err := xdb.Where("created_at < ?", ts).Delete(&AdminOpLog{})
-	return affected, err
-}
+// 管理操作日志的存储入口
+var AdminLogs = &AdminOpLogStore{}
 
 // 操作类型中文名
 var AdminOpLogTypes = []string{
@@ -58,9 +33,40 @@ var AdminOpLogTypes = []string{
 	"WebVPN应用管理",
 }
 
+// 异步写入管理员操作日志（安全审计）
+// opType: 操作类型, opTarget: 操作目标, detail: 详情, clientIP: 操作者IP
+func (st *AdminOpLogStore) AdminLog(opType, opTarget, detail, clientIP string) {
+	adminUser := substr(base.GetCfg().AdminUser, 0, 60)
+
+	opType = substr(opType, 0, 60)
+	opTarget = substr(opTarget, 0, 255)
+	detail = substr(detail, 0, 512)
+	clientIP = substr(clientIP, 0, 42)
+
+	logEntry := AdminOpLog{
+		AdminUser: adminUser,
+		OpType:    opType,
+		OpTarget:  opTarget,
+		Detail:    detail,
+		ClientIp:  clientIP,
+	}
+
+	adminOpLogPool.JobQueue <- func() {
+		if err := st.Insert(&logEntry); err != nil {
+			base.Error("写入管理员操作日志失败:", err)
+		}
+	}
+}
+
+// 清除管理员操作日志
+func (st *AdminOpLogStore) ClearAdminOpLog(ts string) (int64, error) {
+	affected, err := st.engine().Where("created_at < ?", ts).Delete(&AdminOpLog{})
+	return affected, err
+}
+
 // 构建管理员操作日志查询 session
-func GetAdminOpLogSession(values url.Values) *xorm.Session {
-	session := xdb.Where("1=1")
+func (st *AdminOpLogStore) GetAdminOpLogSession(values url.Values) *xorm.Session {
+	session := st.engine().Where("1=1")
 	if v := values.Get("op_type"); v != "" {
 		session.And("op_type = ?", v)
 	}

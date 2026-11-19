@@ -7,13 +7,15 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
-	"github.com/wsczx/remlink/pkg/dbtest"
+	"github.com/wsczx/remlink/dbtest"
 	"github.com/wsczx/remlink/pkg/jwt"
 	"github.com/wsczx/remlink/pkg/utils"
+	"github.com/wsczx/remlink/service"
 	"github.com/xlzd/gotp"
 )
 
@@ -61,7 +63,7 @@ func createPortalLoginSetup(t *testing.T, username, password, groupName string) 
 		ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}},
 		Status:    1,
 	}
-	err := dbdata.SetPolicy(pt)
+	err := dbdata.Policies.SetPolicy(pt)
 	ast.Nil(err)
 
 	g := &dbdata.Group{
@@ -70,7 +72,7 @@ func createPortalLoginSetup(t *testing.T, username, password, groupName string) 
 		PolicyId:    pt.Id,
 		AuthProfile: json.RawMessage(`{"step":[{"type":"local"}]}`),
 	}
-	err = dbdata.SetGroup(g)
+	err = dbdata.Groups.SetGroup(g)
 	ast.Nil(err)
 
 	hashedPwd, err := utils.PasswordHash(password)
@@ -82,7 +84,7 @@ func createPortalLoginSetup(t *testing.T, username, password, groupName string) 
 		Status:     1,
 		DisableOtp: true,
 	}
-	err = dbdata.SetUser(u)
+	err = dbdata.Users.SetUser(u)
 	ast.Nil(err)
 }
 
@@ -99,7 +101,7 @@ func TestPortalLogin_Success(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	PortalLogin(w, req)
+	testPortal.Login(w, req)
 
 	ast.Equal(http.StatusOK, w.Code)
 
@@ -126,7 +128,7 @@ func TestPortalLogin_WrongPassword(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	PortalLogin(w, req)
+	testPortal.Login(w, req)
 
 	ast.Equal(http.StatusOK, w.Code)
 
@@ -148,7 +150,7 @@ func TestPortalLogin_UserNotFound(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	PortalLogin(w, req)
+	testPortal.Login(w, req)
 
 	ast.Equal(http.StatusOK, w.Code)
 
@@ -165,13 +167,13 @@ func TestPortalLogin_Disabled(t *testing.T) {
 	req := httptest.NewRequest("POST", "/portal/login", strings.NewReader(body))
 	w := httptest.NewRecorder()
 
-	PortalLogin(w, req)
+	testPortal.Login(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusNotFound, w.Code)
 }
 
-func createPortalPwdUser(t *testing.T, username, password string) (*dbdata.User, string) {
+func createPortalPasswordUser(t *testing.T, username, password string) (*dbdata.User, string) {
 	ast := assert.New(t)
 
 	pt := &dbdata.Policy{
@@ -179,7 +181,7 @@ func createPortalPwdUser(t *testing.T, username, password string) (*dbdata.User,
 		ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}},
 		Status:    1,
 	}
-	_ = dbdata.SetPolicy(pt)
+	_ = dbdata.Policies.SetPolicy(pt)
 
 	g := &dbdata.Group{
 		Name:        "default",
@@ -187,7 +189,7 @@ func createPortalPwdUser(t *testing.T, username, password string) (*dbdata.User,
 		PolicyId:    pt.Id,
 		AuthProfile: json.RawMessage(`{"step":[{"type":"local"}]}`),
 	}
-	_ = dbdata.SetGroup(g)
+	_ = dbdata.Groups.SetGroup(g)
 
 	hashedPwd, err := utils.PasswordHash(password)
 	ast.Nil(err)
@@ -199,10 +201,10 @@ func createPortalPwdUser(t *testing.T, username, password string) (*dbdata.User,
 		Status:     1,
 		DisableOtp: true,
 	}
-	err = dbdata.SetUser(u)
+	err = dbdata.Users.SetUser(u)
 	ast.Nil(err)
 
-	token, err := portalIssueToken(u)
+	token, err := service.IssuePortalToken(u)
 	ast.Nil(err)
 	return u, token
 }
@@ -215,7 +217,7 @@ func TestPortalChangePassword_Success(t *testing.T) {
 		c.JwtSecret = "test-jwt-secret-for-portal-32b"
 	})
 
-	_, token := createPortalPwdUser(t, "testuser", "oldpass123")
+	_, token := createPortalPasswordUser(t, "testuser", "oldpass123")
 	ast := assert.New(t)
 
 	body := `{"old_password":"oldpass123","new_password":"newpass123"}`
@@ -224,7 +226,7 @@ func TestPortalChangePassword_Success(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: portalCookieName, Value: token})
 	w := httptest.NewRecorder()
 
-	PortalChangePassword(w, req)
+	testPortal.ChangePassword(w, req)
 
 	ast.Equal(http.StatusOK, w.Code)
 
@@ -237,7 +239,7 @@ func TestPortalChangePassword_Success(t *testing.T) {
 	loginReq := httptest.NewRequest("POST", "/portal/login", strings.NewReader(loginBody))
 	loginReq.Header.Set("Content-Type", "application/json")
 	loginW := httptest.NewRecorder()
-	PortalLogin(loginW, loginReq)
+	testPortal.Login(loginW, loginReq)
 
 	var loginResp map[string]any
 	json.NewDecoder(loginW.Body).Decode(&loginResp)
@@ -252,7 +254,7 @@ func TestPortalChangePassword_WrongOldPassword(t *testing.T) {
 		c.JwtSecret = "test-jwt-secret-for-portal-32b"
 	})
 
-	_, token := createPortalPwdUser(t, "testuser", "correctpass1")
+	_, token := createPortalPasswordUser(t, "testuser", "correctpass1")
 	ast := assert.New(t)
 
 	body := `{"old_password":"wrongoldpass","new_password":"newpass123"}`
@@ -261,7 +263,7 @@ func TestPortalChangePassword_WrongOldPassword(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: portalCookieName, Value: token})
 	w := httptest.NewRecorder()
 
-	PortalChangePassword(w, req)
+	testPortal.ChangePassword(w, req)
 
 	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
@@ -282,7 +284,7 @@ func TestPortalChangePassword_WeakNewPassword(t *testing.T) {
 		c.JwtSecret = "test-jwt-secret-for-portal-32b"
 	})
 
-	_, token := createPortalPwdUser(t, "testuser", "oldpass123")
+	_, token := createPortalPasswordUser(t, "testuser", "oldpass123")
 	ast := assert.New(t)
 
 	body := `{"old_password":"oldpass123","new_password":"12345678"}`
@@ -291,7 +293,7 @@ func TestPortalChangePassword_WeakNewPassword(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: portalCookieName, Value: token})
 	w := httptest.NewRecorder()
 
-	PortalChangePassword(w, req)
+	testPortal.ChangePassword(w, req)
 
 	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
@@ -311,7 +313,7 @@ func TestPortalChangePassword_TooShort(t *testing.T) {
 		c.JwtSecret = "test-jwt-secret-for-portal-32b"
 	})
 
-	_, token := createPortalPwdUser(t, "testuser", "oldpass123")
+	_, token := createPortalPasswordUser(t, "testuser", "oldpass123")
 	ast := assert.New(t)
 
 	body := `{"old_password":"oldpass123","new_password":"abc123"}`
@@ -320,7 +322,7 @@ func TestPortalChangePassword_TooShort(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: portalCookieName, Value: token})
 	w := httptest.NewRecorder()
 
-	PortalChangePassword(w, req)
+	testPortal.ChangePassword(w, req)
 
 	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
@@ -337,7 +339,7 @@ func TestPortalChangePassword_Unauthorized(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	PortalChangePassword(w, req)
+	testPortal.ChangePassword(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusUnauthorized, w.Code)
@@ -359,8 +361,8 @@ func TestPortalChangePassword_ExternalUser(t *testing.T) {
 		ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}},
 		Status:    1,
 	}
-	_ = dbdata.SetPolicy(pt)
-	_ = dbdata.SetGroup(&dbdata.Group{
+	_ = dbdata.Policies.SetPolicy(pt)
+	_ = dbdata.Groups.SetGroup(&dbdata.Group{
 		Name:        "default",
 		Status:      1,
 		PolicyId:    pt.Id,
@@ -374,10 +376,10 @@ func TestPortalChangePassword_ExternalUser(t *testing.T) {
 		Groups:   []string{"default"},
 		Status:   1,
 	}
-	err := dbdata.SetUser(u)
+	err := dbdata.Users.SetUser(u)
 	ast.Nil(err)
 
-	token, err := portalIssueToken(u)
+	token, err := service.IssuePortalToken(u)
 	ast.Nil(err)
 
 	body := `{"old_password":"old","new_password":"newpass123"}`
@@ -386,7 +388,7 @@ func TestPortalChangePassword_ExternalUser(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: portalCookieName, Value: token})
 	w := httptest.NewRecorder()
 
-	PortalChangePassword(w, req)
+	testPortal.ChangePassword(w, req)
 
 	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
@@ -410,7 +412,7 @@ func TestPortalResetPassword_InvalidToken(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	PortalResetPassword(w, req)
+	testPortal.ResetPassword(w, req)
 
 	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
@@ -428,7 +430,7 @@ func TestPortalResetPassword_EmptyFields(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	PortalResetPassword(w, req)
+	testPortal.ResetPassword(w, req)
 
 	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
@@ -451,7 +453,7 @@ func TestPortalResetPassword_Success(t *testing.T) {
 		ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}},
 		Status:    1,
 	}
-	err := dbdata.SetPolicy(pt)
+	err := dbdata.Policies.SetPolicy(pt)
 	ast.Nil(err)
 
 	g := &dbdata.Group{
@@ -460,7 +462,7 @@ func TestPortalResetPassword_Success(t *testing.T) {
 		PolicyId:    pt.Id,
 		AuthProfile: json.RawMessage(`{"step":[{"type":"local"}]}`),
 	}
-	err = dbdata.SetGroup(g)
+	err = dbdata.Groups.SetGroup(g)
 	ast.Nil(err)
 
 	hashedPwd, _ := utils.PasswordHash("oldpass123")
@@ -471,7 +473,7 @@ func TestPortalResetPassword_Success(t *testing.T) {
 		Status:     1,
 		DisableOtp: true,
 	}
-	err = dbdata.SetUser(u)
+	err = dbdata.Users.SetUser(u)
 	ast.Nil(err)
 
 	token, err := jwt.SetJwtData(map[string]any{
@@ -487,7 +489,7 @@ func TestPortalResetPassword_Success(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	PortalResetPassword(w, req)
+	testPortal.ResetPassword(w, req)
 
 	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
@@ -497,7 +499,7 @@ func TestPortalResetPassword_Success(t *testing.T) {
 	loginReq := httptest.NewRequest("POST", "/portal/login", strings.NewReader(loginBody))
 	loginReq.Header.Set("Content-Type", "application/json")
 	loginW := httptest.NewRecorder()
-	PortalLogin(loginW, loginReq)
+	testPortal.Login(loginW, loginReq)
 
 	var loginResp map[string]any
 	json.NewDecoder(loginW.Body).Decode(&loginResp)
@@ -508,13 +510,24 @@ func TestPortalLogout(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{EnableUserPortal: true})
 
+	portalTok, err := jwt.SetJwtData(map[string]any{
+		"portal_user": "alice",
+		"portal_type": "local",
+	}, time.Now().Add(time.Hour).Unix())
+	ast := assert.New(t)
+	ast.NoError(err)
+	_, err = jwt.GetJwtData(portalTok)
+	ast.NoError(err, "登出前门户 JWT 应有效")
+
 	req := httptest.NewRequest("POST", "/portal/logout", nil)
+	req.AddCookie(&http.Cookie{Name: portalCookieName, Value: portalTok})
 	w := httptest.NewRecorder()
 
-	PortalLogout(w, req)
+	testPortal.Logout(w, req)
 
-	ast := assert.New(t)
 	ast.Equal(http.StatusOK, w.Code)
+	_, err = jwt.GetJwtData(portalTok)
+	ast.Error(err, "登出后门户 JWT 应被吊销")
 
 	cookies := w.Result().Cookies()
 	found := false
@@ -526,22 +539,21 @@ func TestPortalLogout(t *testing.T) {
 	ast.True(found, "should clear portal_session cookie")
 }
 
-func TestPortalLogin_ForcePwd(t *testing.T) {
+func TestPortalLogin_ForcePassword(t *testing.T) {
 	base.Test()
 	dbtest.SetupDB(t)
 	base.UpdateCfg(func(c *base.ServerConfig) { c.EnableUserPortal = true })
 
 	createPortalLoginSetup(t, "forceuser", "oldpass123", "default")
 	ast := assert.New(t)
-	_, err := dbdata.GetXdb().Where("username = ?", "forceuser").Cols("change_pwd").
-		Update(&dbdata.User{ForcePwd: true})
+	err := dbdata.Users.SetForcePwd("forceuser", true)
 	ast.Nil(err)
 
 	// 首次登录应返回 change_pwd 挑战（走管道 forcepwd 步骤）
 	loginReq := httptest.NewRequest("POST", "/portal/login", strings.NewReader(`{"username":"forceuser","password":"oldpass123"}`))
 	loginReq.Header.Set("Content-Type", "application/json")
 	loginW := httptest.NewRecorder()
-	PortalLogin(loginW, loginReq)
+	testPortal.Login(loginW, loginReq)
 	var loginResp map[string]any
 	json.NewDecoder(loginW.Body).Decode(&loginResp)
 	ast.Equal(float64(0), loginResp["code"])
@@ -554,7 +566,7 @@ func TestPortalLogin_ForcePwd(t *testing.T) {
 	chgReq := httptest.NewRequest("POST", "/portal/force_change_password", strings.NewReader(chgBody))
 	chgReq.Header.Set("Content-Type", "application/json")
 	chgW := httptest.NewRecorder()
-	PortalForceChangePassword(chgW, chgReq)
+	testPortal.ForceChangePassword(chgW, chgReq)
 	var chgResp map[string]any
 	json.NewDecoder(chgW.Body).Decode(&chgResp)
 	ast.Equal(float64(0), chgResp["code"])
@@ -563,7 +575,7 @@ func TestPortalLogin_ForcePwd(t *testing.T) {
 	login2Req := httptest.NewRequest("POST", "/portal/login", strings.NewReader(`{"username":"forceuser","password":"newpass123"}`))
 	login2Req.Header.Set("Content-Type", "application/json")
 	login2W := httptest.NewRecorder()
-	PortalLogin(login2W, login2Req)
+	testPortal.Login(login2W, login2Req)
 	var login2Resp map[string]any
 	json.NewDecoder(login2W.Body).Decode(&login2Resp)
 	ast.Equal(float64(0), login2Resp["code"])
@@ -578,8 +590,8 @@ func TestPortalLogin_OTP(t *testing.T) {
 	})
 
 	pt := &dbdata.Policy{Name: "plcy-otp", ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}}, Status: 1}
-	_ = dbdata.SetPolicy(pt)
-	_ = dbdata.SetGroup(&dbdata.Group{
+	_ = dbdata.Policies.SetPolicy(pt)
+	_ = dbdata.Groups.SetGroup(&dbdata.Group{
 		Name:        "otpgrp",
 		Status:      1,
 		PolicyId:    pt.Id,
@@ -593,13 +605,13 @@ func TestPortalLogin_OTP(t *testing.T) {
 		Status:    1,
 		OtpSecret: "JBSWY3DPEHPK3PXP",
 	}
-	_ = dbdata.SetUser(u)
+	_ = dbdata.Users.SetUser(u)
 
 	ast := assert.New(t)
 	loginReq := httptest.NewRequest("POST", "/portal/login", strings.NewReader(`{"username":"otpuser","password":"oldpass123"}`))
 	loginReq.Header.Set("Content-Type", "application/json")
 	loginW := httptest.NewRecorder()
-	PortalLogin(loginW, loginReq)
+	testPortal.Login(loginW, loginReq)
 	var loginResp map[string]any
 	json.NewDecoder(loginW.Body).Decode(&loginResp)
 	ast.Equal(float64(0), loginResp["code"])
@@ -614,7 +626,7 @@ func TestPortalLogin_OTP(t *testing.T) {
 	verifyReq := httptest.NewRequest("POST", "/portal/verify", strings.NewReader(verifyBody))
 	verifyReq.Header.Set("Content-Type", "application/json")
 	verifyW := httptest.NewRecorder()
-	PortalVerify(verifyW, verifyReq)
+	testPortal.Verify(verifyW, verifyReq)
 	var verifyResp map[string]any
 	json.NewDecoder(verifyW.Body).Decode(&verifyResp)
 	ast.Equal(float64(0), verifyResp["code"])

@@ -8,7 +8,8 @@ import (
 	"time"
 
 	_ "github.com/wsczx/remlink/auth/authsrv" // 触发认证器 init 注册
-	"github.com/wsczx/remlink/pkg/dbtest"
+	"github.com/wsczx/remlink/base"
+	"github.com/wsczx/remlink/dbtest"
 	"github.com/wsczx/remlink/pkg/jwt"
 
 	"github.com/stretchr/testify/assert"
@@ -16,26 +17,27 @@ import (
 	"github.com/wsczx/remlink/dbdata"
 )
 
-func setupWebVpnDB(t *testing.T) {
+// 测试共享实例
+var testManager = NewManager()
+
+func setupDB(t *testing.T) {
 	t.Helper()
 	dbtest.SetupDB(t)
 	// 每个用例使用独立库：重置 manager 缓存，避免读到上一个库的会话
-	GetManager().Session().ResetCache()
-	GetManager().Apps().Invalidate()
+	testManager.Session().ResetCache()
+	testManager.Apps().Invalidate()
 	t.Cleanup(func() {
-		GetManager().Session().ResetCache()
-		GetManager().Apps().Invalidate()
+		testManager.Session().ResetCache()
+		testManager.Apps().Invalidate()
 	})
 }
 
-// 验证 ClearCookie 清除指令的 Domain
-// 与写入 webvpn_session 的 Domain 逐字节一致（否则旧 cookie 残留）
 func TestSessionClearDomainMatchesIssue(t *testing.T) {
-	setupWebVpnDB(t)
+	setupDB(t)
 
-	require.NoError(t, dbdata.Add(&dbdata.User{Username: "alice", Status: 1}))
+	require.NoError(t, dbdata.GetDB().Insert(&dbdata.User{Username: "alice", Status: 1}))
 
-	m := GetManager()
+	m := testManager
 	host := "app.wv.example.com"
 	r := httptest.NewRequest(http.MethodGet, "https://"+host+"/", nil)
 	w := httptest.NewRecorder()
@@ -66,25 +68,21 @@ func TestSessionClearDomainMatchesIssue(t *testing.T) {
 		"webvpn_session 清除域必须与写入域一致，否则登出/切换用户后旧 cookie 残留")
 }
 
-// 免登兑换的逆向安全：既无 grant 也无门户会话时，
-// ExchangeGrant 必须返回未兑换（不得凭空造出 WebVPN 会话）
 func TestExchangeGrantMissing(t *testing.T) {
-	setupWebVpnDB(t)
+	setupDB(t)
 
-	m := GetManager()
+	m := testManager
 	r := httptest.NewRequest(http.MethodGet, "https://app.wv.example.com/", nil)
 	w := httptest.NewRecorder()
 	_, _, ok := m.Session().ExchangeGrant(w, r)
 	assert.False(t, ok, "无 grant 且无门户会话时不得兑换出会话")
 }
 
-// 整用户踢出后，残留的免登授权不得再兑换出会话：
-// 门户登出会抬高吊销阈值，签发早于阈值的 grant 必须失效，防止旧 grant 绕过吊销
 func TestExchangeGrantRevokedUser(t *testing.T) {
-	setupWebVpnDB(t)
+	setupDB(t)
 
-	m := GetManager()
-	require.NoError(t, dbdata.Add(&dbdata.User{Username: "alice", Status: 1}))
+	m := testManager
+	require.NoError(t, dbdata.GetDB().Insert(&dbdata.User{Username: "alice", Status: 1}))
 
 	// 1. 签发 grant（此时未吊销，可兑换）
 	w1 := httptest.NewRecorder()
@@ -105,13 +103,11 @@ func TestExchangeGrantRevokedUser(t *testing.T) {
 	assert.False(t, ok, "用户被整用户踢出后，残留 grant 不得兑换出会话")
 }
 
-// 免登授权兑换成功后应被清除（一次性消费），验证残留 grant 被吊销时，
-// 只跳过 grant 兑换，仍应使用吊销后签发的有效 portal_session 建立 WebVPN 会话
 func TestExchangeGrantRevokedFallsBackToPortalSession(t *testing.T) {
-	setupWebVpnDB(t)
+	setupDB(t)
 
-	m := GetManager()
-	require.NoError(t, dbdata.Add(&dbdata.User{Username: "carol", Status: 1}))
+	m := testManager
+	require.NoError(t, dbdata.GetDB().Insert(&dbdata.User{Username: "carol", Status: 1}))
 
 	// 先签发 grant，再整用户吊销，使该 grant 明确早于吊销阈值
 	grantResp := httptest.NewRecorder()
@@ -146,10 +142,10 @@ func TestExchangeGrantRevokedFallsBackToPortalSession(t *testing.T) {
 }
 
 func TestExchangeGrantWorksWithoutPortalSessionCookie(t *testing.T) {
-	setupWebVpnDB(t)
+	setupDB(t)
 
-	m := GetManager()
-	require.NoError(t, dbdata.Add(&dbdata.User{Username: "grant-user", Status: 1}))
+	m := testManager
+	require.NoError(t, dbdata.GetDB().Insert(&dbdata.User{Username: "grant-user", Status: 1}))
 	grantResp := httptest.NewRecorder()
 	grantReq := httptest.NewRequest(http.MethodGet, "https://portal.example.com/", nil)
 	_, err := m.Session().IssueGrant(grantResp, grantReq, &dbdata.User{Username: "grant-user"}, "portal-jti")
@@ -162,12 +158,69 @@ func TestExchangeGrantWorksWithoutPortalSessionCookie(t *testing.T) {
 	_, _, ok := m.Session().ExchangeGrant(httptest.NewRecorder(), r)
 	assert.True(t, ok, "缺少门户会话 Cookie 时，有效 grant 仍应允许兑换")
 }
+func TestExchangeGrantCookieRequiresClientIP(t *testing.T) {
+	setupDB(t)
+
+	m := testManager
+	require.NoError(t, dbdata.GetDB().Insert(&dbdata.User{Username: "alice", Status: 1}))
+
+	w1 := httptest.NewRecorder()
+	r1 := httptest.NewRequest(http.MethodGet, "https://portal.example.com/", nil)
+	r1.RemoteAddr = "198.51.100.10:1234"
+	_, err := m.Session().IssueGrant(w1, r1, &dbdata.User{Username: "alice"}, "portal-jti-1")
+	require.NoError(t, err)
+	grant := findCookie(t, w1, grantCookieName)
+	require.NotNil(t, grant)
+
+	t.Run("不同IP被拒绝", func(t *testing.T) {
+		w2 := httptest.NewRecorder()
+		r2 := httptest.NewRequest(http.MethodGet, "https://app.wv.example.com/", nil)
+		r2.RemoteAddr = "203.0.113.77:1234"
+		r2.AddCookie(grant)
+		_, _, ok := m.Session().ExchangeGrant(w2, r2)
+		assert.False(t, ok, "grant cookie 被带到另一 IP 时不得兑换")
+		r := httptest.NewRequest(http.MethodGet, "https://app.wv.example.com/", nil)
+		r.RemoteAddr = "198.51.100.10:9999"
+		r.AddCookie(grant)
+		_, _, ok = m.Session().ExchangeGrant(httptest.NewRecorder(), r)
+		assert.True(t, ok, "同一客户端 IP 应可兑换，证明拒绝未误伤 grant")
+	})
+}
+
+func TestRenewKeepsExternalUserWithoutDBRow(t *testing.T) {
+	setupDB(t)
+
+	m := testManager
+	base.UpdateCfg(func(c *base.ServerConfig) { c.WebVpnSessionTTL = 60 })
+
+	// 第三方用户未落库，token 由既有登录流程签发（含三方身份声明）
+	iat := time.Now().Add(-31 * time.Minute).Unix()
+	token, err := jwt.SetJwtData(map[string]any{
+		"iat":           iat,
+		"webvpn_user":   "feishu-user",
+		"webvpn_type":   "feishu",
+		"webvpn_groups": []string{"group-a"},
+	}, time.Now().Add(time.Hour).Unix())
+	require.NoError(t, err)
+
+	r := httptest.NewRequest(http.MethodGet, "https://app.wv.example.com/", nil)
+	r.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+	w := httptest.NewRecorder()
+
+	renewed, err := m.Session().Renew(w, r)
+	require.NoError(t, err)
+	assert.True(t, renewed, "未落库的第三方用户会话应可续期")
+
+	c := findCookie(t, w, sessionCookieName)
+	require.NotNil(t, c, "续期应刷新会话 cookie")
+	assert.True(t, c.MaxAge != 0 || c.Value != "", "会话 cookie 不应被清除")
+}
 
 func TestExchangeGrantConcurrentConsume(t *testing.T) {
-	setupWebVpnDB(t)
+	setupDB(t)
 
-	m := GetManager()
-	require.NoError(t, dbdata.Add(&dbdata.User{Username: "race-user", Status: 1}))
+	m := testManager
+	require.NoError(t, dbdata.GetDB().Insert(&dbdata.User{Username: "race-user", Status: 1}))
 	portalToken, err := jwt.SetJwtData(map[string]any{}, time.Now().Add(time.Hour).Unix())
 	require.NoError(t, err)
 	portalJTI, err := jwt.JtiOf(portalToken)
@@ -206,11 +259,11 @@ func TestExchangeGrantConcurrentConsume(t *testing.T) {
 }
 
 func TestExchangeGrantConsumes(t *testing.T) {
-	setupWebVpnDB(t)
+	setupDB(t)
 
-	m := GetManager()
+	m := testManager
 	// 用独立用户名，避免受前序踢出测试的吊销阈值影响
-	require.NoError(t, dbdata.Add(&dbdata.User{Username: "bob", Status: 1}))
+	require.NoError(t, dbdata.GetDB().Insert(&dbdata.User{Username: "bob", Status: 1}))
 
 	// 签发门户会话，再用其 jti 绑定 grant
 	portalToken, err := jwt.SetJwtData(map[string]any{"portal_user": "bob"}, time.Now().Add(time.Hour).Unix())

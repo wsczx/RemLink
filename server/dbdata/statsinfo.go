@@ -33,17 +33,10 @@ type ScopeDetail struct {
 	feTime  string
 }
 
-var StatsInfoIns *StatsInfo
-
-func init() {
-	StatsInfoIns = &StatsInfo{
-		Actions:      []string{"online", "network", "cpu", "mem"},
-		Scopes:       []string{"rt", "1h", "24h", "3d", "7d", "30d"},
-		RealtimeData: make(map[string]*list.List),
-	}
-	for _, v := range StatsInfoIns.Actions {
-		StatsInfoIns.RealtimeData[v] = list.New()
-	}
+var StatsInfoIns = &StatsInfo{
+	Actions:      []string{"online", "network", "cpu", "mem"},
+	Scopes:       []string{"rt", "1h", "24h", "3d", "7d", "30d"},
+	RealtimeData: map[string]*list.List{"online": list.New(), "network": list.New(), "cpu": list.New(), "mem": list.New()},
 }
 
 // 校验统计类型值
@@ -82,16 +75,16 @@ func (s *StatsInfo) GetRealTime(action string) (res []any) {
 // 保存数据至数据库
 func (s *StatsInfo) SaveStatsInfo(so StatsOnline, sn StatsNetwork, sc StatsCpu, sm StatsMem) {
 	if so.Num != 0 {
-		_ = Add(so)
+		_ = GetDB().Insert(so)
 	}
 	if sn.Up != 0 || sn.Down != 0 {
-		_ = Add(sn)
+		_ = GetDB().Insert(sn)
 	}
 	if sc.Percent != 0 {
-		_ = Add(sc)
+		_ = GetDB().Insert(sc)
 	}
 	if sm.Percent != 0 {
-		_ = Add(sm)
+		_ = GetDB().Insert(sm)
 	}
 }
 
@@ -117,28 +110,28 @@ func (s *StatsInfo) GetData(action string, scope string) (res []any, err error) 
 	switch action {
 	case "online":
 		statsRes := []StatsOnline{}
-		FindWhere(&statsRes, 0, 0, where, sd.fsTime, sd.feTime)
+		GetDB().FindWhere(&statsRes, 0, 0, where, sd.fsTime, sd.feTime)
 		for _, v := range statsRes {
 			t := v.CreatedAt.Format(LayoutTimeFormatMin)
 			statsMaps[t] = v
 		}
 	case "network":
 		statsRes := []StatsNetwork{}
-		FindWhere(&statsRes, 0, 0, where, sd.fsTime, sd.feTime)
+		GetDB().FindWhere(&statsRes, 0, 0, where, sd.fsTime, sd.feTime)
 		for _, v := range statsRes {
 			t := v.CreatedAt.Format(LayoutTimeFormatMin)
 			statsMaps[t] = v
 		}
 	case "cpu":
 		statsRes := []StatsCpu{}
-		FindWhere(&statsRes, 0, 0, where, sd.fsTime, sd.feTime)
+		GetDB().FindWhere(&statsRes, 0, 0, where, sd.fsTime, sd.feTime)
 		for _, v := range statsRes {
 			t := v.CreatedAt.Format(LayoutTimeFormatMin)
 			statsMaps[t] = v
 		}
 	case "mem":
 		statsRes := []StatsMem{}
-		FindWhere(&statsRes, 0, 0, where, sd.fsTime, sd.feTime)
+		GetDB().FindWhere(&statsRes, 0, 0, where, sd.fsTime, sd.feTime)
 		for _, v := range statsRes {
 			t := v.CreatedAt.Format(LayoutTimeFormatMin)
 			statsMaps[t] = v
@@ -226,13 +219,13 @@ func (s *StatsInfo) getStatsWhere(sd *ScopeDetail) (where string) {
 func (s *StatsInfo) ClearStatsInfo(action string, ts string) (affected int64, err error) {
 	switch action {
 	case "online":
-		affected, err = xdb.Where("created_at < ?", ts).Delete(&StatsOnline{})
+		affected, err = GetDB().Engine().Where("created_at < ?", ts).Delete(&StatsOnline{})
 	case "network":
-		affected, err = xdb.Where("created_at < ?", ts).Delete(&StatsNetwork{})
+		affected, err = GetDB().Engine().Where("created_at < ?", ts).Delete(&StatsNetwork{})
 	case "cpu":
-		affected, err = xdb.Where("created_at < ?", ts).Delete(&StatsCpu{})
+		affected, err = GetDB().Engine().Where("created_at < ?", ts).Delete(&StatsCpu{})
 	case "mem":
-		affected, err = xdb.Where("created_at < ?", ts).Delete(&StatsMem{})
+		affected, err = GetDB().Engine().Where("created_at < ?", ts).Delete(&StatsMem{})
 	}
 	return affected, err
 }

@@ -51,36 +51,52 @@ type Firewall interface {
 	CleanupGlobal() error                                               // 清理全局NAT规则
 }
 
-// 全局单例
-var (
-	GlobalFirewall     Firewall
-	GlobalFirewallMu   sync.Mutex
-	GlobalFirewallDone bool
-)
-
-// 记录组网段已使用的出网网卡，用于去重和配置变更时清理旧规则
-var (
+// 持有防火墙后端实例、初始化状态与组 NAT 网段去重表
+type FirewallManager struct {
+	mu            sync.Mutex
+	instance      Firewall
+	done          bool
 	groupNatCIDRs sync.Map
 	groupNatMu    sync.Mutex
-)
+}
 
-// 获取全局防火墙实例
-func GetFirewall() Firewall {
-	GlobalFirewallMu.Lock()
-	defer GlobalFirewallMu.Unlock()
-
-	if GlobalFirewallDone {
-		return GlobalFirewall
+// 返回防火墙后端（懒初始化）
+func (m *FirewallManager) Get() Firewall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.done {
+		return m.instance
 	}
-
 	fw, err := newFirewall()
 	if err != nil {
 		base.Error("Failed to initialize firewall:", err)
 		return nil
 	}
-	GlobalFirewall = fw
-	GlobalFirewallDone = true
-	return GlobalFirewall
+	m.instance = fw
+	m.done = true
+	return m.instance
+}
+
+// 返回当前已初始化的后端实例（未初始化返回 nil）
+func (m *FirewallManager) GetFirewallInstance() Firewall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.instance
+}
+
+// 返回后端是否已初始化
+func (m *FirewallManager) IsInitialized() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.done
+}
+
+// 覆写后端实例与初始化标记（仅供测试注入）
+func (m *FirewallManager) SetFirewallInstance(fw Firewall, done bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.instance = fw
+	m.done = done
 }
 func newFirewall() (Firewall, error) {
 	cfg := base.GetCfg()
@@ -93,7 +109,7 @@ func newFirewall() (Firewall, error) {
 	case "iptables":
 		ipt, err := NewIPT()
 		if err != nil {
-			return nil, fmt.Errorf("iptables initialization failed:%v", err)
+			return nil, fmt.Errorf("iptables initialization failed:%w", err)
 		}
 		base.Info("Firewall driver: using iptables")
 		return ipt, nil
@@ -101,10 +117,10 @@ func newFirewall() (Firewall, error) {
 	case "nftables":
 		nft, err := NewNFT()
 		if err != nil {
-			return nil, fmt.Errorf("nftables initialization failed: %v", err)
+			return nil, fmt.Errorf("nftables initialization failed: %w", err)
 		}
 		if err = nft.Probe(); err != nil {
-			return nil, fmt.Errorf("nftables Probe failed: %v", err)
+			return nil, fmt.Errorf("nftables Probe failed: %w", err)
 		}
 		base.Info("Firewall driver: using nftables")
 		return nft, nil
@@ -123,7 +139,7 @@ func newFirewall() (Firewall, error) {
 
 		ipt, err := NewIPT()
 		if err != nil {
-			return nil, fmt.Errorf("no supported firewall driver found (iptables error: %v)", err)
+			return nil, fmt.Errorf("no supported firewall driver found (iptables error: %w)", err)
 		}
 		base.Info("Firewall driver: using iptables")
 		return ipt, nil
@@ -179,7 +195,6 @@ func (i *IPT) setupGlobalNAT(h *iptables.IPTables, vpnCIDR, masterDev string, in
 	}
 
 	// FORWARD 有状态放行，避免无条件 ACCEPT 把客户端暴露给外部入站
-	// 避免无条件 `-j ACCEPT` 把客户端暴露给外部入站
 	forwardRules := [][]string{
 		{"-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"},
 		{"-s", vpnCIDR, "-j", "ACCEPT"},
@@ -260,12 +275,12 @@ func (i *IPT) CreateChains(vpnCIDR, fakeIPRange string) error {
 		}
 		err := i.ipt6.NewChain("nat", iptDnatChain)
 		if err != nil && !strings.Contains(err.Error(), "Chain already exists") {
-			return fmt.Errorf("failed to create v6 DNAT chain: %v", err)
+			return fmt.Errorf("failed to create v6 DNAT chain: %w", err)
 		}
 		// FakeDNS 流量可能来自组自定义地址池，按 FakeIP 目的地址匹配
 		dnatJumpRule := []string{"-d", fakeIPRange, "-j", iptDnatChain}
 		if err := i.ipt6.AppendUnique("nat", "PREROUTING", dnatJumpRule...); err != nil {
-			return fmt.Errorf("failed to add v6 DNAT jump rule: %v", err)
+			return fmt.Errorf("failed to add v6 DNAT jump rule: %w", err)
 		}
 		base.Info("Created v6 FakeIP iptables chains")
 		return nil
@@ -274,7 +289,7 @@ func (i *IPT) CreateChains(vpnCIDR, fakeIPRange string) error {
 	// 创建 DNAT 自定义链
 	err := i.ipt.NewChain("nat", iptDnatChain)
 	if err != nil && !strings.Contains(err.Error(), "Chain already exists") {
-		return fmt.Errorf("failed to create DNAT chain: %v", err)
+		return fmt.Errorf("failed to create DNAT chain: %w", err)
 	}
 
 	// 在 PREROUTING 链中添加跳转规则
@@ -282,7 +297,7 @@ func (i *IPT) CreateChains(vpnCIDR, fakeIPRange string) error {
 	dnatJumpRule := []string{"-d", fakeIPRange, "-j", iptDnatChain}
 	err = i.ipt.AppendUnique("nat", "PREROUTING", dnatJumpRule...)
 	if err != nil {
-		return fmt.Errorf("failed to add DNAT jump rule: %v", err)
+		return fmt.Errorf("failed to add DNAT jump rule: %w", err)
 	}
 
 	base.Info("Created FakeIP iptables chains")
@@ -407,7 +422,7 @@ type NFT struct {
 func NewNFT() (*NFT, error) {
 	c, err := nftables.New()
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to nftables: %v", err)
+		return nil, fmt.Errorf("failed to connect to nftables: %w", err)
 	}
 	return &NFT{conn: c}, nil
 }
@@ -417,27 +432,89 @@ func ifname(name string) []byte {
 	return b
 }
 
+type nftFamily struct {
+	v6        bool
+	table     string // 表名
+	postChain string // POSTROUTING 链名
+	fwdChain  string // FORWARD 链名
+	magic     string // 组规则标记前缀
+	bits      int    // 前缀掩码位数
+}
+
+var (
+	nftV4 = nftFamily{table: nftGlobalNatTable, postChain: nftPostRoutingChain, fwdChain: nftForwardChain, magic: groupNATV4MagicPrefix, bits: 32}
+	nftV6 = nftFamily{v6: true, table: nftGlobalNatTable6, postChain: nftPostRoutingChain6, fwdChain: nftForwardChain6, magic: groupNATV6MagicPrefix, bits: 128}
+)
+
+// 表所属协议族
+func (f nftFamily) tableFamily() nftables.TableFamily {
+	if f.v6 {
+		return nftables.TableFamilyIPv6
+	}
+	return nftables.TableFamilyIPv4
+}
+
+// 全局网段参数名（错误信息用）
+func (f nftFamily) vpnCidrArg() string {
+	if f.v6 {
+		return "vpnCIDR6"
+	}
+	return "vpnCIDR"
+}
+
+// 组网段参数名（错误信息用）
+func (f nftFamily) groupCidrArg() string {
+	if f.v6 {
+		return "groupCIDR6"
+	}
+	return "groupCIDR"
+}
+
+func (f nftFamily) flushError(err error) error {
+	if f.v6 {
+		return fmt.Errorf("flush nftables v6 failed: %w", err)
+	}
+	return fmt.Errorf("flush nftables failed: %w", err)
+}
+
+func (f nftFamily) logSetupGlobal() {
+	if f.v6 {
+		base.Info("nftables: Setup Global NAT6 and Forward rules")
+		return
+	}
+	base.Info("nftables: Setup Global NAT and Forward rules")
+}
+
 // 设置全局 IPv4 NAT 和转发规则
 func (n *NFT) SetupGlobalNAT(vpnCIDR, masterDev string, inContainer bool) error {
+	return n.setupGlobalNAT(nftV4, vpnCIDR, masterDev)
+}
+
+// 设置全局 IPv6 NAT/转发规则
+func (n *NFT) SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool) error {
+	return n.setupGlobalNAT(nftV6, vpnCIDR6, masterDev)
+}
+
+func (n *NFT) setupGlobalNAT(f nftFamily, vpnCIDR, masterDev string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
 	// 创建全局NAT表
 	globalNatTable := n.conn.AddTable(&nftables.Table{
-		Family: nftables.TableFamilyIPv4,
-		Name:   nftGlobalNatTable,
+		Family: f.tableFamily(),
+		Name:   f.table,
 	})
 
 	_, ipNet, err := net.ParseCIDR(vpnCIDR)
 	if err != nil {
-		return fmt.Errorf("invalid vpnCIDR: %v", err)
+		return fmt.Errorf("invalid %s: %w", f.vpnCidrArg(), err)
 	}
 	ones, _ := ipNet.Mask.Size()
-	prefixMask := net.CIDRMask(ones, 32)
+	prefixMask := net.CIDRMask(ones, f.bits)
 
 	// POSTROUTING: MASQUERADE
 	postrouting := n.conn.AddChain(&nftables.Chain{
-		Name:     nftPostRoutingChain,
+		Name:     f.postChain,
 		Table:    globalNatTable,
 		Type:     nftables.ChainTypeNAT,
 		Hooknum:  nftables.ChainHookPostrouting,
@@ -446,18 +523,18 @@ func (n *NFT) SetupGlobalNAT(vpnCIDR, masterDev string, inContainer bool) error 
 	n.conn.AddRule(&nftables.Rule{
 		Table: globalNatTable,
 		Chain: postrouting,
-		Exprs: n.masqueradeExprs(ipNet, prefixMask, masterDev, false),
+		Exprs: n.masqueradeExprs(ipNet, prefixMask, masterDev, f.v6),
 	})
 
 	// FORWARD: ACCEPT（匹配来自 VPN CIDR 的转发包）
 	forwardChain := n.conn.AddChain(&nftables.Chain{
-		Name:     nftForwardChain,
+		Name:     f.fwdChain,
 		Table:    globalNatTable,
 		Type:     nftables.ChainTypeFilter,
 		Hooknum:  nftables.ChainHookForward,
 		Priority: nftables.ChainPriorityMangle,
 	})
-	// 回程流量
+	// 回程流量（established/related）
 	n.conn.AddRule(&nftables.Rule{
 		Table: globalNatTable,
 		Chain: forwardChain,
@@ -485,38 +562,48 @@ func (n *NFT) SetupGlobalNAT(vpnCIDR, masterDev string, inContainer bool) error 
 	n.conn.AddRule(&nftables.Rule{
 		Table: globalNatTable,
 		Chain: forwardChain,
-		Exprs: n.forwardAcceptExprs(ipNet, prefixMask, false),
+		Exprs: n.forwardAcceptExprs(ipNet, prefixMask, f.v6),
 	})
 
 	if err := n.conn.Flush(); err != nil {
-		return fmt.Errorf("flush nftables failed: %v", err)
+		return f.flushError(err)
 	}
-	base.Info("nftables: Setup Global NAT and Forward rules")
+	f.logSetupGlobal()
 	return nil
 }
+
 func (n *NFT) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
+	return n.addGroupNAT(nftV4, groupCIDR, masterDev)
+}
+
+// 为组 v6 CIDR 添加 NAT66 和转发规则
+func (n *NFT) AddGroupNAT6(groupCIDR6, masterDev string, inContainer bool) error {
+	return n.addGroupNAT(nftV6, groupCIDR6, masterDev)
+}
+
+func (n *NFT) addGroupNAT(f nftFamily, groupCIDR, masterDev string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
 	_, ipNet, err := net.ParseCIDR(groupCIDR)
 	if err != nil {
-		return fmt.Errorf("invalid groupCIDR: %v", err)
+		return fmt.Errorf("invalid %s: %w", f.groupCidrArg(), err)
 	}
 	ones, _ := ipNet.Mask.Size()
-	prefixMask := net.CIDRMask(ones, 32)
+	prefixMask := net.CIDRMask(ones, f.bits)
 	// 标记组规则，便于按需精准删除（不影响全局规则）
-	ud := []byte(groupNATV4MagicPrefix + ipNet.String())
+	ud := []byte(f.magic + ipNet.String())
 
 	globalNatTable := &nftables.Table{
-		Family: nftables.TableFamilyIPv4,
-		Name:   nftGlobalNatTable,
+		Family: f.tableFamily(),
+		Name:   f.table,
 	}
 	postroutingChain := &nftables.Chain{
-		Name:  nftPostRoutingChain,
+		Name:  f.postChain,
 		Table: globalNatTable,
 	}
 	forwardChain := &nftables.Chain{
-		Name:  nftForwardChain,
+		Name:  f.fwdChain,
 		Table: globalNatTable,
 	}
 
@@ -524,7 +611,7 @@ func (n *NFT) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
 	n.conn.AddRule(&nftables.Rule{
 		Table:    globalNatTable,
 		Chain:    postroutingChain,
-		Exprs:    n.masqueradeExprs(ipNet, prefixMask, masterDev, false),
+		Exprs:    n.masqueradeExprs(ipNet, prefixMask, masterDev, f.v6),
 		UserData: ud,
 	})
 
@@ -532,7 +619,7 @@ func (n *NFT) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
 	n.conn.AddRule(&nftables.Rule{
 		Table:    globalNatTable,
 		Chain:    forwardChain,
-		Exprs:    n.forwardAcceptExprs(ipNet, prefixMask, false),
+		Exprs:    n.forwardAcceptExprs(ipNet, prefixMask, f.v6),
 		UserData: ud,
 	})
 
@@ -541,160 +628,39 @@ func (n *NFT) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
 
 // 按标记删除组 v4 CIDR 的 NAT 和转发规则
 func (n *NFT) DelGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
+	return n.delGroupNAT(nftV4, groupCIDR)
+}
+
+// 按标记删除组 v6 CIDR 的 NAT66 和转发规则
+func (n *NFT) DelGroupNAT6(groupCIDR6, masterDev string, inContainer bool) error {
+	return n.delGroupNAT(nftV6, groupCIDR6)
+}
+
+func (n *NFT) delGroupNAT(f nftFamily, groupCIDR string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
 	_, ipNet, err := net.ParseCIDR(groupCIDR)
 	if err != nil {
-		return fmt.Errorf("invalid groupCIDR: %v", err)
+		return fmt.Errorf("invalid %s: %w", f.groupCidrArg(), err)
 	}
-	ud := []byte(groupNATV4MagicPrefix + ipNet.String())
+	ud := []byte(f.magic + ipNet.String())
 	globalNatTable := &nftables.Table{
-		Family: nftables.TableFamilyIPv4,
-		Name:   nftGlobalNatTable,
+		Family: f.tableFamily(),
+		Name:   f.table,
 	}
-	if err := n.delRulesByMagic(globalNatTable, nftPostRoutingChain, ud); err != nil {
+	if err := n.delRulesByMagic(globalNatTable, f.postChain, ud); err != nil {
 		return err
 	}
-	if err := n.delRulesByMagic(globalNatTable, nftForwardChain, ud); err != nil {
-		return err
-	}
-	return nil
-}
-
-// 为组 v6 CIDR 添加 NAT66 和转发规则
-func (n *NFT) AddGroupNAT6(groupCIDR6, masterDev string, inContainer bool) error {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	_, ipNet, err := net.ParseCIDR(groupCIDR6)
-	if err != nil {
-		return fmt.Errorf("invalid groupCIDR6: %v", err)
-	}
-	ones, _ := ipNet.Mask.Size()
-	prefixMask := net.CIDRMask(ones, 128)
-	ud := []byte(groupNATV6MagicPrefix + ipNet.String())
-
-	globalNatTable6 := &nftables.Table{
-		Family: nftables.TableFamilyIPv6,
-		Name:   nftGlobalNatTable6,
-	}
-
-	n.conn.AddRule(&nftables.Rule{
-		Table:    globalNatTable6,
-		Chain:    &nftables.Chain{Name: nftPostRoutingChain6, Table: globalNatTable6},
-		Exprs:    n.masqueradeExprs(ipNet, prefixMask, masterDev, true),
-		UserData: ud,
-	})
-
-	n.conn.AddRule(&nftables.Rule{
-		Table:    globalNatTable6,
-		Chain:    &nftables.Chain{Name: nftForwardChain6, Table: globalNatTable6},
-		Exprs:    n.forwardAcceptExprs(ipNet, prefixMask, true),
-		UserData: ud,
-	})
-
-	return n.conn.Flush()
-}
-
-// 按标记删除组 v6 CIDR 的 NAT66 和转发规则
-func (n *NFT) DelGroupNAT6(groupCIDR6, masterDev string, inContainer bool) error {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	_, ipNet, err := net.ParseCIDR(groupCIDR6)
-	if err != nil {
-		return fmt.Errorf("invalid groupCIDR6: %v", err)
-	}
-	ud := []byte(groupNATV6MagicPrefix + ipNet.String())
-	globalNatTable6 := &nftables.Table{
-		Family: nftables.TableFamilyIPv6,
-		Name:   nftGlobalNatTable6,
-	}
-	if err := n.delRulesByMagic(globalNatTable6, nftPostRoutingChain6, ud); err != nil {
-		return err
-	}
-	if err := n.delRulesByMagic(globalNatTable6, nftForwardChain6, ud); err != nil {
+	if err := n.delRulesByMagic(globalNatTable, f.fwdChain, ud); err != nil {
 		return err
 	}
 	return nil
 }
 
-// 设置全局 IPv6 NAT/转发规则
-func (n *NFT) SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool) error {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	globalNatTable6 := n.conn.AddTable(&nftables.Table{
-		Family: nftables.TableFamilyIPv6,
-		Name:   nftGlobalNatTable6,
-	})
-
-	_, ipNet, err := net.ParseCIDR(vpnCIDR6)
-	if err != nil {
-		return fmt.Errorf("invalid vpnCIDR6: %v", err)
-	}
-	ones, _ := ipNet.Mask.Size()
-	prefixMask := net.CIDRMask(ones, 128)
-
-	postrouting := n.conn.AddChain(&nftables.Chain{
-		Name:     nftPostRoutingChain6,
-		Table:    globalNatTable6,
-		Type:     nftables.ChainTypeNAT,
-		Hooknum:  nftables.ChainHookPostrouting,
-		Priority: nftables.ChainPriorityNATSource,
-	})
-	n.conn.AddRule(&nftables.Rule{
-		Table: globalNatTable6,
-		Chain: postrouting,
-		Exprs: n.masqueradeExprs(ipNet, prefixMask, masterDev, true),
-	})
-
-	forwardChain := n.conn.AddChain(&nftables.Chain{
-		Name:     nftForwardChain6,
-		Table:    globalNatTable6,
-		Type:     nftables.ChainTypeFilter,
-		Hooknum:  nftables.ChainHookForward,
-		Priority: nftables.ChainPriorityMangle,
-	})
-	// 回程流量（established/related）
-	n.conn.AddRule(&nftables.Rule{
-		Table: globalNatTable6,
-		Chain: forwardChain,
-		Exprs: []expr.Any{
-			&expr.Ct{Key: expr.CtKeySTATE, Register: 1},
-			&expr.Bitwise{
-				SourceRegister: 1,
-				DestRegister:   1,
-				Len:            4,
-				Mask:           binaryutil.NativeEndian.PutUint32(6),
-				Xor:            binaryutil.NativeEndian.PutUint32(0),
-			},
-			&expr.Cmp{
-				Op:       expr.CmpOpNeq,
-				Register: 1,
-				Data:     []byte{0, 0, 0, 0},
-			},
-			&expr.Verdict{Kind: expr.VerdictAccept},
-		},
-	})
-	// 来自 VPN v6 CIDR 的出站转发流量
-	n.conn.AddRule(&nftables.Rule{
-		Table: globalNatTable6,
-		Chain: forwardChain,
-		Exprs: n.forwardAcceptExprs(ipNet, prefixMask, true),
-	})
-
-	if err := n.conn.Flush(); err != nil {
-		return fmt.Errorf("flush nftables v6 failed: %v", err)
-	}
-	base.Info("nftables: Setup Global NAT6 and Forward rules")
-	return nil
-}
-
-// 构造 MASQUERADE 规则表达式（匹配源 CIDR + 出站接口）
+// 构造匹配源 CIDR 的表达式前缀
 // isV6 区分协议族：v4 源地址偏移 12/长度 4，v6 源地址偏移 8/长度 16
-func (n *NFT) masqueradeExprs(ipNet *net.IPNet, prefixMask net.IPMask, masterDev string, isV6 bool) []expr.Any {
+func addrMatchExprs(ipNet *net.IPNet, prefixMask net.IPMask, isV6 bool) []expr.Any {
 	var offset, length uint32 = 12, 4
 	xor := net.IPv4zero.To4()
 	src := ipNet.IP.To4()
@@ -722,6 +688,12 @@ func (n *NFT) masqueradeExprs(ipNet *net.IPNet, prefixMask net.IPMask, masterDev
 			Register: 1,
 			Data:     src,
 		},
+	}
+}
+
+// 构造 MASQUERADE 规则表达式（匹配源 CIDR + 出站接口）
+func (n *NFT) masqueradeExprs(ipNet *net.IPNet, prefixMask net.IPMask, masterDev string, isV6 bool) []expr.Any {
+	return append(addrMatchExprs(ipNet, prefixMask, isV6),
 		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 2},
 		&expr.Cmp{
 			Op:       expr.CmpOpEq,
@@ -729,41 +701,14 @@ func (n *NFT) masqueradeExprs(ipNet *net.IPNet, prefixMask net.IPMask, masterDev
 			Data:     ifname(masterDev),
 		},
 		&expr.Masq{},
-	}
+	)
 }
 
 // 构造 FORWARD ACCEPT 规则表达式（匹配源 CIDR）
-// isV6 区分协议族：v4 源地址偏移 12/长度 4，v6 源地址偏移 8/长度 16。
 func (n *NFT) forwardAcceptExprs(ipNet *net.IPNet, prefixMask net.IPMask, isV6 bool) []expr.Any {
-	var offset, length uint32 = 12, 4
-	xor := net.IPv4zero.To4()
-	src := ipNet.IP.To4()
-	if isV6 {
-		offset, length = 8, 16
-		xor = net.IPv6zero.To16()
-		src = ipNet.IP.To16()
-	}
-	return []expr.Any{
-		&expr.Payload{
-			DestRegister: 1,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       offset,
-			Len:          length,
-		},
-		&expr.Bitwise{
-			SourceRegister: 1,
-			DestRegister:   1,
-			Len:            length,
-			Mask:           prefixMask,
-			Xor:            xor,
-		},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     src,
-		},
+	return append(addrMatchExprs(ipNet, prefixMask, isV6),
 		&expr.Verdict{Kind: expr.VerdictAccept},
-	}
+	)
 }
 
 // 初始化 Table, Map 和跳转规则
@@ -987,26 +932,26 @@ func (n *NFT) CleanupGlobal() error {
 // 确保组自定义 v4/v6 网段的 NAT/转发规则已按指定出网网卡(egress)下发
 // 若此前已按不同 egress 下发过，则先清理旧规则再下发新规则（无需重启服务即可切换出网网卡）
 // v4CIDR / v6CIDR 可单独为空；入参 egress 应为已回退后的真实出网网卡（空=全局 master_dev）
-func SyncGroupNAT(v4CIDR, v6CIDR, egress string) {
+func (m *FirewallManager) SyncGroupNAT(v4CIDR, v6CIDR, egress string) {
 	if v4CIDR == "" && v6CIDR == "" {
 		return
 	}
-	fw := GetFirewall()
+	fw := m.Get()
 	if fw == nil {
 		return
 	}
-	groupNatMu.Lock()
-	defer groupNatMu.Unlock()
+	m.groupNatMu.Lock()
+	defer m.groupNatMu.Unlock()
 	if v4CIDR != "" {
-		syncGroupNAT(fw, v4CIDR, egress, false)
+		m.syncGroupNAT(fw, v4CIDR, egress, false)
 	}
 	if v6CIDR != "" {
-		syncGroupNAT(fw, v6CIDR, egress, true)
+		m.syncGroupNAT(fw, v6CIDR, egress, true)
 	}
 }
 
-func syncGroupNAT(fw Firewall, cidr, egress string, isV6 bool) {
-	if old, loaded := groupNatCIDRs.Load(cidr); !loaded || old != egress {
+func (m *FirewallManager) syncGroupNAT(fw Firewall, cidr, egress string, isV6 bool) {
+	if old, loaded := m.groupNatCIDRs.Load(cidr); !loaded || old != egress {
 		if loaded {
 			// 变化：先清理旧规则，避免旧出网网卡规则残留
 			delGroupNATRule(fw, cidr, old.(string), isV6)
@@ -1022,35 +967,35 @@ func syncGroupNAT(fw Firewall, cidr, egress string, isV6 bool) {
 			return
 		}
 		base.Info("为组自定义网段", cidr, "下发 NAT 规则, egress=", egress)
-		groupNatCIDRs.Store(cidr, egress)
+		m.groupNatCIDRs.Store(cidr, egress)
 	}
 }
 
 // 删除组自定义网段的 NAT/转发规则（组配置变更网段或删除组时调用），并清除去重跟踪
 // 仅删除与 oldOutDev（空则回退 master_dev）匹配的规则，避免误删其他出网网卡的规则
-func RemoveGroupNAT(oldV4, oldV6, oldOutDev string) {
+func (m *FirewallManager) RemoveGroupNAT(oldV4, oldV6, oldOutDev string) {
 	if oldV4 == "" && oldV6 == "" {
 		return
 	}
-	fw := GetFirewall()
+	fw := m.Get()
 	if fw == nil {
 		return
 	}
-	groupNatMu.Lock()
-	defer groupNatMu.Unlock()
+	m.groupNatMu.Lock()
+	defer m.groupNatMu.Unlock()
 	remove := func(cidr string, isV6 bool) {
 		if cidr == "" {
 			return
 		}
 		egress := oldOutDev
-		if tracked, ok := groupNatCIDRs.Load(cidr); ok {
+		if tracked, ok := m.groupNatCIDRs.Load(cidr); ok {
 			egress = tracked.(string)
 		}
 		if egress == "" {
 			egress = base.GetCfg().MasterDev
 		}
 		delGroupNATRule(fw, cidr, egress, isV6)
-		groupNatCIDRs.Delete(cidr)
+		m.groupNatCIDRs.Delete(cidr)
 	}
 	remove(oldV4, false)
 	remove(oldV6, true)
@@ -1096,10 +1041,20 @@ func (n *NFT) delRulesByMagic(table *nftables.Table, chainName string, magic []b
 	return nil
 }
 
-// 清理所有防火墙后端规则
-func CleanupAllNatRules() {
-	groupNatMu.Lock()
-	defer groupNatMu.Unlock()
+// 清理所有防火墙后端规则；随后立即重建 FakeIP DNAT 链，否则后续解析全部失效
+func (m *SessionManager) CleanupAllNatRules() {
+	m.firewall.cleanupAllNatRules()
+	m.fakeDNSMu.Lock()
+	fd := m.fakeDNS
+	m.fakeDNSMu.Unlock()
+	if fd != nil && !fd.stopped.Load() {
+		fd.EnsureChains()
+	}
+}
+
+func (m *FirewallManager) cleanupAllNatRules() {
+	m.groupNatMu.Lock()
+	defer m.groupNatMu.Unlock()
 	if ipt, err := NewIPT(); err == nil {
 		ipt.CleanupGlobal()
 		ipt.CleanupFakeIP()
@@ -1108,8 +1063,8 @@ func CleanupAllNatRules() {
 		nft.CleanupGlobal()
 		nft.CleanupFakeIP()
 	}
-	groupNatCIDRs.Range(func(key, _ any) bool {
-		groupNatCIDRs.Delete(key)
+	m.groupNatCIDRs.Range(func(key, _ any) bool {
+		m.groupNatCIDRs.Delete(key)
 		return true
 	})
 }

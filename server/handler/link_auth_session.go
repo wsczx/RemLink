@@ -38,7 +38,7 @@ type AuthSession struct {
 }
 
 // 会话管理器（单例）
-type authSessionManager struct {
+type AuthSessionManager struct {
 	mu              sync.Mutex
 	sessions        map[string]*AuthSession
 	ttl             time.Duration
@@ -48,24 +48,9 @@ type authSessionManager struct {
 	started         bool // 由 mu 保护，标记清理协程是否在运行
 }
 
-var (
-	authSessionMgrOnce sync.Once
-	authSessionMgr     *authSessionManager
-	lockManager        = auth.GetLockManager()
-	AuthSessionManager = GetAuthSessionManager()
-)
-
-// 返回认证会话管理器单例（懒初始化）
-func GetAuthSessionManager() *authSessionManager {
-	authSessionMgrOnce.Do(func() {
-		authSessionMgr = NewAuthSessionManager()
-	})
-	return authSessionMgr
-}
-
 // TTL 5 分钟、清理周期 1 分钟
-func NewAuthSessionManager() *authSessionManager {
-	return &authSessionManager{
+func NewAuthSessionManager() *AuthSessionManager {
+	return &AuthSessionManager{
 		sessions:        make(map[string]*AuthSession),
 		ttl:             5 * time.Minute,
 		cleanupInterval: 1 * time.Minute,
@@ -73,7 +58,7 @@ func NewAuthSessionManager() *authSessionManager {
 }
 
 // 启动后台过期清理协程。可安全重复调用，运行中重复调用无效
-func (m *authSessionManager) Start() {
+func (m *AuthSessionManager) Start() {
 	m.mu.Lock()
 	if m.started {
 		m.mu.Unlock()
@@ -101,7 +86,7 @@ func (m *authSessionManager) Start() {
 }
 
 // 停止后台清理协程并等待其退出。可安全重复调用，未启动时为空操作
-func (m *authSessionManager) Stop() {
+func (m *AuthSessionManager) Stop() {
 	m.mu.Lock()
 	if !m.started {
 		m.mu.Unlock()
@@ -115,7 +100,7 @@ func (m *authSessionManager) Stop() {
 }
 
 // 保存会话，自动记录创建时间与会话ID
-func (m *authSessionManager) Save(id string, data *AuthSession) {
+func (m *AuthSessionManager) Save(id string, data *AuthSession) {
 	data.CreatedAt = time.Now()
 	data.SessionID = id
 	m.mu.Lock()
@@ -124,7 +109,7 @@ func (m *authSessionManager) Save(id string, data *AuthSession) {
 }
 
 // 获取认证会话并做 TTL 过期校验
-func (m *authSessionManager) Get(id string) (*AuthSession, error) {
+func (m *AuthSessionManager) Get(id string) (*AuthSession, error) {
 	m.mu.Lock()
 	s, ok := m.sessions[id]
 	m.mu.Unlock()
@@ -140,14 +125,14 @@ func (m *authSessionManager) Get(id string) (*AuthSession, error) {
 }
 
 // 删除会话
-func (m *authSessionManager) Delete(id string) {
+func (m *AuthSessionManager) Delete(id string) {
 	m.mu.Lock()
 	delete(m.sessions, id)
 	m.mu.Unlock()
 }
 
 // 清理超过 TTL 的会话
-func (m *authSessionManager) cleanExpired() {
+func (m *AuthSessionManager) cleanExpired() {
 	m.mu.Lock()
 	now := time.Now()
 	for id, s := range m.sessions {
@@ -158,54 +143,59 @@ func (m *authSessionManager) cleanExpired() {
 	m.mu.Unlock()
 }
 
-func CreateSession(w http.ResponseWriter, authSession *AuthSession) {
+func (s *LinkAuthService) CreateSession(w http.ResponseWriter, authSession *AuthSession) {
 	ua := authSession.UserActLog
 	ctx := authSession.Ctx
 
-	sess := sessdata.NewSession("")
-	sess.Username = ctx.Conn.Username
-	sess.Group = ctx.Conn.GroupName
-	if ctx.UserInfo != nil {
-		sess.LimitTime = ctx.UserInfo.LimitTime
-	}
-	oriMac := ctx.Conn.MacAddr
-	sess.UniqueIdGlobal = ctx.Conn.DeviceID
-	sess.UserAgent = ctx.Conn.UserAgent
-	sess.DeviceType = ua.DeviceType
-	sess.PlatformVersion = ua.PlatformVersion
-	sess.Os = ua.Os
-	sess.RemoteAddr = ctx.Conn.RemoteAddr
-	sess.UniqueMac = true
-	macHw, err := net.ParseMAC(oriMac)
+	token := utils.RandomHex(32)
+	uniqueMac := true
+	macHw, err := net.ParseMAC(ctx.Conn.MacAddr)
 	if err != nil {
 		var sum [16]byte
-		if sess.UniqueIdGlobal != "" {
-			sum = md5.Sum([]byte(sess.UniqueIdGlobal))
+		if ctx.Conn.DeviceID != "" {
+			sum = md5.Sum([]byte(ctx.Conn.DeviceID))
 		} else {
-			sum = md5.Sum([]byte(sess.Token))
-			sess.UniqueMac = false
+			sum = md5.Sum([]byte(token))
+			uniqueMac = false
 		}
 		macHw = sum[0:5]
 		macHw = append([]byte{0x02}, macHw...)
-		sess.MacAddr = macHw.String()
 	}
-	sess.MacHw = macHw
-	sess.MacAddr = macHw.String()
+
+	sess := &sessdata.Session{
+		Token:           token,
+		Sid:             fmt.Sprintf("%d", time.Now().Unix()),
+		Username:        ctx.Conn.Username,
+		Group:           ctx.Conn.GroupName,
+		UniqueIdGlobal:  ctx.Conn.DeviceID,
+		UserAgent:       ctx.Conn.UserAgent,
+		DeviceType:      ua.DeviceType,
+		PlatformVersion: ua.PlatformVersion,
+		Os:              ua.Os,
+		RemoteAddr:      ctx.Conn.RemoteAddr,
+		UniqueMac:       uniqueMac,
+		MacAddr:         macHw.String(),
+		MacHw:           macHw,
+	}
+	if ctx.UserInfo != nil {
+		sess.LimitTime = ctx.UserInfo.LimitTime
+	}
 
 	other := &dbdata.SettingOther{}
-	dbdata.SettingGet(other)
-	profileHash, err := dbdata.GetProfileHash()
+	dbdata.Settings.Get(other)
+	profileHash, err := dbdata.Settings.GetProfileHash()
 	if err != nil {
 		base.Error(err)
 		http.Error(w, "profile err", http.StatusInternalServerError)
 		return
 	}
+	s.sessions.Add(sess)
 	rd := RequestData{
 		SessionId:    sess.Sid,
 		SessionToken: sess.Sid + "@" + sess.Token,
 		ProfileName:  base.GetCfg().ProfileName,
 		ProfileHash:  profileHash,
-		CertHash:     certHash.Load().(string),
+		CertHash:     s.CertHash(),
 	}
 	if other.BannerEnable {
 		rd.Banner = other.Banner
@@ -213,7 +203,7 @@ func CreateSession(w http.ResponseWriter, authSession *AuthSession) {
 
 	w.WriteHeader(http.StatusOK)
 	tplRequest(tpl_complete, w, rd)
-	base.Info("login", dbdata.UserLabel(ctx.Conn.Username, ctx.Conn.Nickname), ctx.Conn.UserAgent)
+	base.Info("login", dbdata.Users.Label(ctx.Conn.Username, ctx.Conn.Nickname), ctx.Conn.UserAgent)
 }
 
 // 设置认证会话 Cookie
@@ -234,7 +224,7 @@ func SetCookie(w http.ResponseWriter, name, value string, maxAge int) {
 func GetCookie(r *http.Request, name string) (string, error) {
 	cookie, err := r.Cookie(name)
 	if err != nil {
-		return "", fmt.Errorf("failed to get cookie: %v", err)
+		return "", fmt.Errorf("failed to get cookie: %w", err)
 	}
 	return cookie.Value, nil
 }

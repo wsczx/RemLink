@@ -8,12 +8,6 @@ import (
 	"github.com/wsczx/remlink/dbdata"
 )
 
-//   - portal_session：精确 host（Domain=""，不跨子域）
-//   - webvpn_session：通配 .base2（跨 WebVPN 子域共享）
-//   - webvpn_grant  ：通配 .base2（一次性免登授权，子域可读取兑换）
-// 改动这些规则会直接导致「门户需清 cookie 才能用 / 子域免登失效」等问题复发
-
-// 验证注册域最后两段的提取（IP / 单段 / 带端口 / 大小写）
 func TestBase2Domain(t *testing.T) {
 	ast := assert.New(t)
 	ast.Equal("example.com", base2Domain("example.com"))
@@ -28,8 +22,6 @@ func TestBase2Domain(t *testing.T) {
 	ast.Equal("", base2Domain(""))
 }
 
-// 验证 WebVPN 会话 cookie 的域分派：
-// 属于 WebVpnDomain 注册域 → 通配 .base2；IP / 未配置 / 不属于 → 精确 host（""）
 func TestCookieDomain(t *testing.T) {
 	ast := assert.New(t)
 	base.UpdateCfg(func(c *base.ServerConfig) {
@@ -55,8 +47,7 @@ func TestCookieDomain(t *testing.T) {
 	ast.Equal("", CookieDomain("app.wv.example.com"))
 }
 
-// 验证一次性免登授权清除域：始终为 .base2（带前导点），未配置则为 ""
-// grant 写入（setGrantCookie）与清除（ClearGrantCookie）都依赖此函数，必须保持一致
+// grant 写入与清除共用此域规则
 func TestWildcardDomain(t *testing.T) {
 	ast := assert.New(t)
 	base.UpdateCfg(func(c *base.ServerConfig) { c.WebVpnDomain = "wv.example.com" })
@@ -74,13 +65,13 @@ func TestPathAllowedBoundaries(t *testing.T) {
 	ast.True(pathAllowed("/anything", "/"))
 }
 
-func TestParseWebVpnBackendURL(t *testing.T) {
+func TestParseBackendURL(t *testing.T) {
 	ast := assert.New(t)
 	for _, raw := range []string{
 		"http://10.0.0.8:8080/app",
 		"https://[fd00::8]/",
 	} {
-		_, err := dbdata.ParseWebVpnBackendURL(raw)
+		_, err := dbdata.ParseBackendURL(raw)
 		ast.NoError(err, raw)
 	}
 	for _, raw := range []string{
@@ -90,7 +81,7 @@ func TestParseWebVpnBackendURL(t *testing.T) {
 		"http://10.0.0.8/?token=secret",
 		"http://",
 	} {
-		_, err := dbdata.ParseWebVpnBackendURL(raw)
+		_, err := dbdata.ParseBackendURL(raw)
 		ast.Error(err, raw)
 	}
 }

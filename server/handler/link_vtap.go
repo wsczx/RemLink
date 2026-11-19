@@ -40,19 +40,20 @@ func (v *Vtap) Close() error {
 	return err
 }
 
-func checkMacvtap() {
-	_setGateway()
-	_checkTapIp(base.GetCfg().MasterDev)
+func testMacvtap(tap *TapLink) error {
+	if err := tap.checkAndSetGatewayForDev(base.GetCfg().MasterDev); err != nil {
+		return err
+	}
 
 	ifName := "remlinkMacvtap"
 
 	// 开启主网卡混杂模式
 	masterLink, err := netlink.LinkByName(base.GetCfg().MasterDev)
 	if err != nil {
-		base.Fatal(err)
+		return fmt.Errorf("macvtap 主网卡查找失败: %w", err)
 	}
 	if err = netlink.SetPromiscOn(masterLink); err != nil {
-		base.Fatal(err)
+		return fmt.Errorf("macvtap 混杂模式开启失败: %w", err)
 	}
 
 	// 测试 macvtap 功能
@@ -66,21 +67,22 @@ func checkMacvtap() {
 		},
 	}
 	if err = netlink.LinkAdd(macvtap); err != nil {
-		base.Fatal(err)
+		return fmt.Errorf("macvtap 创建失败: %w", err)
 	}
 
 	testLink, err := netlink.LinkByName(ifName)
 	if err != nil {
-		base.Fatal(err)
+		return fmt.Errorf("macvtap 回查失败: %w", err)
 	}
 	if err = netlink.LinkDel(testLink); err != nil {
-		base.Fatal(err)
+		return fmt.Errorf("macvtap 清理失败: %w", err)
 	}
+	return nil
 }
 
 // 创建 Macvtap 网卡
-func LinkMacvtap(cSess *sessdata.ConnSession) error {
-	capL := sessdata.IpPool.IpLongMax - sessdata.IpPool.IpLongMin
+func LinkMacvtap(tap *TapLink, sessions *sessdata.SessionManager, cSess *sessdata.ConnSession) error {
+	capL := sessions.Pools().Global.IpLongMax - sessions.Pools().Global.IpLongMin
 	if capL <= 0 {
 		// IP 池配置异常（Max<=Min）时避免取模除零 panic
 		capL = 1
@@ -155,7 +157,7 @@ func LinkMacvtap(cSess *sessdata.ConnSession) error {
 		// macvtap 与主网卡同处二层广播域，内核在本接口应答 NDP；每个 lvtapN 独立接口可各自持有 /128 网关地址
 		v6GwAddr := &netlink.Addr{
 			IPNet: &net.IPNet{
-				IP:   cSess.IpPool.V6Gateway(),
+				IP:   cSess.V6Gateway(),
 				Mask: net.CIDRMask(128, 128),
 			},
 		}
@@ -165,16 +167,16 @@ func LinkMacvtap(cSess *sessdata.ConnSession) error {
 	}
 
 	// 设置组NAT
-	setGroupNAT(cSess)
+	setGroupNAT(sessions, cSess)
 
-	return createVtap(cSess, ifName)
+	return createVtap(tap, cSess, ifName)
 }
 
 // 创建 Ipvtap 网卡
 // 基于 ipvlan 子系统，工作在三层路由模式：子设备共享母网卡 MAC，
 // 内核按 IP 分发流量（而非二层桥接）。适合客户端规模大、母网卡所在网络对 MAC 数量敏感的场景
-func LinkIpvtap(cSess *sessdata.ConnSession) error {
-	capL := sessdata.IpPool.IpLongMax - sessdata.IpPool.IpLongMin
+func LinkIpvtap(tap *TapLink, sessions *sessdata.SessionManager, cSess *sessdata.ConnSession) error {
+	capL := sessions.Pools().Global.IpLongMax - sessions.Pools().Global.IpLongMin
 	if capL <= 0 {
 		// IP 池配置异常（Max<=Min）时兜底，避免取模除零 panic
 		capL = 1
@@ -238,7 +240,7 @@ func LinkIpvtap(cSess *sessdata.ConnSession) error {
 		// 不受共享 MAC 影响；每个 lvtapN 独立接口可各自持有 /128 网关地址
 		v6GwAddr := &netlink.Addr{
 			IPNet: &net.IPNet{
-				IP:   cSess.IpPool.V6Gateway(),
+				IP:   cSess.V6Gateway(),
 				Mask: net.CIDRMask(128, 128),
 			},
 		}
@@ -248,9 +250,9 @@ func LinkIpvtap(cSess *sessdata.ConnSession) error {
 	}
 
 	// 设置组NAT
-	setGroupNAT(cSess)
+	setGroupNAT(sessions, cSess)
 
-	return createVtap(cSess, ifName)
+	return createVtap(tap, cSess, ifName)
 }
 
 type ifReq struct {
@@ -259,7 +261,7 @@ type ifReq struct {
 	pad   [0x28 - 0x10 - 2]byte
 }
 
-func createVtap(cSess *sessdata.ConnSession, ifName string) error {
+func createVtap(tap *TapLink, cSess *sessdata.ConnSession, ifName string) error {
 	// 初始化 ifName
 	inf, err := net.InterfaceByName(ifName)
 	if err != nil {
@@ -293,8 +295,8 @@ func createVtap(cSess *sessdata.ConnSession, ifName string) error {
 	file := os.NewFile(uintptr(fdInt), tName)
 	ifce := &Vtap{File: file, ifName: ifName}
 
-	go allTapRead(ifce, cSess)
-	go allTapWrite(ifce, cSess)
+	go tap.read(ifce, cSess)
+	go tap.write(ifce, cSess)
 	return nil
 }
 

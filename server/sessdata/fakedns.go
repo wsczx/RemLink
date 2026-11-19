@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"maps"
 	"math/big"
 	"math/rand"
 	"net"
@@ -45,6 +46,7 @@ type FakeDNSManager struct {
 	stopMu   sync.RWMutex
 	wg       sync.WaitGroup
 	stopped  atomic.Bool
+	started  atomic.Bool
 }
 
 type fakeIPEntry struct {
@@ -81,12 +83,6 @@ type fakeIPPoolV6 struct {
 
 // 按游标递增分配一个 v6 假地址；到达 max 后回到 min
 func (p *fakeIPPoolV6) next() net.IP {
-	if p == nil || p.max == nil {
-		return nil
-	}
-	if p.cursor == nil {
-		p.cursor = new(big.Int)
-	}
 	candidate := new(big.Int).Add(p.min, p.cursor)
 	if candidate.Cmp(p.max) > 0 {
 		p.cursor = big.NewInt(0)
@@ -113,9 +109,7 @@ type dnsResolveTask struct {
 	err  error
 }
 
-// 全局单例
-var GlobalFakeDNSManager *FakeDNSManager
-var globalFakeDNSOnce sync.Once
+// FakeDNS 管理器由 SessionManager 持有，首个启用 FakeDNS 的连接触发构造
 
 const (
 	DefaultFakeIPRange = "100.64.0.0/10"
@@ -132,30 +126,69 @@ const (
 	negCacheNetErrTTL = 10 * time.Second // 网络错误/超时，短缓存避免反复阻塞读循环
 )
 
-// 获取全局 FakeDNS 管理器单例
-func GetFakeDNSManager() *FakeDNSManager {
-	globalFakeDNSOnce.Do(func() {
-		var err error
-		GlobalFakeDNSManager, err = newFakeDNSManager(DefaultFakeIPRange)
-		if err != nil {
-			base.Error("Failed to initialize FakeDNS manager:", err)
-			return
+// 构造并启动管理器；失败不落字段，下次调用可重试
+func (m *SessionManager) ensureFakeDNS() *FakeDNSManager {
+	m.fakeDNSMu.Lock()
+	defer m.fakeDNSMu.Unlock()
+	if m.fakeDNS != nil {
+		return m.fakeDNS
+	}
+	fd, err := newFakeDNSManager(DefaultFakeIPRange, m.firewall.Get())
+	if err != nil {
+		base.Error("Failed to initialize FakeDNS manager:", err)
+		return nil
+	}
+	// 仅当开启 IPv6 双栈时初始化 v6 假地址池
+	if base.GetCfg().Ipv6CIDR != "" {
+		if err := fd.initV6Pool(DefaultFakeIPv6Range); err != nil {
+			base.Error("Failed to init v6 FakeDNS pool:", err)
 		}
-		// 初始化 v6 假地址池：受 Ipv6CIDR 总开关约束（空=纯 v4 字节级不变）；
-		// v6 FakeIP 段固定为常量（与 v4 一致不可配），仅当开启 IPv6 双栈（Ipv6CIDR 非空）时初始化
-		if base.GetCfg().Ipv6CIDR != "" {
-			if err := GlobalFakeDNSManager.initV6Pool(DefaultFakeIPv6Range); err != nil {
-				base.Error("Failed to init v6 FakeDNS pool:", err)
+	}
+	fd.Start()
+	m.fakeDNS = fd
+	base.Info("FakeDNS manager initialized")
+	return m.fakeDNS
+}
+
+// 停止管理器（可多次调用）；置空字段，下次建链将重新构造
+func (m *SessionManager) StopFakeDNS() {
+	m.fakeDNSMu.Lock()
+	defer m.fakeDNSMu.Unlock()
+	if m.fakeDNS != nil {
+		m.fakeDNS.Stop()
+		m.fakeDNS = nil
+	}
+}
+
+// 重建 FakeIP DNAT 链并恢复已有映射；NAT 规则被整体清理后需调用
+func (m *FakeDNSManager) EnsureChains() {
+	if m.fw == nil {
+		return
+	}
+	if err := m.fw.CreateChains(base.GetCfg().Ipv4CIDR, m.pool.IPNet.String()); err != nil {
+		base.Warn("重建 FakeIP DNAT 链失败:", err)
+		return
+	}
+	if m.poolV6 != nil {
+		if cidr6 := base.GetCfg().Ipv6CIDR; cidr6 != "" {
+			if err := m.fw.CreateChains(cidr6, m.poolV6.IPNet.String()); err != nil {
+				base.Warn("重建 v6 FakeIP DNAT 链失败:", err)
 			}
 		}
-		GlobalFakeDNSManager.Start()
-		base.Info("Global FakeDNS manager initialized")
-	})
-	return GlobalFakeDNSManager
+	}
+	m.mu.RLock()
+	mappings := make(map[string]string, len(m.ipToRealIP))
+	maps.Copy(mappings, m.ipToRealIP)
+	m.mu.RUnlock()
+	for fakeIP, realIP := range mappings {
+		if err := m.fw.AddNatRule(fakeIP, realIP); err != nil {
+			base.Warn("恢复 FakeIP 映射失败:", fakeIP, err)
+		}
+	}
 }
 
 // 创建 FakeDNS 管理器
-func newFakeDNSManager(ipRange string) (*FakeDNSManager, error) {
+func newFakeDNSManager(ipRange string, fw Firewall) (*FakeDNSManager, error) {
 	m := &FakeDNSManager{
 		active:       make(map[string]*fakeIPEntry),
 		activeV6:     make(map[string]*fakeIPEntry),
@@ -169,7 +202,7 @@ func newFakeDNSManager(ipRange string) (*FakeDNSManager, error) {
 	// 解析 IP 范围
 	_, ipNet, err := net.ParseCIDR(ipRange)
 	if err != nil {
-		return nil, fmt.Errorf("invalid IP range: %v", err)
+		return nil, fmt.Errorf("invalid IP range: %w", err)
 	}
 
 	ipLongMin := binary.BigEndian.Uint32(ipNet.IP)
@@ -183,7 +216,7 @@ func newFakeDNSManager(ipRange string) (*FakeDNSManager, error) {
 	}
 
 	// 初始化防火墙后端
-	m.fw = GetFirewall()
+	m.fw = fw
 	if m.fw == nil {
 		return nil, fmt.Errorf("failed to initialize firewall: firewall is nil")
 	}
@@ -199,6 +232,9 @@ func newFakeDNSManager(ipRange string) (*FakeDNSManager, error) {
 
 // 启动后台清理任务
 func (m *FakeDNSManager) Start() {
+	if m.started.Swap(true) {
+		return
+	}
 	m.wg.Add(2)
 	go m.cleanupFakeIPLoop()
 	go m.cleanupDNSCacheLoop()
@@ -209,6 +245,7 @@ func (m *FakeDNSManager) Stop() {
 	m.stopOnce.Do(func() {
 		m.stopMu.Lock()
 		m.stopped.Store(true)
+		m.started.Store(false)
 		close(m.stopChan)
 		m.stopMu.Unlock()
 	})
@@ -220,56 +257,52 @@ func (m *FakeDNSManager) Stop() {
 
 // 为域名分配 FakeIP
 func (m *FakeDNSManager) AcquireFakeIP(domain string) net.IP {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// 检查是否已分配
-	if fakeIP, exists := m.domainToIP[domain]; exists {
-		if entry, ok := m.active[fakeIP]; ok {
-			entry.SetLastAccess(time.Now())
-			return net.ParseIP(fakeIP)
-		}
-	}
-
-	// 分配新的 FakeIP
-	counter := m.pool.counter.Add(1)
-	ipLong := m.pool.IpLongMin + (counter % (m.pool.IpLongMax - m.pool.IpLongMin + 1))
-
-	fakeIP := make(net.IP, 4)
-	binary.BigEndian.PutUint32(fakeIP, ipLong)
-
-	fakeIPStr := fakeIP.String()
-	entry := &fakeIPEntry{
-		Domain: domain,
-		FakeIP: fakeIPStr,
-	}
-	entry.SetLastAccess(time.Now())
-
-	m.active[fakeIPStr] = entry
-	m.domainToIP[domain] = fakeIPStr
-
-	base.Debug("Allocated FakeIP:", domain, "->", fakeIPStr)
-	return fakeIP
+	return m.acquireFakeIP(domain, false)
 }
 
 // 为域名分配一个 v6 假地址
 func (m *FakeDNSManager) AcquireFakeIPv6(domain string) net.IP {
-	if m.poolV6 == nil {
-		return nil
+	return m.acquireFakeIP(domain, true)
+}
+
+// 分配假地址；v4 走计数器取模，v6 走专用池
+func (m *FakeDNSManager) allocFakeIP(v6 bool) (net.IP, bool) {
+	if v6 {
+		if m.poolV6 == nil {
+			return nil, false
+		}
+		ip := m.poolV6.next()
+		if ip == nil {
+			return nil, false
+		}
+		return ip, true
 	}
+	counter := m.pool.counter.Add(1)
+	ipLong := m.pool.IpLongMin + (counter % (m.pool.IpLongMax - m.pool.IpLongMin + 1))
+	ip := make(net.IP, 4)
+	binary.BigEndian.PutUint32(ip, ipLong)
+	return ip, true
+}
+
+// 按地址族分配假地址：同一域名重复申请只刷新访问时间并复用原地址
+func (m *FakeDNSManager) acquireFakeIP(domain string, v6 bool) net.IP {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if fakeIP, exists := m.domainToIPV6[domain]; exists {
-		if entry, ok := m.activeV6[fakeIP]; ok {
+	active, domainToIP := m.familyTables(v6)
+	if fakeIP, exists := domainToIP[domain]; exists {
+		if entry, ok := active[fakeIP]; ok {
 			entry.SetLastAccess(time.Now())
 			return net.ParseIP(fakeIP)
 		}
 	}
 
-	ip := m.poolV6.next()
-	if ip == nil {
-		base.Error("v6 FakeIP pool exhausted")
+	ip, ok := m.allocFakeIP(v6)
+	if !ok {
+		// v6 池未启用与池耗尽要区分：后者才告警
+		if v6 && m.poolV6 != nil {
+			base.Error("v6 FakeIP pool exhausted")
+		}
 		return nil
 	}
 	fakeIPStr := ip.String()
@@ -279,11 +312,34 @@ func (m *FakeDNSManager) AcquireFakeIPv6(domain string) net.IP {
 	}
 	entry.SetLastAccess(time.Now())
 
-	m.activeV6[fakeIPStr] = entry
-	m.domainToIPV6[domain] = fakeIPStr
+	active[fakeIPStr] = entry
+	domainToIP[domain] = fakeIPStr
 
-	base.Debug("Allocated v6 FakeIP:", domain, "->", fakeIPStr)
+	label := "FakeIP"
+	if v6 {
+		label = "v6 FakeIP"
+	}
+	base.Debug("Allocated", label+":", domain, "->", fakeIPStr)
 	return ip
+}
+
+// 返回指定地址族的活跃表与域名索引
+func (m *FakeDNSManager) familyTables(v6 bool) (map[string]*fakeIPEntry, map[string]string) {
+	if v6 {
+		return m.activeV6, m.domainToIPV6
+	}
+	return m.active, m.domainToIP
+}
+
+// 假地址是否属于 v6 段
+func isV6FakeIP(fakeIP string) bool { return strings.Contains(fakeIP, ":") }
+
+// 映射任务去重键：同域名按地址族分开，v4/v6 互不阻塞
+func mappingTaskKey(domain, fakeIP string) string {
+	if isV6FakeIP(fakeIP) {
+		return domain + "|AAAA"
+	}
+	return domain
 }
 
 // 1. 查 fakeIP 对应的 realIP 和 domain
@@ -294,31 +350,11 @@ func (m *FakeDNSManager) AcquireFakeIPv6(domain string) net.IP {
 // 返回 realIP(空表示尚无映射)、domain(空表示 fakeIP 不在映射表)、needRefresh
 func (m *FakeDNSManager) LookupAndTouch(fakeIP string) (realIP, domain string, needRefresh bool) {
 	now := time.Now()
-	// v6 假地址走 activeV6
-	if strings.Contains(fakeIP, ":") {
-		m.mu.RLock()
-		defer m.mu.RUnlock()
-		entry, ok := m.activeV6[fakeIP]
-		if !ok {
-			return "", "", false
-		}
-		entry.SetLastAccess(now)
-		domain = entry.Domain
-		realIP = m.ipToRealIP[fakeIP]
-		if realIP == "" {
-			return "", domain, false
-		}
-		refreshAt := entry.GetRefreshAt()
-		if !refreshAt.IsZero() && now.After(refreshAt) {
-			entry.SetRefreshAt(now.Add(minRefreshInterval))
-			needRefresh = true
-		}
-		return realIP, domain, needRefresh
-	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	entry, ok := m.active[fakeIP]
+	active, _ := m.familyTables(isV6FakeIP(fakeIP))
+	entry, ok := active[fakeIP]
 	if !ok {
 		return "", "", false
 	}
@@ -346,7 +382,7 @@ func (m *FakeDNSManager) ResolveAndMappingSync(fakeIP, domain, upstreamDNS strin
 		return nil
 	}
 	// 内部按域名、地址族和上游共享任务
-	realIP, ttl, err := m.resolveWithCache(domain, upstreamDNS, strings.Contains(fakeIP, ":"))
+	realIP, ttl, err := m.resolveWithCache(domain, upstreamDNS, isV6FakeIP(fakeIP))
 	if err != nil {
 		return err
 	}
@@ -365,10 +401,7 @@ func (m *FakeDNSManager) ResolveAndMapping(fakeIP, domain, upstreamDNS string) {
 		return
 	}
 	// 去重: 同一域名同族(A/AAAA)只允许一个在解析；v4/v6 互不阻塞
-	mappingTasksKey := domain
-	if strings.Contains(fakeIP, ":") {
-		mappingTasksKey += "|AAAA"
-	}
+	mappingTasksKey := mappingTaskKey(domain, fakeIP)
 	if _, loaded := m.mappingTasks.LoadOrStore(mappingTasksKey, struct{}{}); loaded {
 		return
 	}
@@ -387,7 +420,7 @@ func (m *FakeDNSManager) ResolveAndMapping(fakeIP, domain, upstreamDNS string) {
 		defer m.mappingTasks.Delete(mappingTasksKey)
 
 		// v6 fakeIP 解析 AAAA，v4 解析 A
-		realIP, ttl, err := m.resolveWithCache(domain, upstreamDNS, strings.Contains(fakeIP, ":"))
+		realIP, ttl, err := m.resolveWithCache(domain, upstreamDNS, isV6FakeIP(fakeIP))
 		if err != nil {
 			base.Debug("Failed to resolve domain:", domain, "error:", err)
 			return
@@ -403,11 +436,8 @@ func (m *FakeDNSManager) ResolveAndMapping(fakeIP, domain, upstreamDNS string) {
 
 // 映射到期时异步重新解析并替换 DNAT
 func (m *FakeDNSManager) RenewMapping(fakeIP, domain, upstreamDNS string) {
-	isV6 := strings.Contains(fakeIP, ":")
-	mappingTasksKey := domain
-	if isV6 {
-		mappingTasksKey += "|AAAA"
-	}
+	isV6 := isV6FakeIP(fakeIP)
+	mappingTasksKey := mappingTaskKey(domain, fakeIP)
 	if _, loaded := m.mappingTasks.LoadOrStore(mappingTasksKey, struct{}{}); loaded {
 		return
 	}
@@ -466,10 +496,8 @@ func (m *FakeDNSManager) GetDomain(fakeIP string) string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	if entry, exists := m.active[fakeIP]; exists {
-		return entry.Domain
-	}
-	if entry, exists := m.activeV6[fakeIP]; exists {
+	active, _ := m.familyTables(isV6FakeIP(fakeIP))
+	if entry, exists := active[fakeIP]; exists {
 		return entry.Domain
 	}
 	return ""
@@ -518,7 +546,7 @@ func (m *FakeDNSManager) IsAAAAPositive(domain, upstreamDNS string) bool {
 func (m *FakeDNSManager) initV6Pool(rangeStr string) error {
 	_, ipNet, err := net.ParseCIDR(rangeStr)
 	if err != nil {
-		return fmt.Errorf("invalid v6 FakeIP range: %v", err)
+		return fmt.Errorf("invalid v6 FakeIP range: %w", err)
 	}
 	if ipNet.IP.To4() != nil {
 		return fmt.Errorf("v6 FakeIP range must be an IPv6 CIDR, got %s", rangeStr)
@@ -554,7 +582,8 @@ func (m *FakeDNSManager) UpdateAccess(fakeIP string) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	if entry, exists := m.active[fakeIP]; exists {
+	active, _ := m.familyTables(isV6FakeIP(fakeIP))
+	if entry, exists := active[fakeIP]; exists {
 		entry.SetLastAccess(time.Now())
 	}
 }
@@ -718,11 +747,8 @@ func (m *FakeDNSManager) setRefreshAt(fakeIP string, ttl uint32) {
 
 // 按 fakeIP 地址族取对应活跃表的 entry；调用方须持有 m.mu
 func (m *FakeDNSManager) entryFor(fakeIP string) (*fakeIPEntry, bool) {
-	if strings.Contains(fakeIP, ":") {
-		e, ok := m.activeV6[fakeIP]
-		return e, ok
-	}
-	e, ok := m.active[fakeIP]
+	active, _ := m.familyTables(isV6FakeIP(fakeIP))
+	e, ok := active[fakeIP]
 	return e, ok
 }
 
@@ -743,42 +769,24 @@ func FormatUpstream(addr string) string {
 	return addr + ":53"
 }
 
-// 带重试的 DNS 解析
+// 解析域名的 A 记录真实地址，带重试
 func (m *FakeDNSManager) ResolveDomain(domain, upstreamDNS string) (string, uint32, error) {
-	if upstreamDNS != "" {
-		upstreamDNS = FormatUpstream(upstreamDNS)
-	}
-
-	msg := new(dns.Msg)
-	msg.SetQuestion(dns.Fqdn(domain), dns.TypeA)
-
-	const maxRetries = 2
-	var lastErr error
-	for i := range maxRetries {
-		realIP, ttl, err := m.queryDNS(msg, upstreamDNS)
-		if err == nil {
-			return realIP, ttl, nil
-		}
-		// 无记录直接返回
-		if errors.Is(err, errDNSAuthoritative) {
-			return "", 0, err
-		}
-		lastErr = err
-		if i < maxRetries-1 {
-			base.Debug("DNS query failed, retrying:", upstreamDNS, "error:", err)
-		}
-	}
-	return "", 0, fmt.Errorf("DNS query failed for %s after %d attempts: %v", domain, maxRetries, lastErr)
+	return m.resolve(domain, upstreamDNS, dns.TypeA)
 }
 
-// 解析域名的 AAAA（IPv6）真实地址（V2）
+// 解析域名的 AAAA（IPv6）记录真实地址，带重试
 func (m *FakeDNSManager) ResolveDomainAAAA(domain, upstreamDNS string) (string, uint32, error) {
+	return m.resolve(domain, upstreamDNS, dns.TypeAAAA)
+}
+
+// 按指定查询类型解析域名，失败重试两次；遇到权威否定（无记录）立即返回
+func (m *FakeDNSManager) resolve(domain, upstreamDNS string, qType uint16) (string, uint32, error) {
 	if upstreamDNS != "" {
 		upstreamDNS = FormatUpstream(upstreamDNS)
 	}
 
 	msg := new(dns.Msg)
-	msg.SetQuestion(dns.Fqdn(domain), dns.TypeAAAA)
+	msg.SetQuestion(dns.Fqdn(domain), qType)
 
 	const maxRetries = 2
 	var lastErr error
@@ -792,10 +800,10 @@ func (m *FakeDNSManager) ResolveDomainAAAA(domain, upstreamDNS string) (string, 
 		}
 		lastErr = err
 		if i < maxRetries-1 {
-			base.Debug("DNS AAAA query failed, retrying:", upstreamDNS, "error:", err)
+			base.Debug("DNS", dns.Type(qType).String(), "query failed, retrying:", upstreamDNS, "error:", err)
 		}
 	}
-	return "", 0, fmt.Errorf("DNS AAAA query failed for %s after %d attempts: %v", domain, maxRetries, lastErr)
+	return "", 0, fmt.Errorf("DNS %s query failed for %s after %d attempts: %w", dns.Type(qType).String(), domain, maxRetries, lastErr)
 }
 
 // 单次 DNS 查询
@@ -844,21 +852,24 @@ func (m *FakeDNSManager) queryDNS(msg *dns.Msg, server string) (string, uint32, 
 	return ips[rand.Intn(len(ips))], ttl, nil
 }
 
-// 定期清理过期的 FakeIP
-func (m *FakeDNSManager) cleanupFakeIPLoop() {
+// 按 interval 周期触发 cleanup，直到 stopChan 关闭
+func (m *FakeDNSManager) cleanupLoop(interval time.Duration, cleanup func()) {
 	defer m.wg.Done()
-
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-
 	for {
 		select {
 		case <-ticker.C:
-			m.cleanupExpiredFakeIPs()
+			cleanup()
 		case <-m.stopChan:
 			return
 		}
 	}
+}
+
+// 定期清理过期的 FakeIP
+func (m *FakeDNSManager) cleanupFakeIPLoop() {
+	m.cleanupLoop(5*time.Minute, m.cleanupExpiredFakeIPs)
 }
 
 // 清理过期的 FakeIP 映射
@@ -868,14 +879,12 @@ func (m *FakeDNSManager) cleanupExpiredFakeIPs() {
 	// 收集需要清理的 FakeIP（v4 + v6）
 	m.mu.RLock()
 	now := time.Now()
-	for fakeIP, entry := range m.active {
-		if now.Sub(entry.GetLastAccess()) > 2*time.Hour {
-			toCleanup = append(toCleanup, fakeIP)
-		}
-	}
-	for fakeIP, entry := range m.activeV6 {
-		if now.Sub(entry.GetLastAccess()) > 2*time.Hour {
-			toCleanup = append(toCleanup, fakeIP)
+	for _, v6 := range []bool{false, true} {
+		active, _ := m.familyTables(v6)
+		for fakeIP, entry := range active {
+			if now.Sub(entry.GetLastAccess()) > 2*time.Hour {
+				toCleanup = append(toCleanup, fakeIP)
+			}
 		}
 	}
 	m.mu.RUnlock()
@@ -883,13 +892,8 @@ func (m *FakeDNSManager) cleanupExpiredFakeIPs() {
 	// 逐个清理
 	for _, fakeIP := range toCleanup {
 		m.mu.Lock()
-		var entry *fakeIPEntry
-		var exists bool
-		if strings.Contains(fakeIP, ":") {
-			entry, exists = m.activeV6[fakeIP]
-		} else {
-			entry, exists = m.active[fakeIP]
-		}
+		active, domainToIP := m.familyTables(isV6FakeIP(fakeIP))
+		entry, exists := active[fakeIP]
 		if !exists {
 			m.mu.Unlock()
 			continue
@@ -900,13 +904,8 @@ func (m *FakeDNSManager) cleanupExpiredFakeIPs() {
 			continue
 		}
 		domain := entry.Domain
-		if strings.Contains(fakeIP, ":") {
-			delete(m.activeV6, fakeIP)
-			delete(m.domainToIPV6, domain)
-		} else {
-			delete(m.active, fakeIP)
-			delete(m.domainToIP, domain)
-		}
+		delete(active, fakeIP)
+		delete(domainToIP, domain)
 		m.mu.Unlock()
 
 		// 删除映射和防火墙规则
@@ -920,19 +919,7 @@ func (m *FakeDNSManager) cleanupExpiredFakeIPs() {
 
 // 定期清理过期的 DNS 缓存
 func (m *FakeDNSManager) cleanupDNSCacheLoop() {
-	defer m.wg.Done()
-
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			m.cleanupExpiredDNSCache()
-		case <-m.stopChan:
-			return
-		}
-	}
+	m.cleanupLoop(1*time.Minute, m.cleanupExpiredDNSCache)
 }
 
 // 清理过期的 DNS 缓存

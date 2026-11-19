@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"sync"
@@ -10,33 +11,19 @@ import (
 	"github.com/wsczx/remlink/base"
 )
 
-// 系统日志条目（通过 WebSocket 推送）
-type SyslogEntry struct {
-	Level string `json:"level"` // Trace/Debug/Info/Warn/Error/Fatal
-	Time  string `json:"time"`  // 2006-01-02 15:04:05
-	Msg   string `json:"msg"`   // 日志内容（已去除末尾换行）
-}
-
-// SyslogMessage 广播消息结构
+// 广播消息结构
 type SyslogMessage struct {
-	Type string      `json:"type"`
-	Data SyslogEntry `json:"data"`
+	Type string           `json:"type"`
+	Data base.SyslogEntry `json:"data"`
 }
 
-var (
-	syslogUpgrader = websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 4096,
-		CheckOrigin: func(r *http.Request) bool {
-			return true // 管理后台，允许所有来源
-		},
-	}
-
-	syslogHub *SyslogHub
-
-	// 系统日志广播通道（base → handler）
-	syslogBroadcast = make(chan SyslogEntry, 2048)
-)
+var syslogUpgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 4096,
+	CheckOrigin: func(r *http.Request) bool {
+		return true // 管理后台，允许所有来源
+	},
+}
 
 // 单个 WebSocket 客户端连接
 type SyslogClient struct {
@@ -54,8 +41,8 @@ type SyslogHub struct {
 	mu         sync.RWMutex
 }
 
-// 创建系统日志 WebSocket Hub
-func newSyslogHub() *SyslogHub {
+// 创建系统日志 WebSocket Hub，由 App 持有并注入 handler
+func NewSyslogHub() *SyslogHub {
 	return &SyslogHub{
 		clients:    make(map[*SyslogClient]bool),
 		broadcast:  make(chan []byte, 512),
@@ -65,9 +52,11 @@ func newSyslogHub() *SyslogHub {
 }
 
 // 启动 Hub 主循环
-func (h *SyslogHub) Run() {
+func (h *SyslogHub) Run(ctx context.Context) {
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case client := <-h.register:
 			h.mu.Lock()
 			h.clients[client] = true
@@ -101,7 +90,7 @@ func (h *SyslogHub) Run() {
 }
 
 // 读取客户端消息
-func (c *SyslogClient) readPump() {
+func (c *SyslogClient) readLoop() {
 	defer func() {
 		c.hub.unregister <- c
 		c.conn.Close()
@@ -121,7 +110,7 @@ func (c *SyslogClient) readPump() {
 }
 
 // 写入消息到客户端
-func (c *SyslogClient) writePump() {
+func (c *SyslogClient) writeLoop() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer func() {
 		ticker.Stop()
@@ -148,57 +137,46 @@ func (c *SyslogClient) writePump() {
 }
 
 // 启动系统日志实时推送 Hub
-func StartSyslogHub() {
-	syslogHub = newSyslogHub()
-	go syslogHub.Run()
-	go broadcastSyslogLoop()
+func StartSyslogHub(ctx context.Context, hub *SyslogHub) {
+	go hub.Run(ctx)
+	go broadcastSyslogLoop(ctx, hub)
 }
 
 // 监听系统日志广播通道
-func broadcastSyslogLoop() {
-	for entry := range syslogBroadcast {
-		msg := SyslogMessage{
-			Type: "syslog",
-			Data: entry,
-		}
-		data, err := json.Marshal(msg)
-		if err != nil {
-			continue
-		}
+func broadcastSyslogLoop(ctx context.Context, hub *SyslogHub) {
+	for {
 		select {
-		case syslogHub.broadcast <- data:
-		default:
-			// 广播通道满则丢弃（非关键）
+		case <-ctx.Done():
+			return
+		case entry, ok := <-base.SyslogBroadcast:
+			if !ok {
+				return
+			}
+			msg := SyslogMessage{
+				Type: "syslog",
+				Data: entry,
+			}
+			data, err := json.Marshal(msg)
+			if err != nil {
+				continue
+			}
+			select {
+			case hub.broadcast <- data:
+			default:
+				// 广播通道满则丢弃（非关键）
+			}
 		}
-	}
-}
-
-// 系统日志广播回调
-func BroadcastSyslog(level int, msg string) {
-	// 去除末尾换行
-	l := len(msg)
-	if l > 0 && msg[l-1] == '\n' {
-		msg = msg[:l-1]
-	}
-	entry := SyslogEntry{
-		Level: base.GetLogLevelName(level),
-		Time:  time.Now().Format("2006-01-02 15:04:05"),
-		Msg:   msg,
-	}
-	select {
-	case syslogBroadcast <- entry:
-	default:
 	}
 }
 
 // WebSocket 升级处理函数
-func HandleSyslogWS(w http.ResponseWriter, r *http.Request) {
+func HandleSyslogWS(hub *SyslogHub, w http.ResponseWriter, r *http.Request) {
 	conn, err := syslogUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		base.Error("SyslogWS: WebSocket升级失败:", err)
 		return
 	}
-	if syslogHub == nil {
+	if hub == nil {
 		base.Error("SyslogWS: Hub 未初始化")
 		conn.Close()
 		return
@@ -206,10 +184,10 @@ func HandleSyslogWS(w http.ResponseWriter, r *http.Request) {
 	client := &SyslogClient{
 		conn: conn,
 		send: make(chan []byte, 256),
-		hub:  syslogHub,
+		hub:  hub,
 	}
-	syslogHub.register <- client
+	hub.register <- client
 
-	go client.writePump()
-	go client.readPump()
+	go client.writeLoop()
+	go client.readLoop()
 }

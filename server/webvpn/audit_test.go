@@ -8,11 +8,15 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wsczx/remlink/auth"
+	"github.com/wsczx/remlink/auth/authsrv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 )
 
 func TestMain(m *testing.M) {
+	auth.SetRegistry(auth.NewProviderRegistry())
+	authsrv.RegisterProviders(auth.Registry)
 	base.ReinitLog()
 	os.Exit(m.Run())
 }

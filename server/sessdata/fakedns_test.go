@@ -10,11 +10,15 @@ import (
 
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
+	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 )
 
 func TestMain(m *testing.M) {
 	base.Test()
+	// 注入单例，避免测试中为 nil
+	auth.SetRegistry(auth.NewProviderRegistry())
+	SetPayloads(NewBufferPool())
 	os.Exit(m.Run())
 }
 
@@ -594,7 +598,7 @@ func startTestAAAAServer(t *testing.T, aaaaIP string, nodata bool) string {
 }
 
 // 验证「DNS 层 IPv6 优先」乐观分配：双栈开启时 AcquireFakeIPv6 立即分配
-// v6 fakeIP（不依赖同步探测）；ResolveAndMapping 异步解析 AAAA 并写入映射，随后 IsAAAAPositive 为真。
+// v6 fakeIP（不依赖同步探测）；ResolveAndMapping 异步解析 AAAA 并写入映射，随后 IsAAAAPositive 为真
 func TestPreferV6Optimistic(t *testing.T) {
 	m := newTestManager(t)
 	assert.Nil(t, m.initV6Pool("fd00::/112"))
@@ -652,4 +656,21 @@ func TestResolveAndMapping_V6AAAA(t *testing.T) {
 	m.ResolveAndMapping(fakeIP.String(), "example.com", "8.8.8.8:53")
 	_, loaded := m.mappingTasks.Load("example.com|AAAA")
 	assert.True(t, loaded)
+}
+
+func TestEnsureChainsRestoresMappings(t *testing.T) {
+	m := newTestManager(t)
+	fw := m.fw.(*mockFirewall)
+
+	// 已有映射被 NAT 规则整体清理（内核链被删）后，内存映射仍在
+	m.ipToRealIP["100.64.0.10"] = "10.0.0.1"
+	m.ipToRealIP["100.64.0.11"] = "10.0.0.2"
+	fw.natRules = map[string]string{}
+
+	m.EnsureChains()
+
+	fw.mu.Lock()
+	defer fw.mu.Unlock()
+	assert.Equal(t, "10.0.0.1", fw.natRules["100.64.0.10"])
+	assert.Equal(t, "10.0.0.2", fw.natRules["100.64.0.11"])
 }

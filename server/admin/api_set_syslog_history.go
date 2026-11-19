@@ -137,7 +137,7 @@ func SyslogHistoryList(w http.ResponseWriter, r *http.Request) {
 	start := (page - 1) * pageSize
 	end := start + pageSize
 	total := 0
-	datas := make([]SyslogHistoryEntry, 0, min(pageSize, end-start))
+	datas := make([]SyslogHistoryEntry, 0, pageSize)
 	lastIdx := -1
 
 	scanner := bufio.NewScanner(f)
@@ -187,7 +187,7 @@ func SyslogHistoryList(w http.ResponseWriter, r *http.Request) {
 	// 仅在首次打开某日日志时记一条审计，避免瀑布流滚动逐页刷审计
 	if page == 1 {
 		detail := "级别=" + level + ", 关键字=" + keyword + ", 命中=" + strconv.Itoa(total)
-		dbdata.AdminLog("系统设置", "查看历史系统日志:"+date, detail, r.RemoteAddr)
+		dbdata.AdminLogs.AdminLog("系统设置", "查看历史系统日志:"+date, detail, r.RemoteAddr)
 	}
 
 	RespSuccess(w, map[string]any{
@@ -196,4 +196,13 @@ func SyslogHistoryList(w http.ResponseWriter, r *http.Request) {
 		"page_size": pageSize,
 		"datas":     datas,
 	})
+}
+
+// 构造 /set/syslog/ws 路由处理器，ws 由 App 在启动时注入
+func syslogWSHandler(ws http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if ws != nil {
+			ws.ServeHTTP(w, r)
+		}
+	}
 }

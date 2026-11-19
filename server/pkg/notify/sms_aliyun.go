@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/wsczx/remlink/base"
-	"github.com/wsczx/remlink/dbdata"
 )
 
 type aliyunSender struct {
@@ -22,10 +21,10 @@ type aliyunSender struct {
 	templateCode    string
 }
 
-func newAliyunSender(cfg *dbdata.SettingSms) *aliyunSender {
+func newAliyunSender(cfg *SmsConfig) *aliyunSender {
 	return &aliyunSender{
 		accessKeyId:     cfg.AliAccessKeyId,
-		accessKeySecret: string(cfg.AliAccessKeySecret),
+		accessKeySecret: cfg.AliAccessKeySecret,
 		signName:        cfg.AliSignName,
 		templateCode:    cfg.AliTemplateCode,
 	}

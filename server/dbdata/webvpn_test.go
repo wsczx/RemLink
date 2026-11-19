@@ -22,7 +22,7 @@ func TestWebVpnCorsAllowedOrigins(t *testing.T) {
 		{"https://other.wv.example.com", false},
 	}
 	for _, tc := range cases {
-		assert.Equal(t, tc.want, WebVpnCorsOriginAllowed(app, tc.origin), "Origin=%s", tc.origin)
+		assert.Equal(t, tc.want, WebVpn.CorsOriginAllowed(app, tc.origin), "Origin=%s", tc.origin)
 	}
 }
 
@@ -31,25 +31,18 @@ func TestWebVpnRevokePersistAcrossMemoryReset(t *testing.T) {
 	preIpData(t)
 	defer closeIpdata()
 
-	// 初始阈值应为 0（未吊销）
-	ast.Equal(int64(0), WebVpnRevokeBeforeOf("alice"), "未吊销用户阈值应为 0")
+	ast.Equal(int64(0), WebVpn.RevokeBeforeOf("alice"), "未吊销用户阈值应为 0")
+	WebVpn.RevokeUser("alice")
 
-	// 吊销 alice（写入 DB + 内存）
-	WebVpnRevokeUser("alice")
-
-	// 内存与 DB 都应能读到阈值
-	beforeReset := WebVpnRevokeBeforeOf("alice")
+	beforeReset := WebVpn.RevokeBeforeOf("alice")
 	ast.Greater(beforeReset, int64(0), "吊销后阈值应大于 0")
+	WebVpn.RevokeReset()
 
-	WebVpnRevokeReset()
-
-	// 内存已空，但仍应从 DB 回查到阈值（证明持久化生效）
-	afterReset := WebVpnRevokeBeforeOf("alice")
+	afterReset := WebVpn.RevokeBeforeOf("alice")
 	ast.Greater(afterReset, int64(0), "内存清空后应从 DB 读回吊销阈值")
 	ast.Equal(beforeReset, afterReset, "DB 回查的阈值应与写入一致")
 
-	// 其他用户不应受影响
-	ast.Equal(int64(0), WebVpnRevokeBeforeOf("bob"), "未吊销用户阈值应保持 0")
+	ast.Equal(int64(0), WebVpn.RevokeBeforeOf("bob"), "未吊销用户阈值应保持 0")
 }
 
 // 覆盖数据库回查后的内存缓存行为
@@ -57,13 +50,12 @@ func TestWebVpnRevokeBeforeOfCacheFill(t *testing.T) {
 	ast := assert.New(t)
 	preIpData(t)
 	defer closeIpdata()
+	WebVpn.RevokeUser("carol")
+	WebVpn.RevokeReset()
 
-	WebVpnRevokeUser("carol")
-	WebVpnRevokeReset() // 清内存，强制首次回查 DB
+	first := WebVpn.RevokeBeforeOf("carol")
 
-	first := WebVpnRevokeBeforeOf("carol")
-	// 第二次命中内存缓存，返回值应与首次一致
-	second := WebVpnRevokeBeforeOf("carol")
+	second := WebVpn.RevokeBeforeOf("carol")
 	ast.Equal(first, second, "回查后内存缓存应使后续读取返回一致值")
 	ast.Greater(first, int64(0))
 }
@@ -75,13 +67,11 @@ func TestWebVpnRevokeUsersBatch(t *testing.T) {
 	defer closeIpdata()
 	base.UpdateCfg(func(c *base.ServerConfig) { c.WebVpnDomain = "test" })
 	defer base.UpdateCfg(func(c *base.ServerConfig) { c.WebVpnDomain = "" })
-
-	WebVpnRevokeUsers([]string{"u1", "u2", "u3"})
-
-	WebVpnRevokeReset() // 模拟重启
+	WebVpn.RevokeUsers([]string{"u1", "u2", "u3"})
+	WebVpn.RevokeReset()
 
 	for _, u := range []string{"u1", "u2", "u3"} {
-		ast.Greater(WebVpnRevokeBeforeOf(u), int64(0), "批量吊销用户 %s 阈值应持久化", u)
+		ast.Greater(WebVpn.RevokeBeforeOf(u), int64(0), "批量吊销用户 %s 阈值应持久化", u)
 	}
 }
 
@@ -90,24 +80,22 @@ func TestWebVpnRevokeUserRemoveUnset(t *testing.T) {
 	ast := assert.New(t)
 	preIpData(t)
 	defer closeIpdata()
+	WebVpn.RevokeUser("active")
+	WebVpn.RevokeReset()
 
-	WebVpnRevokeUser("active")
-	WebVpnRevokeReset()
-
-	// 从未被吊销的用户，内存与 DB 均无记录
-	ast.Equal(int64(0), WebVpnRevokeBeforeOf("never-kicked"))
-	ast.Equal(int64(0), WebVpnRevokeBeforeOf(""))
+	ast.Equal(int64(0), WebVpn.RevokeBeforeOf("never-kicked"))
+	ast.Equal(int64(0), WebVpn.RevokeBeforeOf(""))
 }
 
 // 覆盖应用名的字符限制
 func TestWebVpnAppNameValid(t *testing.T) {
 	ast := assert.New(t)
-	ast.True(webVpnAppNameValid("app1"))
-	ast.True(webVpnAppNameValid("my-app"))
-	ast.True(webVpnAppNameValid("oa-2024"))
-	ast.False(webVpnAppNameValid(""))
-	ast.False(webVpnAppNameValid("App1"), "大写应拒绝")
-	ast.False(webVpnAppNameValid("my_app"), "下划线应拒绝")
-	ast.False(webVpnAppNameValid("a.b"), "点号应拒绝")
-	ast.False(webVpnAppNameValid("a b"), "空格应拒绝")
+	ast.True((&WebVpnApp{Name: "app1"}).validName())
+	ast.True((&WebVpnApp{Name: "my-app"}).validName())
+	ast.True((&WebVpnApp{Name: "oa-2024"}).validName())
+	ast.False((&WebVpnApp{Name: ""}).validName())
+	ast.False((&WebVpnApp{Name: "App1"}).validName(), "大写应拒绝")
+	ast.False((&WebVpnApp{Name: "my_app"}).validName(), "下划线应拒绝")
+	ast.False((&WebVpnApp{Name: "a.b"}).validName(), "点号应拒绝")
+	ast.False((&WebVpnApp{Name: "a b"}).validName(), "空格应拒绝")
 }

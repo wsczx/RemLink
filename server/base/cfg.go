@@ -528,8 +528,9 @@ func buildConfigFieldByName(fields []configFieldMeta) map[string]configFieldMeta
 	return result
 }
 
-// 启动期校验 ServerConfig 字段与 configMetas 一一对应，避免元数据遗漏或多余
-func init() {
+// 校验 ServerConfig 字段与 configMetas 一一对应，且无非值类型字段
+// 避免元数据遗漏或 mutate 无锁并发被破坏
+func ValidateConfigMetas() {
 	typ := reflect.TypeFor[ServerConfig]()
 	structNames := make(map[string]bool, typ.NumField())
 	for field := range typ.Fields() {

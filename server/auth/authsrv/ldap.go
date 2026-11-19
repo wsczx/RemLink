@@ -8,12 +8,6 @@ import (
 	"github.com/wsczx/remlink/base"
 )
 
-func init() {
-	auth.Registry.Register("ldap", func() auth.Authenticator {
-		return &LDAPAuth{}
-	})
-}
-
 type LDAPAuth struct {
 	auth.NopChallenger
 	auth.LDAPConfig
@@ -68,9 +62,6 @@ func (a *LDAPAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 // 从 LDAP 搜索结果条目中取用户真实姓名
 // 优先 displayName，回退 cn / name
 func ldapDisplayName(sr *ldap.SearchResult) string {
-	if sr == nil || len(sr.Entries) == 0 {
-		return ""
-	}
 	entry := sr.Entries[0]
 	for _, name := range []string{"displayName", "cn", "name"} {
 		for _, attr := range entry.Attributes {

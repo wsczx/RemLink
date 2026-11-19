@@ -17,7 +17,6 @@ func testRegister(name string, a Authenticator) func() {
 	}
 }
 
-// providerAuth 需要 Provider 配置的 mock
 type providerAuth struct {
 	NopChallenger
 	cfg map[string]any

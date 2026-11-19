@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/wsczx/remlink/pkg/utils"
+
 	"github.com/gocarina/gocsv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
@@ -21,20 +23,12 @@ func WebVpnAppList(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	page, pageSize := parsePaging(r)
 
-	datas, count, err := dbdata.WebVpnAppList(pageSize, page, r.FormValue("name"))
-	if err != nil && !dbdata.CheckErrNotFound(err) {
+	datas, count, err := dbdata.WebVpn.AppList(pageSize, page, r.FormValue("name"))
+	if err != nil && !utils.CheckErrNotFound(err) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	if datas == nil {
-		datas = []dbdata.WebVpnApp{}
-	}
-
-	RespSuccess(w, map[string]any{
-		"count":     count,
-		"page_size": pageSize,
-		"datas":     datas,
-	})
+	listResp(w, count, pageSize, datas)
 }
 
 // 返回单个 WebVPN 应用详情
@@ -46,7 +40,7 @@ func WebVpnAppDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var data dbdata.WebVpnApp
-	if err := dbdata.One("Id", id, &data); err != nil {
+	if err := dbdata.WebVpn.GetApp(id, &data); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
@@ -77,12 +71,11 @@ func WebVpnAppSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := dbdata.SetWebVpnApp(v); err != nil {
+	if err := dbdata.WebVpn.SetApp(v); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-
-	dbdata.AdminLog("WebVPN应用管理", v.Name, "创建/修改了WebVPN应用", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("WebVPN应用管理", v.Name, "创建/修改了WebVPN应用", r.RemoteAddr)
 	RespSuccess(w, nil)
 }
 
@@ -101,14 +94,14 @@ func WebVpnAppDel(w http.ResponseWriter, r *http.Request) {
 	id := req.Id
 
 	a := &dbdata.WebVpnApp{}
-	dbdata.One("Id", id, a)
+	dbdata.WebVpn.GetApp(id, a)
 
-	if err := dbdata.DelWebVpnApp(id); err != nil {
+	if err := dbdata.WebVpn.DelApp(id); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
 
-	dbdata.AdminLog("WebVPN应用管理", a.Name, "删除了WebVPN应用", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("WebVPN应用管理", a.Name, "删除了WebVPN应用", r.RemoteAddr)
 	RespSuccess(w, nil)
 }
 
@@ -129,20 +122,12 @@ func WebVpnAuditList(w http.ResponseWriter, r *http.Request) {
 		search.Date = []string{d, end}
 	}
 
-	datas, count, err := dbdata.WebVpnAuditList(pageSize, page, search)
-	if err != nil && !dbdata.CheckErrNotFound(err) {
+	datas, count, err := dbdata.WebVpn.AuditList(pageSize, page, search)
+	if err != nil && !utils.CheckErrNotFound(err) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	if datas == nil {
-		datas = []dbdata.WebVpnAudit{}
-	}
-
-	RespSuccess(w, map[string]any{
-		"count":     count,
-		"page_size": pageSize,
-		"datas":     datas,
-	})
+	listResp(w, count, pageSize, datas)
 }
 
 // 踢出指定用户的全部 WebVPN 会话（整用户下线）
@@ -157,11 +142,11 @@ func WebVpnSessionKick(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespParamErr, "用户名不能为空")
 		return
 	}
-	if err := dbdata.WebVpnRevokeUser(req.Username); err != nil {
+	if err := dbdata.WebVpn.RevokeUser(req.Username); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	dbdata.AdminLog("WebVPN应用管理", req.Username, "踢出了该用户的所有WebVPN会话", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("WebVPN应用管理", req.Username, "踢出了该用户的所有WebVPN会话", r.RemoteAddr)
 	RespSuccess(w, nil)
 }
 
@@ -182,7 +167,7 @@ func WebVpnAuditExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var datas []dbdata.WebVpnAudit
-	count, err := dbdata.WebVpnAuditExportCount(search)
+	count, err := dbdata.WebVpn.AuditExportCount(search)
 	if err != nil {
 		RespError(w, RespInternalErr, err)
 		return
@@ -195,12 +180,12 @@ func WebVpnAuditExport(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespParamErr, "你导出的数据量超过100万条，请调整搜索条件，再导出")
 		return
 	}
-	datas, err = dbdata.WebVpnAuditExportList(search)
+	datas, err = dbdata.WebVpn.AuditExportList(search)
 	if err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	dbdata.AdminLog("WebVPN应用管理", "审计日志", "导出了WebVPN访问审计日志", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("WebVPN应用管理", "审计日志", "导出了WebVPN访问审计日志", r.RemoteAddr)
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", "attachment; filename=webvpn_audit.csv")
 	gocsv.Marshal(datas, w)

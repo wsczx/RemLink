@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -35,35 +36,21 @@ func (c *DingtalkConfig) ValidateConfig() error {
 	return nil
 }
 
-// 解析允许的部门 ID 列表（仅保留非空项）
+// 解析允许的部门 ID 列表
 func (c *DingtalkConfig) ParseDepartments() []string {
-	out := make([]string, 0)
-	for part := range strings.SplitSeq(c.AllowedDepartments, ",") {
-		if p := strings.TrimSpace(part); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
+	return parseCSVList(c.AllowedDepartments)
 }
 
 // 解析拒绝的用户 ID 列表
 func (c *DingtalkConfig) ParseBlockedUserIDs() []string {
-	out := make([]string, 0)
-	for part := range strings.SplitSeq(c.BlockedUserIDs, ",") {
-		if p := strings.TrimSpace(part); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
+	return parseCSVList(c.BlockedUserIDs)
 }
 
 // 命中拒绝名单时返回 error
 func (c *DingtalkConfig) CheckUserID(userID string, list []string) error {
 	userID = strings.TrimSpace(userID)
-	for _, v := range list {
-		if strings.TrimSpace(v) == userID {
-			return fmt.Errorf("%s 在拒绝的用户列表中", userID)
-		}
+	if slices.Contains(list, userID) {
+		return fmt.Errorf("%s 在拒绝的用户列表中", userID)
 	}
 	return nil
 }

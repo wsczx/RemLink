@@ -1,4 +1,4 @@
-package handler
+package sessdata
 
 import (
 	"encoding/binary"
@@ -9,7 +9,6 @@ import (
 
 	"github.com/songgao/water/waterutil"
 	"github.com/wsczx/remlink/dbdata"
-	"github.com/wsczx/remlink/sessdata"
 )
 
 func buildV6Packet(nextHeader uint8, src, dst net.IP, payloadLen int) []byte {
@@ -28,7 +27,7 @@ func TestParseV6Header_TCP(t *testing.T) {
 	binary.BigEndian.PutUint16(pkt[40:42], 12345)
 	binary.BigEndian.PutUint16(pkt[42:44], 443)
 
-	info, ok := parseV6Header(pkt)
+	info, ok := ParseV6Header(pkt)
 	if !ok {
 		t.Fatal("expected ok for valid TCP packet")
 	}
@@ -48,7 +47,7 @@ func TestParseV6Header_UDP(t *testing.T) {
 	binary.BigEndian.PutUint16(pkt[40:42], 53)
 	binary.BigEndian.PutUint16(pkt[42:44], 53)
 
-	info, ok := parseV6Header(pkt)
+	info, ok := ParseV6Header(pkt)
 	if !ok {
 		t.Fatal("expected ok for valid UDP packet")
 	}
@@ -62,7 +61,7 @@ func TestParseV6Header_UDP(t *testing.T) {
 
 func TestParseV6Header_ICMPv6(t *testing.T) {
 	pkt := buildV6Packet(58, net.ParseIP("fe80::1"), net.ParseIP("fe80::2"), 8)
-	info, ok := parseV6Header(pkt)
+	info, ok := ParseV6Header(pkt)
 	if !ok {
 		t.Fatal("expected ok for valid ICMPv6 packet")
 	}
@@ -84,7 +83,7 @@ func TestParseV6Header_WithHopByHop(t *testing.T) {
 	binary.BigEndian.PutUint16(pkt[48:50], 1111)
 	binary.BigEndian.PutUint16(pkt[50:52], 2222)
 
-	info, ok := parseV6Header(pkt)
+	info, ok := ParseV6Header(pkt)
 	if !ok {
 		t.Fatal("expected ok for packet with Hop-by-Hop ext header")
 	}
@@ -105,7 +104,7 @@ func TestParseV6Header_WithFragment(t *testing.T) {
 	binary.BigEndian.PutUint16(pkt[48:50], 3333)
 	binary.BigEndian.PutUint16(pkt[50:52], 4444)
 
-	info, ok := parseV6Header(pkt)
+	info, ok := ParseV6Header(pkt)
 	if !ok {
 		t.Fatal("expected ok for packet with Fragment ext header")
 	}
@@ -122,7 +121,7 @@ func TestParseV6Header_RejectsTruncatedPayload(t *testing.T) {
 	pkt[0] = 0x60
 	binary.BigEndian.PutUint16(pkt[4:6], 20)
 	pkt[6] = 17
-	if _, ok := parseV6Header(pkt); ok {
+	if _, ok := ParseV6Header(pkt); ok {
 		t.Fatal("expected false for payload shorter than declared length")
 	}
 }
@@ -134,19 +133,19 @@ func TestParseV6Header_RejectsNonInitialFragment(t *testing.T) {
 	pkt[6] = 44
 	pkt[40] = 6
 	binary.BigEndian.PutUint16(pkt[42:44], 8) // offset=1
-	info, ok := parseV6Header(pkt)
+	info, ok := ParseV6Header(pkt)
 	if !ok || !info.IsFragment || info.FragmentOffset == 0 || info.SrcPort != 0 || info.DstPort != 0 {
 		t.Fatalf("expected non-initial fragment metadata without ports: %+v, ok=%v", info, ok)
 	}
 }
 
 func TestParseV6Header_Malformed(t *testing.T) {
-	if _, ok := parseV6Header(make([]byte, 20)); ok {
+	if _, ok := ParseV6Header(make([]byte, 20)); ok {
 		t.Error("expected false for too-short packet")
 	}
 	bad := make([]byte, 40)
 	bad[0] = 0x40 // 版本=4
-	if _, ok := parseV6Header(bad); ok {
+	if _, ok := ParseV6Header(bad); ok {
 		t.Error("expected false for non-v6 packet")
 	}
 }
@@ -163,8 +162,8 @@ func TestCheckLinkAcl_v6_NoRule(t *testing.T) {
 	rp := &dbdata.Policy{LinkAcl: nil}
 	pkt := buildV6Packet(6, net.ParseIP("2001:db8::2"), net.ParseIP("2001:db8::1"), 20)
 	binary.BigEndian.PutUint16(pkt[42:44], 443)
-	pl := &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: pkt}
-	if !checkLinkAcl(rp, pl) {
+	pl := &Payload{LType: LTypeIPData, PType: 0x00, Data: pkt}
+	if !(&ConnSession{Policy: rp}).CheckLinkAcl(pl) {
 		t.Error("expected allow when no ACL rule configured")
 	}
 }
@@ -184,15 +183,15 @@ func TestCheckLinkAcl_v6_Allow(t *testing.T) {
 	}
 	pkt := buildV6Packet(6, net.ParseIP("2001:db8::2"), net.ParseIP("2001:db8::1"), 20)
 	binary.BigEndian.PutUint16(pkt[42:44], 443)
-	pl := &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: pkt}
-	if !checkLinkAcl(rp, pl) {
+	pl := &Payload{LType: LTypeIPData, PType: 0x00, Data: pkt}
+	if !(&ConnSession{Policy: rp}).CheckLinkAcl(pl) {
 		t.Error("expected allow for v6 dst in CIDR with matching port")
 	}
 
 	pkt2 := buildV6Packet(6, net.ParseIP("2001:db9::2"), net.ParseIP("2001:db9::1"), 20)
 	binary.BigEndian.PutUint16(pkt2[42:44], 443)
-	pl2 := &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: pkt2}
-	if checkLinkAcl(rp, pl2) {
+	pl2 := &Payload{LType: LTypeIPData, PType: 0x00, Data: pkt2}
+	if (&ConnSession{Policy: rp}).CheckLinkAcl(pl2) {
 		t.Error("expected deny for v6 dst outside CIDR")
 	}
 }
@@ -210,8 +209,8 @@ func TestCheckLinkAcl_v6_ICMP(t *testing.T) {
 		},
 	}
 	pkt := buildV6Packet(58, net.ParseIP("2001:db8::2"), net.ParseIP("2001:db8::1"), 8)
-	pl := &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: pkt}
-	if !checkLinkAcl(rp, pl) {
+	pl := &Payload{LType: LTypeIPData, PType: 0x00, Data: pkt}
+	if !(&ConnSession{Policy: rp}).CheckLinkAcl(pl) {
 		t.Error("expected allow for ICMPv6 matched by icmp allow rule")
 	}
 }
@@ -225,8 +224,8 @@ func TestCheckLinkAcl_v6_MalformedDeny(t *testing.T) {
 	}
 	bad := make([]byte, 20)
 	bad[0] = 0x60 // 版本=6
-	pl := &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: bad}
-	if checkLinkAcl(rp, pl) {
+	pl := &Payload{LType: LTypeIPData, PType: 0x00, Data: bad}
+	if (&ConnSession{Policy: rp}).CheckLinkAcl(pl) {
 		t.Error("expected deny for malformed v6 packet (safe default)")
 	}
 }
@@ -258,14 +257,14 @@ func TestCheckLinkAcl_LargePortRange(t *testing.T) {
 	}
 
 	pkt := buildV4Packet(t, waterutil.TCP, net.ParseIP("203.0.113.5"), net.ParseIP("203.0.113.1"), 443)
-	pl := &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: pkt}
-	if !checkLinkAcl(rp, pl) {
+	pl := &Payload{LType: LTypeIPData, PType: 0x00, Data: pkt}
+	if !(&ConnSession{Policy: rp}).CheckLinkAcl(pl) {
 		t.Error("expected allow for port 443 within range 1-65535")
 	}
 
 	pkt2 := buildV4Packet(t, waterutil.TCP, net.ParseIP("203.0.113.5"), net.ParseIP("203.0.113.1"), 65535)
-	pl2 := &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: pkt2}
-	if !checkLinkAcl(rp, pl2) {
+	pl2 := &Payload{LType: LTypeIPData, PType: 0x00, Data: pkt2}
+	if !(&ConnSession{Policy: rp}).CheckLinkAcl(pl2) {
 		t.Error("expected allow for port 65535 (range upper bound)")
 	}
 }

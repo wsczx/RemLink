@@ -1,11 +1,16 @@
 package auth
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
+func TestMain(m *testing.M) {
+	SetRegistry(NewProviderRegistry())
+	os.Exit(m.Run())
+}
 func TestStepResult_String(t *testing.T) {
 	ast := assert.New(t)
 

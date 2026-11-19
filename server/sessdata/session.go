@@ -1,6 +1,7 @@
 package sessdata
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strconv"
@@ -14,13 +15,52 @@ import (
 	"github.com/wsczx/remlink/pkg/utils"
 )
 
-var (
-	// session_token -> SessUser
-	sessions = make(map[string]*Session)
-	// dtlsId -> session_token
-	dtlsIds = make(map[string]string)
-	sessMux sync.RWMutex
-)
+// 会话域聚合根：持有会话表与地址池、并发限制、防火墙、FakeDNS 等会话生命周期组件
+type SessionManager struct {
+	mu       sync.RWMutex
+	sessions map[string]*Session
+	dtlsIds  map[string]string
+
+	pools     *IPPool
+	limiter   *ClientLimiter
+	firewall  *FirewallManager
+	fakeDNS   *FakeDNSManager
+	fakeDNSMu sync.Mutex
+}
+
+func NewSessionManager() *SessionManager {
+	return &SessionManager{
+		sessions: make(map[string]*Session),
+		dtlsIds:  make(map[string]string),
+		pools:    NewIPPool(),
+		limiter:  NewClientLimiter(),
+		firewall: &FirewallManager{},
+	}
+}
+
+func (m *SessionManager) Pools() *IPPool                     { return m.pools }
+func (m *SessionManager) Firewall() *FirewallManager         { return m.firewall }
+func (m *SessionManager) RemoveGroupNAT(v4, v6, dev string)  { m.firewall.RemoveGroupNAT(v4, v6, dev) }
+func (m *SessionManager) SyncGroupNAT(v4, v6, egress string) { m.firewall.SyncGroupNAT(v4, v6, egress) }
+
+// FakeIP 反查域名（未启用 FakeDNS 返回空）
+func (m *SessionManager) FakeDNSDomain(ip string) string {
+	m.fakeDNSMu.Lock()
+	defer m.fakeDNSMu.Unlock()
+	if m.fakeDNS == nil {
+		return ""
+	}
+	return m.fakeDNS.GetDomain(ip)
+}
+
+// 在持有读锁期间对每个会话调用 fn；fn 内部可安全加 v.mux 读写锁
+func (m *SessionManager) Range(fn func(s *Session)) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, v := range m.sessions {
+		fn(v)
+	}
+}
 
 // 连接sess
 type ConnSession struct {
@@ -29,6 +69,7 @@ type ConnSession struct {
 	IpAddr              net.IP        // 分配的ip地址
 	IpAddr6             net.IP        // 分配的 IPv6 地址（连通优先版，单 Ipv6CIDR 池；nil 表示纯 v4）
 	IpPool              *ipPoolConfig // 组自定义 IP 池
+	IpPoolGlobal        bool          // 本次分配回退到了全局池（组未配置自定义池）
 	LocalIp             net.IP
 	MacHw               net.HardwareAddr // 客户端mac地址,从Session取出
 	Username            string
@@ -60,7 +101,8 @@ type ConnSession struct {
 	PayloadOutCstp      chan *Payload // Cstp的数据
 	PayloadOutDtls      chan *Payload // Dtls的数据
 	// dSess *DtlsSession
-	dSess *atomic.Value
+	dSess  *atomic.Value
+	dtlsMu sync.Mutex
 	// compress
 	CstpPickCmp CmpEncoding
 	DtlsPickCmp CmpEncoding
@@ -75,6 +117,8 @@ type DtlsSession struct {
 
 type Session struct {
 	mux             sync.RWMutex
+	connMu          sync.Mutex
+	manager         *SessionManager
 	Sid             string // auth返回的 session-id
 	Token           string // session信息的唯一token
 	DtlsSid         string // dtls协议的 session_id
@@ -104,130 +148,147 @@ type Session struct {
 func (s *Session) IsExpired() bool {
 	s.mux.RLock()
 	defer s.mux.RUnlock()
-	return dbdata.IsExpired(s.LimitTime)
+	return utils.IsExpired(s.LimitTime)
 }
 
-func checkSession() {
+func (m *SessionManager) checkSession(ctx context.Context) {
 	// 检测过期的session
 	go func() {
 		tick := time.NewTicker(time.Second * 60)
-		for range tick.C {
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+			}
 			timeoutSeconds := base.GetCfg().SessionTimeout
 			timeout := time.Duration(timeoutSeconds) * time.Second
 
 			timeoutToken := []string{} // 会话超时
 			expiredToken := []string{} // 用户已到期
-			sessMux.RLock()
-			t := time.Now()
-			for k, v := range sessions {
+			m.Range(func(v *Session) {
 				v.mux.RLock()
 				// 活跃/非活跃会话：用户在线期间到期，踢下线
-				if dbdata.IsExpired(v.LimitTime) {
-					expiredToken = append(expiredToken, k)
-				} else if !v.IsActive && timeoutSeconds != 0 && t.Sub(v.LastLogin) > timeout {
-					timeoutToken = append(timeoutToken, k)
+				if utils.IsExpired(v.LimitTime) {
+					expiredToken = append(expiredToken, v.Token)
+				} else if !v.IsActive && timeoutSeconds != 0 && time.Since(v.LastLogin) > timeout {
+					timeoutToken = append(timeoutToken, v.Token)
 				}
 				v.mux.RUnlock()
-			}
-			sessMux.RUnlock()
+			})
 
 			// 删除过期session
 			for _, v := range timeoutToken {
-				CloseSess(v, dbdata.UserLogoutTimeout)
+				m.CloseSess(v, dbdata.UserLogoutTimeout)
 			}
 			for _, v := range expiredToken {
-				CloseSess(v, dbdata.UserLogoutExpire)
+				m.CloseSess(v, dbdata.UserLogoutExpire)
 			}
 		}
 	}()
 }
-func UpdateUserLimitTime(username string, limitTime *time.Time) {
+func (m *SessionManager) UpdateUserLimitTime(username string, limitTime *time.Time) {
 	expiredToken := []string{}
-	sessMux.RLock()
-	for k, v := range sessions {
+	m.Range(func(v *Session) {
 		v.mux.Lock()
 		if v.Username == username {
 			v.LimitTime = limitTime
-			if dbdata.IsExpired(limitTime) {
-				expiredToken = append(expiredToken, k)
+			if utils.IsExpired(limitTime) {
+				expiredToken = append(expiredToken, v.Token)
 			}
 		}
 		v.mux.Unlock()
-	}
-	sessMux.RUnlock()
+	})
 
 	for _, token := range expiredToken {
-		CloseSess(token, dbdata.UserLogoutExpire)
+		m.CloseSess(token, dbdata.UserLogoutExpire)
 	}
 }
 
-func NewSession(token string) *Session {
-	if token == "" {
-		token = utils.RandomHex(32)
+// 初始化会话索引并发布实例
+func (m *SessionManager) Add(sess *Session) *Session {
+	if sess.Token == "" {
+		sess.Token = utils.RandomHex(32)
 	}
-
-	// 生成 dtlsn session_id
-	sess := &Session{
-		Sid:       fmt.Sprintf("%d", time.Now().Unix()),
-		Token:     token,
-		DtlsSid:   utils.RandomHex(32),
-		LastLogin: time.Now(),
+	if sess.Sid == "" {
+		sess.Sid = fmt.Sprintf("%d", time.Now().Unix())
 	}
+	if sess.DtlsSid == "" {
+		sess.DtlsSid = utils.RandomHex(32)
+	}
+	if sess.LastLogin.IsZero() {
+		sess.LastLogin = time.Now()
+	}
+	sess.manager = m
 
-	sessMux.Lock()
-	sessions[token] = sess
-	dtlsIds[sess.DtlsSid] = token
-	sessMux.Unlock()
+	m.mu.Lock()
+	m.sessions[sess.Token] = sess
+	m.dtlsIds[sess.DtlsSid] = sess.Token
+	m.mu.Unlock()
 	return sess
 }
 
+func (s *Session) connection() *ConnSession {
+	s.mux.RLock()
+	cs := s.CSess
+	s.mux.RUnlock()
+	return cs
+}
+
 func (s *Session) NewConn() *ConnSession {
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+	if s.manager != nil && s.manager.Token2Sess(s.Token) != s {
+		return nil
+	}
+
 	s.mux.RLock()
 	active := s.IsActive
+	oldCSess := s.CSess
 	macAddr := s.MacAddr
 	macHw := s.MacHw
 	username := s.Username
 	uniqueMac := s.UniqueMac
 	s.mux.RUnlock()
-	if active {
+	if active && oldCSess != nil {
 		// 同一 session token 重连，旧链接被顶替，不是真正的掉线
-		s.CSess.SetLogoutCode(dbdata.UserLogoutReconn)
-		s.CSess.Close()
+		oldCSess.SetLogoutCode(dbdata.UserLogoutReconn)
+		oldCSess.Close()
 	}
 
-	limit := LimitClient(username, false)
+	limit := s.manager.limiter.LimitClient(username, false)
 	if !limit {
 		base.Warn("limit is full", username)
 		return nil
 	}
 
 	// 查询group信息
-	group := &dbdata.Group{}
-	err := dbdata.One("Name", s.Group, group)
+	group, err := dbdata.Groups.ByName(s.Group)
 	if err != nil {
 		base.Error(err)
-		LimitClient(username, true)
+		s.manager.limiter.LimitClient(username, true)
 		return nil
 	}
 
 	// 获取组的 IP 池（组未配置则回退全局）
-	ipPool := GetGroupIpPool(group)
-	ip := AcquireIpWithRange(username, macAddr, uniqueMac, ipPool)
+	ipPool := s.manager.pools.GetGroupPool(group)
+	ip := s.manager.pools.AcquireWithRange(username, macAddr, uniqueMac, ipPool)
 	if ip == nil {
-		LimitClient(username, true)
+		s.manager.limiter.LimitClient(username, true)
 		return nil
 	}
 	// IPv6 地址（组配置了 v6 段则从组池分配，否则全局 Ipv6CIDR 池；分配失败则降级为纯 v4）
 	var ip6 net.IP
 	if base.GetCfg().Ipv6CIDR != "" {
-		ip6 = acquireIpV6(username, macAddr, uniqueMac, ipPool)
+		ip6 = s.manager.pools.acquireV6(username, macAddr, uniqueMac, ipPool)
 		if ip6 == nil {
 			base.Warn("IPv6 地址池分配失败，客户端将以纯 v4 接入:", username)
 		}
 	}
 	// 查询user信息
 	user := &dbdata.User{}
-	dbdata.One("username", username, user) // 外部用户可能不存在于本地 DB
+	dbdata.Users.GetByUsername(username, user) // 外部用户可能不存在于本地 DB
 	// 不判断错误
 
 	cSess := &ConnSession{
@@ -239,6 +300,7 @@ func (s *Session) NewConn() *ConnSession {
 		IpAddr:         ip,
 		IpAddr6:        ip6,
 		IpPool:         ipPool,
+		IpPoolGlobal:   ipPool == s.manager.pools.Global,
 		closeOnce:      sync.Once{},
 		CloseChan:      make(chan struct{}),
 		PayloadIn:      make(chan *Payload, 256),
@@ -263,18 +325,18 @@ func (s *Session) NewConn() *ConnSession {
 	cSess.Group = group
 
 	// 加载策略：用户个人策略优先于组策略
-	cSess.Policy = dbdata.ApplyPolicy(username, group)
+	cSess.Policy = dbdata.Policies.ApplyPolicy(username, group)
 	if cSess.Policy == nil {
 		base.Error("策略加载失败，拒绝连接:", username, group.Name)
-		ReleaseIp(ip, ip6, macAddr)
-		LimitClient(username, true)
+		s.manager.pools.Release(ip, ip6, macAddr)
+		s.manager.limiter.LimitClient(username, true)
 		return nil
 	}
 
-	if exceeded, used := dbdata.QuotaExceeded(username, cSess.Policy); exceeded {
+	if exceeded, used := dbdata.Policies.QuotaExceeded(username, cSess.Policy); exceeded {
 		base.Warn("流量配额已超，拒绝连接:", username, "used:", used, "quota:", cSess.Policy.TrafficQuota)
-		ReleaseIp(ip, ip6, macAddr)
-		LimitClient(username, true)
+		s.manager.pools.Release(ip, ip6, macAddr)
+		s.manager.limiter.LimitClient(username, true)
 		return nil
 	}
 
@@ -285,7 +347,7 @@ func (s *Session) NewConn() *ConnSession {
 		cSess.LimitUp = NewLimitRater(cSess.Policy.BandwidthUp)
 	}
 	if cSess.Policy.EnableFakeDNS {
-		cSess.FakeDNS = GetFakeDNSManager()
+		cSess.FakeDNS = s.manager.ensureFakeDNS()
 	}
 	cSess.rateWg.Add(1)
 	go cSess.ratePeriod()
@@ -316,9 +378,9 @@ func (cs *ConnSession) LogoutCode() uint8 {
 func (cs *ConnSession) Close() {
 	cs.closeOnce.Do(func() {
 		base.Debug("closeOnce:", cs.IpAddr)
-		loginTime := cs.Sess.LastLogin
 
 		cs.Sess.mux.Lock()
+		loginTime := cs.Sess.LastLogin
 		close(cs.CloseChan)
 		cs.Sess.IsActive = false
 		cs.Sess.LastLogin = time.Now()
@@ -330,19 +392,60 @@ func (cs *ConnSession) Close() {
 			dSess.Close()
 		}
 
-		ReleaseIp(cs.IpAddr, cs.IpAddr6, cs.Sess.MacAddr)
-		LimitClient(cs.Username, true)
+		cs.Sess.manager.pools.Release(cs.IpAddr, cs.IpAddr6, cs.Sess.MacAddr)
+		cs.Sess.manager.limiter.LimitClient(cs.Username, true)
 		cs.rateWg.Wait() // 确保 ratePeriod 退出后再结算，避免流量丢失
+		cs.payloadChannels()
 		cs.settleTraffic()
 		AddUserActLog(cs, loginTime)
 	})
 }
 
+// 本连接的 v6 网关；组池未配置 v6 段时回退全局池（客户端 v6 从全局池分配）
+func (cs *ConnSession) V6Gateway() net.IP {
+	if cs.IpPool != nil && cs.IpPool.Ipv6Gateway != nil {
+		return cs.IpPool.Ipv6Gateway
+	}
+	return cs.Sess.manager.pools.Global.Ipv6Gateway
+}
+
+// 经所属管理器按登出码关闭本连接会话
+func (cs *ConnSession) CloseSess(code ...uint8) {
+	cs.Sess.manager.CloseSess(cs.Sess.Token, code...)
+}
+
+// 回收三通道残留 Payload，避免会话关闭时 sync.Pool 缓冲随 goroutine 退出而流失（池泄漏）
+func (cs *ConnSession) payloadChannels() {
+	pool := Payloads
+	drain := func(ch chan *Payload) {
+		for {
+			select {
+			case pl := <-ch:
+				if pl != nil {
+					pool.PutPayload(pl)
+				}
+			default:
+				return
+			}
+		}
+	}
+	drain(cs.PayloadIn)
+	drain(cs.PayloadOutCstp)
+	drain(cs.PayloadOutDtls)
+}
+
 // 创建dtls链接
 func (cs *ConnSession) NewDtlsConn() *DtlsSession {
+	cs.Sess.mux.RLock()
+	defer cs.Sess.mux.RUnlock()
+	if !cs.Sess.IsActive {
+		return nil
+	}
+
+	cs.dtlsMu.Lock()
+	defer cs.dtlsMu.Unlock()
 	ds := cs.dSess.Load().(*DtlsSession)
-	isActive := atomic.LoadInt32(&ds.isActive)
-	if isActive > 0 {
+	if atomic.LoadInt32(&ds.isActive) > 0 {
 		return nil // 已有活跃 DTLS 连接
 	}
 
@@ -353,6 +456,7 @@ func (cs *ConnSession) NewDtlsConn() *DtlsSession {
 		IpAddr:    cs.IpAddr,
 	}
 	cs.dSess.Store(dSess)
+	atomic.StoreInt32(&ds.isActive, -1)
 	return dSess
 }
 
@@ -411,9 +515,9 @@ func (cs *ConnSession) ratePeriod() {
 		}
 		quotaTick = 0
 		cs.settleTraffic()
-		if exceeded, _ := dbdata.QuotaExceeded(cs.Username, cs.Policy); exceeded {
+		if exceeded, _ := dbdata.Policies.QuotaExceeded(cs.Username, cs.Policy); exceeded {
 			base.Warn("流量配额超限，强制下线:", cs.Username)
-			base.SafeGo(func() { CloseSess(cs.Sess.Token, dbdata.UserLogoutQuota) }) // 异步避免死锁
+			base.SafeGo(func() { cs.CloseSess(dbdata.UserLogoutQuota) }) // 异步避免死锁
 			return
 		}
 	}
@@ -431,39 +535,29 @@ func (cs *ConnSession) settleTraffic() {
 			return
 		}
 		if cs.trafficSettled.CompareAndSwap(settled, totalAll) {
-			dbdata.AddTrafficUsed(cs.Username, int64(totalAll-settled))
+			dbdata.Policies.AddTrafficUsed(cs.Username, int64(totalAll-settled))
 			return
 		}
 	}
 }
 
-var MaxMtu = 1460
+const defaultMtu = 1460
 
 func (cs *ConnSession) SetMtu(mtu string) {
-	if base.GetCfg().Mtu > 0 {
-		MaxMtu = base.GetCfg().Mtu
+	maxMtu := defaultMtu
+	if cfgMtu := base.GetCfg().Mtu; cfgMtu > 0 {
+		maxMtu = cfgMtu
 	}
-	cs.Mtu = MaxMtu
+
+	cs.Sess.mux.Lock()
+	defer cs.Sess.mux.Unlock()
+	cs.Mtu = maxMtu
 
 	mi, err := strconv.Atoi(mtu)
-	if err != nil || mi < 100 {
-		enforceMtuFloorV6(cs)
-		return
-	}
-
-	if mi < MaxMtu {
+	if err == nil && mi >= 100 && mi < maxMtu {
 		cs.Mtu = mi
 	}
-	enforceMtuFloorV6(cs)
-}
-
-// 在双栈开启时保证链路 MTU 不低于 IPv6 要求的 1280
-// 纯 v4 时返回 0 下限，保持字节级不变（客户端可请求更低 MTU）
-func enforceMtuFloorV6(cs *ConnSession) {
-	if base.GetCfg().Ipv6CIDR == "" {
-		return
-	}
-	if cs.Mtu < 1280 {
+	if base.GetCfg().Ipv6CIDR != "" && cs.Mtu < 1280 {
 		base.Warn("链路 MTU=", cs.Mtu, " 低于 IPv6 要求下限 1280，已自动上调到 1280")
 		cs.Mtu = 1280
 	}
@@ -497,9 +591,6 @@ func (cs *ConnSession) SetPickCmp(cate, encoding string) (string, bool) {
 	}
 	var cmp CmpEncoding
 	switch {
-	// case strings.Contains(encoding, "oc-lz4"):
-	// 	cmpName = "oc-lz4"
-	// 	cmp = Lz4Cmp{}
 	case strings.Contains(encoding, "lzs"):
 		cmpName = "lzs"
 		cmp = LzsgoCmp{}
@@ -514,34 +605,34 @@ func (cs *ConnSession) SetPickCmp(cate, encoding string) (string, bool) {
 	return cmpName, true
 }
 
-func SToken2Sess(stoken string) *Session {
+func (m *SessionManager) SToken2Sess(stoken string) *Session {
 	stoken = strings.TrimSpace(stoken)
 	sarr := strings.SplitN(stoken, "@", 2)
 	if len(sarr) != 2 || sarr[1] == "" {
 		return nil
 	}
 
-	return Token2Sess(sarr[1])
+	return m.Token2Sess(sarr[1])
 }
 
-func Token2Sess(token string) *Session {
-	sessMux.RLock()
-	defer sessMux.RUnlock()
-	return sessions[token]
+func (m *SessionManager) Token2Sess(token string) *Session {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.sessions[token]
 }
 
-func Dtls2Sess(did string) *Session {
-	sessMux.RLock()
-	defer sessMux.RUnlock()
-	token := dtlsIds[did]
-	return sessions[token]
+func (m *SessionManager) Dtls2Sess(did string) *Session {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	token := m.dtlsIds[did]
+	return m.sessions[token]
 }
 
-func Dtls2CSess(did string) *ConnSession {
-	sessMux.RLock()
-	defer sessMux.RUnlock()
-	token := dtlsIds[did]
-	sess := sessions[token]
+func (m *SessionManager) Dtls2CSess(did string) *ConnSession {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	token := m.dtlsIds[did]
+	sess := m.sessions[token]
 	if sess == nil {
 		return nil
 	}
@@ -551,12 +642,12 @@ func Dtls2CSess(did string) *ConnSession {
 	return sess.CSess
 }
 
-func Dtls2MasterSecret(did string) string {
-	// 全程持有 sessMux 读锁，避免释放后会话被并发关闭
-	sessMux.RLock()
-	defer sessMux.RUnlock()
-	token := dtlsIds[did]
-	sess := sessions[token]
+func (m *SessionManager) Dtls2MasterSecret(did string) string {
+	// 全程持有读锁，避免释放后会话被并发关闭
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	token := m.dtlsIds[did]
+	sess := m.sessions[token]
 	if sess == nil {
 		return ""
 	}
@@ -569,70 +660,73 @@ func Dtls2MasterSecret(did string) string {
 	return sess.CSess.MasterSecret
 }
 
-func CloseSess(token string, code ...uint8) {
-	sessMux.Lock()
-	defer sessMux.Unlock()
-	sess, ok := sessions[token]
+func (m *SessionManager) CloseSess(token string, code ...uint8) {
+	m.mu.Lock()
+	sess, ok := m.sessions[token]
 	if !ok {
+		m.mu.Unlock()
 		return
 	}
+	delete(m.sessions, token)
+	delete(m.dtlsIds, sess.DtlsSid)
+	m.mu.Unlock()
 
-	delete(sessions, token)
-	delete(dtlsIds, sess.DtlsSid)
-
-	if sess.CSess != nil {
+	sess.connMu.Lock()
+	defer sess.connMu.Unlock()
+	cs := sess.connection()
+	if cs != nil {
 		if len(code) > 0 {
-			sess.CSess.SetLogoutCode(code[0])
+			cs.SetLogoutCode(code[0])
 		}
-		sess.CSess.Close()
+		cs.Close()
 		return
 	}
 	AddUserActLogBySess(sess, code...)
 }
 
-func CloseCSess(token string) {
-	sessMux.RLock()
-	defer sessMux.RUnlock()
-	sess, ok := sessions[token]
+func (m *SessionManager) CloseCSess(token string) {
+	m.mu.RLock()
+	sess, ok := m.sessions[token]
+	m.mu.RUnlock()
 	if !ok {
 		return
 	}
 
-	if sess.CSess != nil {
-		sess.CSess.Close()
+	sess.connMu.Lock()
+	defer sess.connMu.Unlock()
+	if cs := sess.connection(); cs != nil {
+		cs.Close()
 	}
 }
 
-func DelSessByStoken(stoken string) {
+func (m *SessionManager) DelSessByStoken(stoken string) {
 	stoken = strings.TrimSpace(stoken)
 	sarr := strings.SplitN(stoken, "@", 2)
 	if len(sarr) != 2 || sarr[1] == "" {
 		return
 	}
-	CloseSess(sarr[1], dbdata.UserLogoutBanner)
+	m.CloseSess(sarr[1], dbdata.UserLogoutBanner)
 }
 
 // 关闭指定用户的全部会话
-func CloseUserSessions(username string, code ...uint8) {
+func (m *SessionManager) CloseUserSessions(username string, code ...uint8) {
 	username = strings.TrimSpace(username)
 	if username == "" {
 		return
 	}
 
 	tokens := []string{}
-	sessMux.RLock()
-	for k, v := range sessions {
+	m.Range(func(v *Session) {
 		v.mux.RLock()
 		matched := v.Username == username
 		v.mux.RUnlock()
 		if matched {
-			tokens = append(tokens, k)
+			tokens = append(tokens, v.Token)
 		}
-	}
-	sessMux.RUnlock()
+	})
 
 	for _, token := range tokens {
-		CloseSess(token, code...)
+		m.CloseSess(token, code...)
 	}
 }
 

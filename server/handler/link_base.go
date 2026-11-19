@@ -5,8 +5,6 @@ import (
 	"strings"
 )
 
-const BufferSize = 2048
-
 type ClientRequest struct {
 	XMLName              xml.Name       `xml:"config-auth"`
 	Client               string         `xml:"client,attr"`                 // 一般都是 vpn
@@ -20,7 +18,7 @@ type ClientRequest struct {
 	SessionId            string         `xml:"session-id"`
 	SessionToken         string         `xml:"session-token"`
 	Auth                 authData       `xml:"auth"`
-	DeviceId             deviceId       `xml:"device-id"`
+	DeviceId             deviceID       `xml:"device-id"`
 	MacAddressList       macAddressList `xml:"mac-address-list"`
 }
 
@@ -32,7 +30,7 @@ type authData struct {
 	SsoToken          string `xml:"sso-token"`
 }
 
-type deviceId struct {
+type deviceID struct {
 	ComputerName    string `xml:"computer-name,attr"`
 	DeviceType      string `xml:"device-type,attr"`
 	PlatformVersion string `xml:"platform-version,attr"`
@@ -41,8 +39,8 @@ type deviceId struct {
 	Value           string `xml:",chardata"`
 }
 
-// 返回设备的操作系统标识：优先 <device-id> ，文本 chardata 兜底
-func (d deviceId) OS() string {
+// 返回设备操作系统标识：优先文本chardata，device-type 属性兜底
+func (d deviceID) OS() string {
 	raw := d.Value
 	if raw == "" {
 		raw = d.DeviceType
@@ -51,7 +49,7 @@ func (d deviceId) OS() string {
 }
 
 // 返回客户端机型/设备标识：优先 device-type 属性，<device-id> 文本兜底
-func (d deviceId) Type() string {
+func (d deviceID) Type() string {
 	if d.DeviceType != "" {
 		return d.DeviceType
 	}

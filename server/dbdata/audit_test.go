@@ -19,7 +19,7 @@ func TestSearchAudit(t *testing.T) {
 	CreatedAt, _ := time.ParseInLocation("2006-01-02 15:04:05", currDateVal, time.Local)
 
 	user := User{Username: "Test", Nickname: "测试用户"}
-	ast.Nil(Add(&user))
+	ast.Nil(GetDB().Insert(&user))
 
 	dataTest := AccessAudit{
 		Username:    user.Username,
@@ -32,7 +32,7 @@ func TestSearchAudit(t *testing.T) {
 		Info:        "www.google.com",
 		CreatedAt:   CreatedAt,
 	}
-	err := Add(dataTest)
+	err := GetDB().Insert(dataTest)
 	ast.Nil(err)
 
 	var datas []AccessAudit
@@ -47,7 +47,7 @@ func TestSearchAudit(t *testing.T) {
 	values.Set("search[date][0]", currDateVal)
 	values.Set("search[date][1]", currDateVal)
 
-	session := GetAuditSession(values)
+	session := Audits.GetAuditSession(values)
 	count, _ := FindAndCount(session, &datas, PageSize, 0)
 	ast.Equal(count, int64(1))
 	ast.Equal(datas[0].Username, dataTest.Username)

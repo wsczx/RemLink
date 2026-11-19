@@ -22,23 +22,22 @@ import (
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/mask"
 	"github.com/wsczx/remlink/pkg/utils"
-	"github.com/wsczx/remlink/sessdata"
 	"xorm.io/xorm"
 )
 
 // 进程启动时间，用于计算运行时长
 var serverStartTime = time.Now()
 
-func SetHome(w http.ResponseWriter, r *http.Request) {
+func (a *Api) SetHome(w http.ResponseWriter, r *http.Request) {
 	data := make(map[string]any)
 
-	sess := sessdata.GetOnlineSess("", "", false)
+	sess := a.Sessions.GetOnlineSess("", "", false)
 
 	data["counts"] = map[string]int{
 		"online": len(sess),
-		"user":   dbdata.CountAll(&dbdata.User{}),
-		"group":  dbdata.CountAll(&dbdata.Group{}),
-		"ip_map": dbdata.CountAll(&dbdata.IpMap{}),
+		"user":   dbdata.Users.Count(),
+		"group":  dbdata.Groups.Count(),
+		"ip_map": dbdata.IpMaps.Count(),
 	}
 
 	data["show_fakedns"] = base.GetCfg().ShowFakeDNS
@@ -46,7 +45,7 @@ func SetHome(w http.ResponseWriter, r *http.Request) {
 	RespSuccess(w, data)
 }
 
-func SetSystem(w http.ResponseWriter, r *http.Request) {
+func (a *Api) SetSystem(w http.ResponseWriter, r *http.Request) {
 	data := make(map[string]any)
 
 	m, _ := mem.VirtualMemory()
@@ -146,7 +145,7 @@ func SetSoftStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func SetSoftEdit(w http.ResponseWriter, r *http.Request) {
+func (a *Api) SetSoftEdit(w http.ResponseWriter, r *http.Request) {
 	req := &setSoftEditReq{}
 	if err := readJSON(w, r, 1<<16, req); err != nil {
 		return
@@ -194,19 +193,19 @@ func SetSoftEdit(w http.ResponseWriter, r *http.Request) {
 	// 热加载：IP 白名单/黑名单变更时重新解析
 	switch req.Name {
 	case "ip_whitelist":
-		auth.GetLockManager().LoadIPList(auth.IPWhiteList, base.GetCfg().IPWhiteList)
+		a.Locks.LoadIPList(auth.IPWhiteList, base.GetCfg().IPWhiteList)
 	case "ip_blacklist":
-		auth.GetLockManager().LoadIPList(auth.IPBlackList, base.GetCfg().IPBlackList)
+		a.Locks.LoadIPList(auth.IPBlackList, base.GetCfg().IPBlackList)
 	case "show_sql":
-		dbdata.GetXdb().ShowSQL(base.GetCfg().ShowSQL)
+		dbdata.SetShowSQL(base.GetCfg().ShowSQL)
 	}
 
-	err = dbdata.SettingSaveServerConfig()
+	err = dbdata.Settings.Save(&dbdata.SettingServerConfig{Config: *base.GetCfg()})
 	if err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	dbdata.AdminLog("系统设置", req.Name, "修改了系统配置: "+req.Name+"="+formatConfigValue(req.Name, req.Data), r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("系统设置", req.Name, "修改了系统配置: "+req.Name+"="+formatConfigValue(req.Name, req.Data), r.RemoteAddr)
 	RespSuccess(w, map[string]any{
 		"restart": restart,
 	})
@@ -247,24 +246,24 @@ func SetIPv4Config(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := dbdata.SettingSaveServerConfig(); err != nil {
+	if err := dbdata.Settings.Save(&dbdata.SettingServerConfig{Config: *base.GetCfg()}); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
 
-	dbdata.AdminLog("系统设置", "ipv4_config", "修改了 IPv4 网络配置", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("系统设置", "ipv4_config", "修改了 IPv4 网络配置", r.RemoteAddr)
 	RespSuccess(w, map[string]any{
 		"restart": restart,
 	})
 }
 
 func SetProfile(w http.ResponseWriter, r *http.Request) {
-	profile, err := dbdata.SettingGetProfile()
+	profile, err := dbdata.Settings.GetProfile()
 	if err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	hash, err := dbdata.GetProfileHash()
+	hash, err := dbdata.Settings.GetProfileHash()
 	if err != nil {
 		RespError(w, RespInternalErr, err)
 		return
@@ -284,16 +283,16 @@ func SetProfileEdit(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespParamErr, "profile内容不能为空")
 		return
 	}
-	if err := dbdata.SettingSetProfile(req.Content); err != nil {
+	if err := dbdata.Settings.Save(&dbdata.SettingProfile{Content: req.Content}); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	hash, err := dbdata.GetProfileHash()
+	hash, err := dbdata.Settings.GetProfileHash()
 	if err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	dbdata.AdminLog("系统设置", "Profile", "修改了Profile配置", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("系统设置", "Profile", "修改了Profile配置", r.RemoteAddr)
 	RespSuccess(w, map[string]any{
 		"hash": hash,
 	})
@@ -304,7 +303,7 @@ var (
 	restartMux sync.Mutex
 )
 
-func SetRestart(w http.ResponseWriter, r *http.Request) {
+func (a *Api) SetRestart(w http.ResponseWriter, r *http.Request) {
 	restartMux.Lock()
 	if restarting {
 		restartMux.Unlock()
@@ -314,17 +313,15 @@ func SetRestart(w http.ResponseWriter, r *http.Request) {
 	restarting = true
 	restartMux.Unlock()
 
-	dbdata.AdminLog("系统设置", "系统重启", "触发了系统重启", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("系统设置", "系统重启", "触发了系统重启", r.RemoteAddr)
 	RespSuccess(w, map[string]any{
 		"message": "restart scheduled",
 	})
 	base.SafeGo(func() {
 		time.Sleep(time.Second)
 		// 重启前清理所有后端防火墙规则并关闭数据库
-		sessdata.CleanupAllNatRules()
-		if sessdata.GlobalFakeDNSManager != nil {
-			sessdata.GlobalFakeDNSManager.Stop()
-		}
+		a.Sessions.CleanupAllNatRules()
+		a.Sessions.StopFakeDNS()
 		// 清理残留的 macvtap 网卡，防止重启后撞名
 		destroyLvtap()
 		if err := dbdata.Stop(); err != nil {
@@ -341,7 +338,7 @@ func SetRestart(w http.ResponseWriter, r *http.Request) {
 
 // 返回各表行数，供前端展示并决定排除哪些大表
 func SetDbTableSizes(w http.ResponseWriter, r *http.Request) {
-	sizes := dbdata.GetBackupManager().GetTableSizes()
+	sizes := dbdata.Backups.GetTableSizes()
 	RespSuccess(w, sizes)
 }
 
@@ -363,7 +360,7 @@ func SetDbBackup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Type == "full" {
-		validNames := dbdata.GetBackupManager().AllTableNames()
+		validNames := dbdata.Backups.AllTableNames()
 		validSet := make(map[string]bool, len(validNames))
 		for _, n := range validNames {
 			validSet[n] = true
@@ -376,18 +373,18 @@ func SetDbBackup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	filename, err := dbdata.GetBackupManager().Exporter().Create(req.Type, req.IncludeTables)
+	filename, err := dbdata.Backups.Exporter().Create(req.Type, req.IncludeTables)
 	if err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	dbdata.AdminLog("系统设置", filename, "创建了数据库备份", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("系统设置", filename, "创建了数据库备份", r.RemoteAddr)
 	RespSuccess(w, map[string]string{"filename": filename})
 }
 
 // 列出备份文件
 func SetDbBackups(w http.ResponseWriter, r *http.Request) {
-	list, err := dbdata.GetBackupManager().ListBackups()
+	list, err := dbdata.Backups.ListBackups()
 	if err != nil {
 		RespError(w, RespInternalErr, err)
 		return
@@ -414,11 +411,11 @@ func SetDbRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := dbdata.GetBackupManager().Restore(req.File); err != nil {
+	if err := dbdata.Backups.Restore(req.File); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	dbdata.AdminLog("系统设置", req.File, "从备份还原了数据库", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("系统设置", req.File, "从备份还原了数据库", r.RemoteAddr)
 	RespSuccess(w, map[string]any{
 		"message":       "还原成功",
 		"needs_restart": true,
@@ -441,11 +438,11 @@ func SetDbBackupDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := dbdata.GetBackupManager().DeleteBackup(req.File); err != nil {
+	if err := dbdata.Backups.DeleteBackup(req.File); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	dbdata.AdminLog("系统设置", req.File, "删除了备份文件", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("系统设置", req.File, "删除了备份文件", r.RemoteAddr)
 	RespSuccess(w, map[string]string{"message": "已删除"})
 }
 
@@ -488,7 +485,7 @@ func SetDbTestConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dbdata.AdminLog("系统设置", "数据库切换", "测试了新数据库连接("+req.DbType+")", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("系统设置", "数据库切换", "测试了新数据库连接("+req.DbType+")", r.RemoteAddr)
 	RespSuccess(w, map[string]string{
 		"message": "连接测试成功",
 	})
@@ -501,7 +498,7 @@ type setDbSwitchReq struct {
 }
 
 // 数据库切换向导：测试连接 → 备份/迁移 → 写 db.json → 重启
-func SetDbSwitch(w http.ResponseWriter, r *http.Request) {
+func (a *Api) SetDbSwitch(w http.ResponseWriter, r *http.Request) {
 	restartMux.Lock()
 	if restarting {
 		restartMux.Unlock()
@@ -550,7 +547,7 @@ func SetDbSwitch(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Migration {
 	case "backup_only":
-		filename, err := dbdata.GetBackupManager().Exporter().Create("full", dbdata.GetBackupManager().AllTableNames())
+		filename, err := dbdata.Backups.Exporter().Create("full", dbdata.Backups.AllTableNames())
 		if err != nil {
 			testEngine.Close()
 			cleanup()
@@ -561,7 +558,7 @@ func SetDbSwitch(w http.ResponseWriter, r *http.Request) {
 		base.Info("db switch: backup created", filename)
 
 	case "auto_migrate":
-		backupFilename, err := dbdata.GetBackupManager().Exporter().Create("full", dbdata.GetBackupManager().AllTableNames())
+		backupFilename, err := dbdata.Backups.Exporter().Create("full", dbdata.Backups.AllTableNames())
 		if err != nil {
 			testEngine.Close()
 			cleanup()
@@ -578,7 +575,7 @@ func SetDbSwitch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := dbdata.GetBackupManager().NewImporter(testEngine).RestoreToEngine(backupFilename); err != nil {
+		if err := dbdata.Backups.NewImporter(testEngine).RestoreToEngine(backupFilename); err != nil {
 			testEngine.Close()
 			cleanup()
 			RespError(w, RespInternalErr, "数据迁移到新库失败: ", err)
@@ -593,23 +590,21 @@ func SetDbSwitch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 写入 db.json（在备份/迁移完成之后）
-	if err := dbdata.GetBackupManager().SaveDbConfig(req.DbType, req.DbSource); err != nil {
+	if err := dbdata.Backups.SaveDbConfig(req.DbType, req.DbSource); err != nil {
 		cleanup()
 		RespError(w, RespInternalErr, "写入 db.json 失败: ", err)
 		return
 	}
 
-	dbdata.AdminLog("系统设置", "数据库切换", "执行了数据库切换", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("系统设置", "数据库切换", "执行了数据库切换", r.RemoteAddr)
 	RespSuccess(w, map[string]any{
 		"message":       "数据库切换成功，即将重启",
 		"needs_restart": true,
 	})
 	base.SafeGo(func() {
 		time.Sleep(time.Second)
-		sessdata.CleanupAllNatRules()
-		if sessdata.GlobalFakeDNSManager != nil {
-			sessdata.GlobalFakeDNSManager.Stop()
-		}
+		a.Sessions.CleanupAllNatRules()
+		a.Sessions.StopFakeDNS()
 		destroyLvtap()
 		if err := dbdata.Stop(); err != nil {
 			base.Warn("db stop before switch restart:", err)
@@ -663,7 +658,7 @@ func validateAddressField(name, addr string) error {
 	addr = base.FormatListenAddr(addr)
 	host, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
-		return fmt.Errorf("「%s」地址格式错误，应为 IP:端口 或 :端口 格式，当前值: %s，错误: %v",
+		return fmt.Errorf("「%s」地址格式错误，应为 IP:端口 或 :端口 格式，当前值: %s，错误: %w",
 			fieldDisplayName(name), addr, err)
 	}
 

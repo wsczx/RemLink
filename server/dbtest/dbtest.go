@@ -6,6 +6,7 @@ import (
 
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/notify"
 	"github.com/wsczx/remlink/pkg/utils"
 )
 
@@ -23,19 +24,17 @@ func SetupDB(t *testing.T) {
 		c.JwtSecret = "unit-test-secret"
 	})
 	base.ReinitLog() // 初始化日志器，避免 base.Info/Error 在测试中 nil panic
-	ResetRevocations()
-	dbdata.Start()
+	if err := dbdata.Start(); err != nil {
+		t.Fatalf("初始化测试数据库失败: %v", err)
+	}
+	dbdata.WebVpn.RevokeReset()
+	notify.SetLoader(dbdata.NotifyLoader{})
 	t.Cleanup(func() {
 		// 先排空 worker 再关库，避免残留 worker 读已关闭的库
 		dbdata.UserActLogIns.Pool.Release()
 		dbdata.UserActLogIns.Pool = utils.NewWorkerPool(1, 100)
 		// 用例可能抬高整用户吊销阈值，复位避免影响后续用例
-		dbdata.WebVpnRevokeReset()
+		dbdata.WebVpn.RevokeReset()
 		_ = dbdata.Stop()
 	})
-}
-
-// 重置包级全局的 WebVPN 整用户吊销阈值，避免跨用例副作用
-func ResetRevocations() {
-	dbdata.WebVpnRevokeReset()
 }

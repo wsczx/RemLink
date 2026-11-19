@@ -11,10 +11,9 @@ import (
 	"github.com/wsczx/remlink/base"
 )
 
-// 重置单例以隔离测试
-func resetLockManager() {
-	lmOnce = sync.Once{}
-	lm = nil
+// 新建实例以隔离测试
+func resetLockManager() *LockManager {
+	return NewLockManager()
 }
 
 func setupTestConfig() {
@@ -35,24 +34,27 @@ func setupTestConfig() {
 	})
 }
 
-func TestGetLockManager(t *testing.T) {
-	resetLockManager()
+func TestNewLockManagerIsolated(t *testing.T) {
 	base.Test()
 	setupTestConfig()
 
-	t.Run("Singleton_Pattern", func(t *testing.T) {
-		lm1 := GetLockManager()
-		lm2 := GetLockManager()
-		assert.Same(t, lm1, lm2, "GetLockManager应该返回同一个实例")
+	t.Run("独立实例", func(t *testing.T) {
+		lm1 := NewLockManager()
+		lm2 := NewLockManager()
+		assert.NotSame(t, lm1, lm2, "每次 New 应返回独立实例")
+
+		for range 5 {
+			lm1.Fail("user", "1.2.3.4:1")
+		}
+		assert.False(t, lm1.Check("user", "1.2.3.4:1"), "达到阈值后应锁定")
+		assert.True(t, lm2.Check("user", "1.2.3.4:1"), "一个实例的锁定状态不应影响另一个")
 	})
 }
 
 func TestLockManager_RaceConditions(t *testing.T) {
-	resetLockManager()
+	lm := resetLockManager()
 	base.Test()
 	setupTestConfig()
-
-	lm := GetLockManager()
 
 	t.Run("Concurrent_CheckAndUpdate", func(t *testing.T) {
 		username := "raceuser"
@@ -122,11 +124,9 @@ func TestLockManager_RaceConditions(t *testing.T) {
 }
 
 func TestCheckLocked(t *testing.T) {
-	resetLockManager()
+	lm := resetLockManager()
 	base.Test()
 	setupTestConfig()
-
-	lm := GetLockManager()
 
 	t.Run("InitialState_AllowLogin", func(t *testing.T) {
 		result := lm.Check("testuser", "192.168.1.1:12345")
@@ -147,11 +147,9 @@ func TestCheckLocked(t *testing.T) {
 }
 
 func TestUpdateLoginStatus(t *testing.T) {
-	resetLockManager()
+	lm := resetLockManager()
 	base.Test()
 	setupTestConfig()
-
-	lm := GetLockManager()
 
 	t.Run("FailureCount_Increment", func(t *testing.T) {
 		username := "testuser"
@@ -189,11 +187,9 @@ func TestUpdateLoginStatus(t *testing.T) {
 }
 
 func TestUpdateLockState(t *testing.T) {
-	resetLockManager()
+	lm := resetLockManager()
 	base.Test()
 	setupTestConfig()
-
-	lm := GetLockManager()
 
 	t.Run("LockedState_NoCountUpdate", func(t *testing.T) {
 		username := "lockeduser"
@@ -222,11 +218,9 @@ func TestUpdateLockState(t *testing.T) {
 }
 
 func TestCheckGlobalIPLock(t *testing.T) {
-	resetLockManager()
+	lm := resetLockManager()
 	base.Test()
 	setupTestConfig()
-
-	lm := GetLockManager()
 
 	t.Run("GlobalIP_Protection", func(t *testing.T) {
 		ipaddr := "192.168.1.3:12345"
@@ -243,11 +237,9 @@ func TestCheckGlobalIPLock(t *testing.T) {
 }
 
 func TestCheckGlobalUserLock(t *testing.T) {
-	resetLockManager()
+	lm := resetLockManager()
 	base.Test()
 	setupTestConfig()
-
-	lm := GetLockManager()
 
 	t.Run("GlobalUser_Protection", func(t *testing.T) {
 		username := "globaluser"
@@ -263,11 +255,9 @@ func TestCheckGlobalUserLock(t *testing.T) {
 }
 
 func TestCheckUserIPLock(t *testing.T) {
-	resetLockManager()
+	lm := resetLockManager()
 	base.Test()
 	setupTestConfig()
-
-	lm := GetLockManager()
 
 	t.Run("UserIP_Protection", func(t *testing.T) {
 		username := "useripuser"
@@ -285,11 +275,10 @@ func TestCheckUserIPLock(t *testing.T) {
 
 // 挑战阶段独立计数：StageSuccess 不清挑战计数，防已知口令者重置 OTP 尝试（M-1）
 func TestChallengeLockIndependent(t *testing.T) {
-	resetLockManager()
+	lm := resetLockManager()
 	base.Test()
 	setupTestConfig()
 
-	lm := GetLockManager()
 	username := "otpuser"
 	ipaddr := "192.168.1.20:12345"
 
@@ -311,7 +300,7 @@ func TestChallengeLockIndependent(t *testing.T) {
 	assert.False(t, lm.Check(username, ipaddr), "锁定期间 StageSuccess 不应解锁")
 
 	found := false
-	for _, info := range lm.LockInfo() {
+	for _, info := range lm.Info() {
 		if info.Description == "挑战阶段锁定" && info.Username == username {
 			found = true
 		}
@@ -323,11 +312,10 @@ func TestChallengeLockIndependent(t *testing.T) {
 }
 
 func TestChallengeLockClearedByFullSuccess(t *testing.T) {
-	resetLockManager()
+	lm := resetLockManager()
 	base.Test()
 	setupTestConfig()
 
-	lm := GetLockManager()
 	username := "otpuser2"
 	ipaddr := "192.168.1.21:12345"
 
@@ -346,11 +334,9 @@ func TestChallengeLockClearedByFullSuccess(t *testing.T) {
 }
 
 func TestInitIPList_IsInIPList(t *testing.T) {
-	resetLockManager()
+	lm := resetLockManager()
 	base.Test()
 	setupTestConfig()
-
-	lm := GetLockManager()
 
 	t.Run("Whitelist_Functionality", func(t *testing.T) {
 		lm.LoadIPList(IPWhiteList, base.GetCfg().IPWhiteList)
@@ -371,7 +357,7 @@ func TestInitIPList_IsInIPList(t *testing.T) {
 }
 
 func TestWhitelistPriorityOverBlacklist(t *testing.T) {
-	resetLockManager()
+	lm := resetLockManager()
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{
 		AntiBruteForce: true,
@@ -380,7 +366,6 @@ func TestWhitelistPriorityOverBlacklist(t *testing.T) {
 		MaxBanCount:    5,
 	})
 
-	lm := GetLockManager()
 	lm.LoadIPList(IPWhiteList, base.GetCfg().IPWhiteList)
 	lm.LoadIPList(IPBlackList, base.GetCfg().IPBlackList)
 
@@ -394,14 +379,12 @@ func TestWhitelistPriorityOverBlacklist(t *testing.T) {
 }
 
 func TestGetLocksInfo(t *testing.T) {
-	resetLockManager()
+	lm := resetLockManager()
 	base.Test()
 	setupTestConfig()
 
-	lm := GetLockManager()
-
 	t.Run("EmptyState", func(t *testing.T) {
-		locksInfo := lm.LockInfo()
+		locksInfo := lm.Info()
 		assert.Empty(t, locksInfo, "初始状态应该没有锁定信息")
 	})
 
@@ -413,17 +396,15 @@ func TestGetLocksInfo(t *testing.T) {
 			lm.Fail(username, ipaddr)
 		}
 
-		locksInfo := lm.LockInfo()
+		locksInfo := lm.Info()
 		assert.NotEmpty(t, locksInfo, "应该有锁定信息")
 	})
 }
 
 func TestCleanupExpiredLocks(t *testing.T) {
-	resetLockManager()
+	lm := resetLockManager()
 	base.Test()
 	setupTestConfig()
-
-	lm := GetLockManager()
 
 	t.Run("ExpiredLocks_Cleanup", func(t *testing.T) {
 		username := "cleanupuser"
@@ -448,11 +429,10 @@ func TestCleanupExpiredLocks(t *testing.T) {
 }
 
 func TestUserIPLockNotCrossIP_ButGlobalUserLockDoes(t *testing.T) {
-	resetLockManager()
+	lm := resetLockManager()
 	base.Test()
 	setupTestConfig()
 
-	lm := GetLockManager()
 	username := "linkageuser"
 	ip1 := "192.168.2.1:12345"
 	ip2 := "192.168.2.2:12345"
@@ -478,11 +458,10 @@ func TestUserIPLockNotCrossIP_ButGlobalUserLockDoes(t *testing.T) {
 }
 
 func TestGlobalIPLockBlocksAllUsersOnIP(t *testing.T) {
-	resetLockManager()
+	lm := resetLockManager()
 	base.Test()
 	setupTestConfig()
 
-	lm := GetLockManager()
 	ip := "192.168.2.3:12345"
 
 	// 多用户累计 40 次失败触发全局IP锁
@@ -498,11 +477,10 @@ func TestGlobalIPLockBlocksAllUsersOnIP(t *testing.T) {
 
 // incrLock 内部 resetTime 滑动窗口：失败间隔超过 resetTime 后计数清零重算
 func TestIncrLockSlidingResetWindow(t *testing.T) {
-	resetLockManager()
+	lm := resetLockManager()
 	base.Test()
 	setupTestConfig()
 
-	lm := GetLockManager()
 	username := "slideuser"
 	ip := "192.168.2.5:12345"
 
@@ -534,11 +512,10 @@ func TestIncrLockSlidingResetWindow(t *testing.T) {
 
 // 全局锁到期后自动失效（过期锁在 Check 时不再拒绝）
 func TestGlobalUserLockExpiresAfterLockTime(t *testing.T) {
-	resetLockManager()
+	lm := resetLockManager()
 	base.Test()
 	setupTestConfig()
 
-	lm := GetLockManager()
 	username := "expireuser"
 
 	for range 20 {
@@ -556,11 +533,9 @@ func TestGlobalUserLockExpiresAfterLockTime(t *testing.T) {
 }
 
 func TestCheckLockState(t *testing.T) {
-	resetLockManager()
+	lm := resetLockManager()
 	base.Test()
 	setupTestConfig()
-
-	lm := GetLockManager()
 
 	t.Run("TimeWindow_Reset", func(t *testing.T) {
 		state := &LockState{

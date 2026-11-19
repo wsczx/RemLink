@@ -9,7 +9,7 @@ import (
 	"github.com/wsczx/remlink/dbdata"
 )
 
-// 异步批量审计：proxy 投递记录到 channel，后台 goroutine 定时（1s）批量写库
+// proxy 投递审计记录，后台每秒批量写库
 type AuditBatcher struct {
 	queue    chan dbdata.WebVpnAudit
 	quit     chan struct{}
@@ -24,11 +24,11 @@ func NewAuditBatcher() *AuditBatcher {
 	return &AuditBatcher{
 		queue: make(chan dbdata.WebVpnAudit, 1000),
 		quit:  make(chan struct{}),
-		write: dbdata.AddBatchWebVpnAudit,
+		write: dbdata.WebVpn.AddBatchAudit,
 	}
 }
 
-// 非阻塞投递：队列满时普通记录丢弃，risk>=1 降级为本地日志，避免审计阻塞代理主路径
+// 队列满时丢弃普通记录，risk>=1 降级本地日志，避免阻塞代理主路径
 func (b *AuditBatcher) Log(rec dbdata.WebVpnAudit) {
 	b.stateMu.Lock()
 	defer b.stateMu.Unlock()

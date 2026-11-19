@@ -10,11 +10,11 @@ func TestUserActLogSessionSearchesByNickname(t *testing.T) {
 	defer closeIpdata()
 
 	user := User{Username: "act_log_search_user", Nickname: "活动日志用户"}
-	if err := Add(&user); err != nil {
+	if err := GetDB().Insert(&user); err != nil {
 		t.Fatal(err)
 	}
 	log := UserActLog{Username: user.Username}
-	if err := Add(&log); err != nil {
+	if err := GetDB().Insert(&log); err != nil {
 		t.Fatal(err)
 	}
 

@@ -121,16 +121,7 @@ func (c *WXWorkConfig) GetWeworkUser(code string) (string, string, error) {
 
 // 解析拒绝的用户ID列表
 func (c *WXWorkConfig) ParseBlockedUserIDs() []string {
-	if c.BlockedUserIDs == "" {
-		return nil
-	}
-	var ids []string
-	for part := range strings.SplitSeq(c.BlockedUserIDs, ",") {
-		if id := strings.TrimSpace(part); id != "" {
-			ids = append(ids, id)
-		}
-	}
-	return ids
+	return parseCSVList(c.BlockedUserIDs)
 }
 
 // 检查用户ID是否在拒绝列表中（列表为空表示不限制）

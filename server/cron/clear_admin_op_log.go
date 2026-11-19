@@ -15,6 +15,6 @@ func ClearAdminOpLog() {
 	if lifeDay <= 0 {
 		return
 	}
-	affected, err := dbdata.ClearAdminOpLog(getTimeAgo(lifeDay))
+	affected, err := dbdata.AdminLogs.ClearAdminOpLog(getTimeAgo(lifeDay))
 	base.Info("Cron ClearAdminOpLog: ", affected, err)
 }

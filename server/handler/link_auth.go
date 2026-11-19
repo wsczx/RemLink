@@ -2,11 +2,7 @@ package handler
 
 import (
 	"encoding/base64"
-	"encoding/xml"
-	"fmt"
-	"io"
 	"net/http"
-	"net/http/httputil"
 	"strings"
 	"sync/atomic"
 
@@ -14,80 +10,41 @@ import (
 	"github.com/wsczx/remlink/auth/authsrv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
-	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/sessdata"
 )
 
-var (
-	certHash atomic.Value // 证书 SHA1 哈希，startTls 写入后只读
-)
-
-func init() {
-	certHash.Store("")
+// 处理 AnyConnect XML 认证
+type LinkAuthService struct {
+	certHash     atomic.Value
+	sessions     *sessdata.SessionManager
+	authSessions *AuthSessionManager
+	locks        *auth.LockManager
+	webAuth      *WebAuthService
 }
 
+func NewLinkAuthService(sessions *sessdata.SessionManager, authSessions *AuthSessionManager, locks *auth.LockManager, webAuth *WebAuthService) *LinkAuthService {
+	s := &LinkAuthService{sessions: sessions, authSessions: authSessions, locks: locks, webAuth: webAuth}
+	s.certHash.Store("")
+	return s
+}
+
+// 写入主证书 SHA1 指纹
+func (s *LinkAuthService) SetCertHash(hash string) { s.certHash.Store(hash) }
+
+// 返回主证书 SHA1 指纹
+func (s *LinkAuthService) CertHash() string { return s.certHash.Load().(string) }
+
 // 认证入口
-func LinkAuth(w http.ResponseWriter, r *http.Request) {
-	if base.GetLogLevel() == base.LogLevelTrace {
-		hd, err := httputil.DumpRequest(r, true)
-		if err == nil {
-			base.Trace("LinkAuth: ", utils.RedactSensitive(string(hd)))
-		}
-	}
-
-	// 判断 AnyConnect 客户端
-	userAgent := strings.ToLower(r.UserAgent())
-	xAggregateAuth := r.Header.Get("X-Aggregate-Auth")
-	xTranscendVersion := r.Header.Get("X-Transcend-Version")
-	if !((strings.Contains(userAgent, "anyconnect") || strings.Contains(userAgent, "openconnect") || strings.Contains(userAgent, "anylink")) &&
-		xAggregateAuth == "1" && xTranscendVersion == "1") {
-		w.WriteHeader(http.StatusForbidden)
-		fmt.Fprintf(w, "error request")
+func (s *LinkAuthService) Handle(w http.ResponseWriter, r *http.Request) {
+	cr, userAgent, ok := parseLinkAuthRequest(w, r)
+	if !ok {
 		return
 	}
-
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	defer r.Body.Close()
-
-	cr := &ClientRequest{
-		RemoteAddr: r.RemoteAddr,
-		UserAgent:  userAgent,
-	}
-	err = xml.Unmarshal(body, &cr)
-	if err != nil {
-		base.Error(err)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	if base.GetLogLevel() == base.LogLevelTrace {
-		if b, err := xml.MarshalIndent(cr, "", "  "); err == nil {
-			base.Trace("LinkAuth parsed request:\n" + utils.RedactSensitive(string(b)))
-		} else {
-			base.Trace("LinkAuth: 结构化日志序列化失败，已跳过")
-		}
-	}
-	// 用户活动日志
-	ua := &dbdata.UserActLog{
-		Username:        cr.Auth.Username,
-		GroupName:       cr.GroupSelect,
-		RemoteAddr:      r.RemoteAddr,
-		Status:          dbdata.UserAuthSuccess,
-		DeviceType:      cr.DeviceId.Type(),
-		PlatformVersion: cr.DeviceId.PlatformVersion,
-		Os:              dbdata.UserActLogIns.OSIdx(cr.DeviceId.OS()),
-	}
+	ua := newLinkAuthLog(cr, r.RemoteAddr)
 
 	// 退出登录
 	if cr.Type == "logout" {
-		if cr.SessionToken != "" {
-			sessdata.DelSessByStoken(cr.SessionToken)
-		}
-		w.WriteHeader(http.StatusOK)
+		s.logout(w, cr)
 		return
 	}
 
@@ -107,26 +64,13 @@ func LinkAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 锁定状态判断
-	if !lockManager.Check(cr.Auth.Username, r.RemoteAddr) {
-		ua.Status = dbdata.UserAuthFail
-		ua.IsLockedFail = true
-		if cr.Auth.Username == "" {
-			if lockManager.InBlackList(r.RemoteAddr) {
-				ua.Info = "IP在黑名单中，拒绝访问"
-			} else {
-				ua.Info = "IP已被锁定，请稍后重试"
-			}
-		} else {
-			ua.Info = "账号已被锁定，请稍后重试"
-		}
-		dbdata.UserActLogIns.Add(*ua, cr.UserAgent)
-		w.WriteHeader(http.StatusBadRequest)
+	if s.checkLocked(w, r, cr, ua) {
 		return
 	}
 
 	// SSO Token 认证
 	if cr.Auth.SsoToken != "" {
-		handleSsoToken(w, r, cr, sessionData)
+		s.handleSSOToken(w, r, cr, sessionData)
 		return
 	}
 
@@ -137,13 +81,13 @@ func LinkAuth(w http.ResponseWriter, r *http.Request) {
 			strings.Contains(userAgent, "anyconnect") &&
 			!strings.Contains(userAgent, "openconnect") &&
 			!strings.Contains(userAgent, "open anyconnect") {
-			handlerWebAuth(w, r, cr, ua)
+			s.webAuth.handle(w, r, cr, ua)
 			return
 		}
-		if handleCertAutoAuth(w, r, cr, sessionData) {
+		if s.handleCertAutoAuth(w, r, cr, sessionData) {
 			return
 		}
-		handleInit(w, r, cr, "")
+		s.handleInit(w, r, cr, "")
 		return
 	}
 
@@ -153,56 +97,23 @@ func LinkAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 手机端 SSO 组拒绝：无法完成企微/飞书扫码
-	// 允许开启 allow_mobile_sso 开关放行，浏览器模式仍强制内置
-	if cr.GroupSelect != "" && authsrv.GetSSOType(cr.GroupSelect) != "" && isMobileDevice(r) && !base.GetCfg().AllowMobileSSO {
-		w.WriteHeader(http.StatusForbidden)
+	if checkUnsupported(w, r, cr, ua) {
 		return
 	}
 
-	// SMS 认证仅支持 WebAuth/Portal，原生客户端不支持
-	if cr.GroupSelect != "" {
-		groupData := &dbdata.Group{}
-		if err := dbdata.One("Name", cr.GroupSelect, groupData); err == nil {
-			if dbdata.HasAuthType(groupData.AuthProfile, "sms") {
-				ua.Status = dbdata.UserAuthFail
-				ua.Info = "原生客户端不支持 SMS 认证"
-				dbdata.UserActLogIns.Add(*ua, cr.UserAgent)
-				base.Warn("原生客户端不支持 SMS 认证，已拒绝: user=", cr.Auth.Username, "group=", cr.GroupSelect)
-				w.WriteHeader(http.StatusForbidden)
-				return
-			}
-		}
-	}
-
 	// 尝试从已保存会话恢复管道
-	if sessionID, cerr := GetCookie(r, "auth-session-id"); cerr == nil && sessionID != "" {
-		if sess, serr := AuthSessionManager.Get(sessionID); serr == nil {
-			// 将当前请求的密码/OTP 码及审计日志写入已保存会话
-			sess.Ctx.Conn.Password = cr.Auth.Password
-			if sp := cr.Auth.SecondaryPassword; sp != "" {
-				// 和 RADIUS分别设置
-				sess.Ctx.GetOTP().Code = sp
-				sess.Ctx.GetRADIUS().ChallengeCode = sp
-			}
-			sess.Ctx.Conn.TLS = r.TLS
-			sess.Ctx.Conn.RemoteAddr = r.RemoteAddr
-			sess.UserActLog = sessionData.UserActLog
-			resumeAuthSession(w, r, sess)
-			return
-		}
-		// 会话无效，清除 cookie
-		DeleteCookie(w, "auth-session-id")
+	if s.resumeSavedAuth(w, r, cr, sessionData) {
+		return
 	}
 
 	// 首次认证：通过认证服务加载组配置并执行管道
 	result := authsrv.Authenticate(sessionData.Ctx)
-	handlePipelineResult(w, r, result, sessionData)
+	s.handlePipelineResult(w, r, result, sessionData)
 }
 
 // 当组配置了证书认证且 TLS 连接包含有效客户端证书时，直接从证书提取身份信息，跳过组选择表单
 // 证书无效（过期/吊销/不匹配）时回退到 handleInit 组选择
-func handleCertAutoAuth(w http.ResponseWriter, r *http.Request, cr *ClientRequest, sessionData *AuthSession) bool {
+func (s *LinkAuthService) handleCertAutoAuth(w http.ResponseWriter, r *http.Request, cr *ClientRequest, sessionData *AuthSession) bool {
 	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
 		return false
 	}
@@ -233,18 +144,18 @@ func handleCertAutoAuth(w http.ResponseWriter, r *http.Request, cr *ClientReques
 		// 证书自动认证失败：回退到组选择流程，不强制留在证书组
 		certErr := authFailMessage(result.Err)
 		if base.GetCfg().DisplayError && result.Err != nil {
-			certErr = stripStepPrefix(result.Err.Error())
+			certErr = removeStepPrefix(result.Err.Error())
 		}
 		base.Info("证书自动认证失败，回退组选择 ou=", groupname, " err=", result.Err)
-		handleInit(w, r, cr, certErr)
+		s.handleInit(w, r, cr, certErr)
 		return true
 	}
-	handlePipelineResult(w, r, result, sessionData)
+	s.handlePipelineResult(w, r, result, sessionData)
 	return true
 }
 
 // 处理 init 请求：返回组选择登录表单或 SSO 扫码模板
-func handleInit(w http.ResponseWriter, r *http.Request, cr *ClientRequest, errMsg string) {
+func (s *LinkAuthService) handleInit(w http.ResponseWriter, r *http.Request, cr *ClientRequest, errMsg string) {
 	// OpenConnect 组选择优化
 	if cr.GroupSelect != "" && strings.Contains(cr.UserAgent, "openconnect") {
 		data := RequestData{
@@ -262,7 +173,7 @@ func handleInit(w http.ResponseWriter, r *http.Request, cr *ClientRequest, errMs
 		browserMode := samlBrowserMode(r, ssoType, cr.GroupSelect)
 		data := RequestData{
 			Group:       cr.GroupSelect,
-			Groups:      dbdata.GetGroupNamesNormal(),
+			Groups:      dbdata.Groups.GetGroupNamesNormal(),
 			ServerAddr:  getServerAddr(r),
 			BrowserMode: browserMode,
 			SsoType:     ssoType,
@@ -272,18 +183,18 @@ func handleInit(w http.ResponseWriter, r *http.Request, cr *ClientRequest, errMs
 		return
 	}
 
-	data := RequestData{Group: cr.GroupSelect, Groups: dbdata.GetGroupNamesNormal(), Error: errMsg}
+	data := RequestData{Group: cr.GroupSelect, Groups: dbdata.Groups.GetGroupNamesNormal(), Error: errMsg}
 	w.WriteHeader(http.StatusOK)
 	tplRequest(tpl_request, w, data)
 }
 
 // 处理 SSO Token 认证：恢复 SSO 已认证身份，执行后续管道步骤
-func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, sessionData *AuthSession) {
+func (s *LinkAuthService) handleSSOToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, sessionData *AuthSession) {
 	rawToken := cr.Auth.SsoToken
 
 	// 先尝试原始令牌直接查找（外部浏览器模式：客户端从 localhost:29786/api/sso/{state} 提取原始 state）
 	sessionKey := rawToken
-	samlSession, err := AuthSessionManager.Get(sessionKey)
+	samlSession, err := s.authSessions.Get(sessionKey)
 	if err != nil {
 		// 回退：尝试 Base64 解码后查找（内置浏览器模式：客户端直接发送 cookie 中的 Base64 编码值）
 		// 手机端 AnyConnect 客户端会去掉 base64 padding（=），需要补齐
@@ -297,7 +208,7 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 			return
 		}
 		sessionKey = string(decodedBytes)
-		samlSession, err = AuthSessionManager.Get(sessionKey)
+		samlSession, err = s.authSessions.Get(sessionKey)
 		if err != nil {
 			base.Error("SSO 会话不存在: token=", rawToken[:min(16, len(rawToken))], ", err=", err)
 			w.WriteHeader(http.StatusUnauthorized)
@@ -307,10 +218,7 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 
 	// SSO token 仅能兑换 SSO 流程产生的会话
 	// 拒绝把 OTP-pending 等认证管道会话的 id 当作 SSO token 重放冒用
-	switch samlSession.Kind {
-	case AuthKindSSODone, AuthKindSSOPending, AuthKindWebAuth:
-		// 合法来源
-	default:
+	if !isSSOTokenSessionAllowed(samlSession) {
 		base.Error("SSO token 指向非 SSO 会话，已拒绝: kind=", samlSession.Kind)
 		w.WriteHeader(http.StatusUnauthorized)
 		return
@@ -318,7 +226,7 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 
 	// 强制改密会话
 	if samlSession.ForcePwd {
-		resumeAuthSession(w, r, samlSession)
+		s.resumeAuthSession(w, r, samlSession)
 		return
 	}
 
@@ -328,10 +236,10 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 		username := samlSession.Ctx.SSO.WebAuthUsername
 		groupName := samlSession.Ctx.SSO.WebAuthGroup
 		nickname := samlSession.Ctx.SSO.WebAuthNickname
-		base.Info("WebAuth认证已完成", dbdata.UserLabel(username, nickname), "group:", groupName)
+		base.Info("WebAuth认证已完成", dbdata.Users.Label(username, nickname), "group:", groupName)
 
 		if username == "" || groupName == "" {
-			base.Error("[handleSsoToken] WebAuth 会话缺少用户名或组名")
+			base.Error("[handleSSOToken] WebAuth 会话缺少用户名或组名")
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -348,9 +256,9 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 		sessionData.UserActLog.Status = dbdata.UserAuthSuccess
 		dbdata.UserActLogIns.Add(*sessionData.UserActLog, sessionData.Ctx.Conn.UserAgent)
 
-		lockManager.Success(username, r.RemoteAddr)
-		CreateSession(w, sessionData)
-		AuthSessionManager.Delete(sessionKey)
+		s.locks.Success(username, r.RemoteAddr)
+		s.CreateSession(w, sessionData)
+		s.authSessions.Delete(sessionKey)
 		return
 	}
 
@@ -363,9 +271,6 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 	}
 
 	// 将已验证身份写回会话，供后续 OTP 等步骤使用
-	if sessionData.Ctx == nil {
-		sessionData.Ctx = &auth.Context{}
-	}
 	sessionData.Ctx.Conn.Username = userID
 	sessionData.Ctx.Conn.GroupName = samlSession.Ctx.Conn.GroupName
 	sessionData.UserActLog.Username = userID
@@ -373,7 +278,7 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 
 	// 执行认证管道：优先从已保存管道会话恢复，跳过已通过的步骤
 	if sessionID, cerr := GetCookie(r, "auth-session-id"); cerr == nil && sessionID != "" {
-		if sess, serr := AuthSessionManager.Get(sessionID); serr == nil {
+		if sess, serr := s.authSessions.Get(sessionID); serr == nil {
 			// 将 SSO 已验证身份注入已保存会话
 			sess.Ctx.Conn.Username = userID
 			sess.Ctx.Conn.GroupName = samlSession.Ctx.Conn.GroupName
@@ -385,10 +290,10 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 			sess.Ctx.Conn.RemoteAddr = r.RemoteAddr
 			sess.UserActLog = sessionData.UserActLog
 			// 清除旧管道会话
-			AuthSessionManager.Delete(sessionID)
+			s.authSessions.Delete(sessionID)
 			sess.SessionID = ""
-			resumeAuthSession(w, r, sess)
-			AuthSessionManager.Delete(sessionKey)
+			s.resumeAuthSession(w, r, sess)
+			s.authSessions.Delete(sessionKey)
 			return
 		}
 		DeleteCookie(w, "auth-session-id")
@@ -401,8 +306,8 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 	authsrv.LoadUserInfo(sessionData.Ctx)
 
 	result := authsrv.Authenticate(sessionData.Ctx)
-	handlePipelineResult(w, r, result, sessionData)
+	s.handlePipelineResult(w, r, result, sessionData)
 
 	// 清理 SSO 临时会话
-	AuthSessionManager.Delete(sessionKey)
+	s.authSessions.Delete(sessionKey)
 }

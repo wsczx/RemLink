@@ -9,21 +9,10 @@ import (
 
 // 返回所有策略的分页列表
 func PolicyList(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
 	page, pageSize := parsePaging(r)
-
-	count := dbdata.CountAll(&dbdata.Policy{})
-
-	var datas []dbdata.Policy
-	err := dbdata.Find(&datas, pageSize, page)
-	if err != nil && !dbdata.CheckErrNotFound(err) {
-		RespError(w, RespInternalErr, err)
+	datas, count, ok := findPage(w, &dbdata.Policy{}, page, pageSize, "")
+	if !ok {
 		return
-	}
-
-	// 确保空结果返回 [] 而非 null
-	if datas == nil {
-		datas = []dbdata.Policy{}
 	}
 
 	// 为每个策略附加引用统计
@@ -36,15 +25,16 @@ func PolicyList(w http.ResponseWriter, r *http.Request) {
 	for i, p := range datas {
 		result[i] = PolicyWithStats{
 			Policy:     p,
-			GroupCount: dbdata.FindWhereCount(&dbdata.Group{}, "policy_id=?", p.Id),
-			UserCount:  dbdata.FindWhereCount(&dbdata.User{}, "policy_id=?", p.Id),
+			GroupCount: dbdata.Groups.CountByPolicy(p.Id),
+			UserCount:  dbdata.Users.CountByPolicy(p.Id),
 		}
 	}
 
 	// 统计卡片按"全量数据"聚合，不受分页影响
-	statActive := dbdata.FindWhereCount(&dbdata.Policy{}, "status=1")
+	statActive := dbdata.Policies.CountActive()
 	var all []dbdata.Policy
-	_ = dbdata.Find(&all, 0, 0)
+	// 全量查询失败时统计按 0 计
+	_ = dbdata.Policies.FindAll(&all)
 	statFakeDNS, statBandwidth, statQuota := 0, 0, 0
 	for _, p := range all {
 		if p.EnableFakeDNS {
@@ -73,30 +63,14 @@ func PolicyList(w http.ResponseWriter, r *http.Request) {
 
 // 返回已启用策略的 ID-名称列表（供用户/组编辑下拉选择）
 func PolicyNames(w http.ResponseWriter, r *http.Request) {
-	names := dbdata.GetPolicyNames()
-	if names == nil {
-		names = []dbdata.GroupNameId{}
-	}
-	data := map[string]any{
-		"count":     len(names),
-		"page_size": 0,
-		"datas":     names,
-	}
-	RespSuccess(w, data)
+	names := dbdata.Policies.GetPolicyNames()
+	listResp(w, len(names), 0, names)
 }
 
 // 返回全部策略的 ID-名称列表（含停用，供管理列表筛选使用）
 func AllPolicyNames(w http.ResponseWriter, r *http.Request) {
-	names := dbdata.GetAllPolicyNames()
-	if names == nil {
-		names = []dbdata.GroupNameId{}
-	}
-	data := map[string]any{
-		"count":     len(names),
-		"page_size": 0,
-		"datas":     names,
-	}
-	RespSuccess(w, data)
+	names := dbdata.Policies.GetAllPolicyNames()
+	listResp(w, len(names), 0, names)
 }
 
 // 获取单个策略的详细信息
@@ -110,13 +84,11 @@ func PolicySet(w http.ResponseWriter, r *http.Request) {
 	if err := readJSON(w, r, 1<<23, v); err != nil { // 8MB
 		return
 	}
-
-	if err := dbdata.SetPolicy(v); err != nil {
+	if err := dbdata.Policies.SetPolicy(v); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-
-	dbdata.AdminLog("策略管理", v.Name, "创建/修改了策略", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("策略管理", v.Name, "创建/修改了策略", r.RemoteAddr)
 	RespSuccess(w, nil)
 }
 
@@ -128,28 +100,27 @@ func PolicyDel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 检查是否被用户组引用
-	groupCount := dbdata.FindWhereCount(&dbdata.Group{}, "policy_id=?", id)
+	groupCount := dbdata.Groups.CountByPolicy(id)
 	if groupCount > 0 {
 		RespError(w, RespParamErr, "该策略被 "+strconv.Itoa(groupCount)+" 个用户组引用，无法删除")
 		return
 	}
 
 	// 检查是否被用户引用
-	userCount := dbdata.FindWhereCount(&dbdata.User{}, "policy_id=?", id)
+	userCount := dbdata.Users.CountByPolicy(id)
 	if userCount > 0 {
 		RespError(w, RespParamErr, "该策略被 "+strconv.Itoa(userCount)+" 个用户引用，无法删除")
 		return
 	}
 
 	p := &dbdata.Policy{}
-	dbdata.One("Id", id, p)
+	dbdata.Policies.Get(id, p)
 
-	data := dbdata.Policy{Id: id}
-	if err := dbdata.Del(&data); err != nil {
+	if err := dbdata.Policies.Delete(id); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	dbdata.AdminLog("策略管理", p.Name, "删除了策略", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("策略管理", p.Name, "删除了策略", r.RemoteAddr)
 	RespSuccess(w, nil)
 }
 
@@ -161,7 +132,7 @@ func PolicyCopy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var orig dbdata.Policy
-	err := dbdata.One("Id", id, &orig)
+	err := dbdata.Policies.Get(id, &orig)
 	if err != nil {
 		RespError(w, RespInternalErr, err)
 		return
@@ -171,13 +142,13 @@ func PolicyCopy(w http.ResponseWriter, r *http.Request) {
 	copy := orig
 	copy.Id = 0
 	copy.Name = orig.Name + " (副本)"
-	err = dbdata.SetPolicy(&copy)
+	err = dbdata.Policies.SetPolicy(&copy)
 	if err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
 
-	dbdata.AdminLog("策略管理", orig.Name, "复制了策略→"+copy.Name, r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("策略管理", orig.Name, "复制了策略→"+copy.Name, r.RemoteAddr)
 	RespSuccess(w, copy)
 }
 
@@ -200,33 +171,22 @@ func PolicyApplyToGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 验证策略存在且已启用
-	var p dbdata.Policy
-	if err := dbdata.One("Id", req.PolicyId, &p); err != nil {
-		RespError(w, RespParamErr, "策略不存在")
+	p, err := dbdata.Policies.GetByID(req.PolicyId)
+	if err != nil {
+		RespError(w, RespParamErr, err.Error())
 		return
 	}
 	if p.Status != 1 {
 		RespError(w, RespParamErr, "策略已停用，无法应用到用户组")
 		return
 	}
-
-	// 批量更新
-	successCount := 0
-	for _, gid := range req.GroupIds {
-		var g dbdata.Group
-		if err := dbdata.One("Id", gid, &g); err != nil {
-			continue
-		}
-		g.PolicyId = req.PolicyId
-		if err := dbdata.Set(&g); err != nil {
-			RespError(w, RespInternalErr, "更新组 "+g.Name+" 失败: "+err.Error())
-			return
-		}
-		successCount++
+	successCount, err := dbdata.Groups.SetPolicy(req.GroupIds, req.PolicyId)
+	if err != nil {
+		RespError(w, RespInternalErr, err.Error())
+		return
 	}
 
-	dbdata.AdminLog("策略管理", p.Name, "将策略应用到"+strconv.Itoa(successCount)+"个用户组", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("策略管理", p.Name, "将策略应用到"+strconv.Itoa(successCount)+"个用户组", r.RemoteAddr)
 	RespSuccess(w, "已成功应用到 "+strconv.Itoa(successCount)+" 个用户组")
 }
 
@@ -249,33 +209,22 @@ func PolicyApplyToUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 验证策略存在且已启用
-	var p dbdata.Policy
-	if err := dbdata.One("Id", req.PolicyId, &p); err != nil {
-		RespError(w, RespParamErr, "策略不存在")
+	p, err := dbdata.Policies.GetByID(req.PolicyId)
+	if err != nil {
+		RespError(w, RespParamErr, err.Error())
 		return
 	}
 	if p.Status != 1 {
 		RespError(w, RespParamErr, "策略已停用，无法应用到用户")
 		return
 	}
-
-	// 批量更新
-	successCount := 0
-	for _, uid := range req.UserIds {
-		var u dbdata.User
-		if err := dbdata.One("Id", uid, &u); err != nil {
-			continue
-		}
-		u.PolicyId = req.PolicyId
-		if err := dbdata.Set(&u); err != nil {
-			RespError(w, RespInternalErr, "更新用户 "+u.Username+" 失败: "+err.Error())
-			return
-		}
-		successCount++
+	successCount, err := dbdata.Users.SetPolicy(req.UserIds, req.PolicyId)
+	if err != nil {
+		RespError(w, RespInternalErr, err.Error())
+		return
 	}
 
-	dbdata.AdminLog("策略管理", p.Name, "将策略应用到"+strconv.Itoa(successCount)+"个用户", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("策略管理", p.Name, "将策略应用到"+strconv.Itoa(successCount)+"个用户", r.RemoteAddr)
 	RespSuccess(w, "已成功应用到 "+strconv.Itoa(successCount)+" 个用户")
 }
 
@@ -286,8 +235,8 @@ func PolicyUsedBy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	groups := dbdata.PolicyUsedByGroups(id)
-	users := dbdata.PolicyUsedByUsers(id)
+	groups := dbdata.Policies.UsedByGroups(id)
+	users := dbdata.Policies.UsedByUsers(id)
 
 	data := map[string]any{
 		"groups": groups,
@@ -315,31 +264,19 @@ func PolicyRemoveFromGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var p dbdata.Policy
-	if err := dbdata.One("Id", req.PolicyId, &p); err != nil {
-		RespError(w, RespParamErr, "策略不存在")
+	p, err := dbdata.Policies.GetByID(req.PolicyId)
+	if err != nil {
+		RespError(w, RespParamErr, err.Error())
+		return
+	}
+	// 仅清除当前确实引用本策略的组，避免误清引用其他策略的组
+	successCount, err := dbdata.Groups.ClearPolicy(req.GroupIds, req.PolicyId)
+	if err != nil {
+		RespError(w, RespInternalErr, err.Error())
 		return
 	}
 
-	// 仅清除当前确实引用本策略的组，避免误清引用其他策略的组
-	successCount := 0
-	for _, gid := range req.GroupIds {
-		var g dbdata.Group
-		if err := dbdata.One("Id", gid, &g); err != nil {
-			continue
-		}
-		if g.PolicyId != req.PolicyId {
-			continue
-		}
-		g.PolicyId = 0
-		if err := dbdata.Set(&g); err != nil {
-			RespError(w, RespInternalErr, "移出用户组 "+g.Name+" 失败: "+err.Error())
-			return
-		}
-		successCount++
-	}
-
-	dbdata.AdminLog("策略管理", p.Name, "将"+strconv.Itoa(successCount)+"个用户组移出策略", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("策略管理", p.Name, "将"+strconv.Itoa(successCount)+"个用户组移出策略", r.RemoteAddr)
 	RespSuccess(w, "已成功移出 "+strconv.Itoa(successCount)+" 个用户组")
 }
 
@@ -362,30 +299,18 @@ func PolicyRemoveFromUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var p dbdata.Policy
-	if err := dbdata.One("Id", req.PolicyId, &p); err != nil {
-		RespError(w, RespParamErr, "策略不存在")
+	p, err := dbdata.Policies.GetByID(req.PolicyId)
+	if err != nil {
+		RespError(w, RespParamErr, err.Error())
+		return
+	}
+	// 仅清除当前确实引用本策略的用户，避免误清引用其他策略的用户
+	successCount, err := dbdata.Users.ClearPolicy(req.UserIds, req.PolicyId)
+	if err != nil {
+		RespError(w, RespInternalErr, err.Error())
 		return
 	}
 
-	// 仅清除当前确实引用本策略的用户，避免误清引用其他策略的用户
-	successCount := 0
-	for _, uid := range req.UserIds {
-		var u dbdata.User
-		if err := dbdata.One("Id", uid, &u); err != nil {
-			continue
-		}
-		if u.PolicyId != req.PolicyId {
-			continue
-		}
-		u.PolicyId = 0
-		if err := dbdata.Set(&u); err != nil {
-			RespError(w, RespInternalErr, "移出用户 "+u.Username+" 失败: "+err.Error())
-			return
-		}
-		successCount++
-	}
-
-	dbdata.AdminLog("策略管理", p.Name, "将"+strconv.Itoa(successCount)+"个用户移出策略", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("策略管理", p.Name, "将"+strconv.Itoa(successCount)+"个用户移出策略", r.RemoteAddr)
 	RespSuccess(w, "已成功移出 "+strconv.Itoa(successCount)+" 个用户")
 }

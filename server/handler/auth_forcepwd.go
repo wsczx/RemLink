@@ -12,26 +12,31 @@ import (
 	"github.com/wsczx/remlink/pkg/utils"
 )
 
-// 执行强制改密核心操作；成功后将 ctx 内用户信息以库为准重载
-// 使续跑管道读到 ForcePwd=false
-func RunForcePwdChange(ctx *auth.Context, username, newPassword string) error {
+// 校验密码策略、哈希并写库，吊销该用户全部 JWT，返回吊销的会话数
+// 普通改密与重置密码共用；强制改密在调用后额外重载用户信息以续跑管道
+func setPassword(username, newPassword string) (int, error) {
 	if err := utils.CheckPasswordPolicy(newPassword); err != nil {
-		return err
+		return 0, err
 	}
 	hashed, err := utils.PasswordHash(newPassword)
 	if err != nil {
+		return 0, err
+	}
+	if err := dbdata.Users.UpdatePassword(username, hashed); err != nil {
+		return 0, err
+	}
+	return jwt.RevokeSubjectJwt(username), nil
+}
+
+// 执行强制改密核心并续跑管道：写库后重载用户使 ForcePwd=false
+func RunForcePasswordChange(ctx *auth.Context, username, newPassword string) error {
+	n, err := setPassword(username, newPassword)
+	if err != nil {
 		return err
 	}
-	// 按用户名直接更新，避免先查全量用户仅取 Id 的重复查库
-	if _, err := dbdata.GetXdb().Where("username = ?", username).Cols("pin_code", "change_pwd").
-		Update(&dbdata.User{PinCode: hashed, ForcePwd: false}); err != nil {
-		return err
-	}
-	// 强制改密意味着原凭据已泄露：吊销全部旧 JWT（续跑签发的新令牌不受影响）
-	if n := jwt.RevokeSubjectJwt(username); n > 0 {
+	if n > 0 {
 		base.Info("强制改密，已吊销", n, "个有效会话:", username)
 	}
-	// 重载使用户信息读到 ForcePwd=false，续跑管道直接通过该步
 	authsrv.ReloadUserInfo(ctx)
 	return nil
 }

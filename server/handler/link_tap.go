@@ -14,40 +14,44 @@ import (
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/pkg/arpdis"
 	"github.com/wsczx/remlink/pkg/ndpdis"
+	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/sessdata"
 )
 
 const bridgeName = "remlink0"
 
-var (
-	// 网关mac地址
+// TAP/macvtap 共用二层转发
+type TapLink struct {
 	gatewayHw net.HardwareAddr
-)
+	sessions  *sessdata.SessionManager
+}
+
+func NewTapLink(sessions *sessdata.SessionManager) *TapLink { return &TapLink{sessions: sessions} }
 
 type LinkDriver interface {
 	io.ReadWriteCloser
 	Name() string
 }
 
-func _setGateway() {
-	dstAddr := arpdis.Lookup(sessdata.IpPool.Ipv4Gateway, false)
-	gatewayHw = dstAddr.HardwareAddr
+func (t *TapLink) setGateway() {
+	dstAddr := arpdis.Lookup(t.sessions.Pools().Global.Ipv4Gateway, false)
+	t.gatewayHw = dstAddr.HardwareAddr
 	// 设置为静态地址映射
 	dstAddr.Type = arpdis.TypeStatic
 	arpdis.Add(dstAddr)
 }
 
-func _checkTapIp(ifName string) {
+func (t *TapLink) checkIP(ifName string) error {
 	iFace, err := net.InterfaceByName(ifName)
 	if err != nil {
-		base.Fatal("testTap err: ", err)
+		return fmt.Errorf("testTap err: %w", err)
 	}
 
 	var ifIp net.IP
 
 	addrs, err := iFace.Addrs()
 	if err != nil {
-		base.Fatal("testTap err: ", err)
+		return fmt.Errorf("testTap err: %w", err)
 	}
 	for _, addr := range addrs {
 		ip, _, err := net.ParseCIDR(addr.String())
@@ -57,18 +61,26 @@ func _checkTapIp(ifName string) {
 		ifIp = ip
 	}
 
-	if !sessdata.IpPool.Ipv4IPNet.Contains(ifIp) {
-		base.Fatal("tapIp or Ip network err")
+	if !t.sessions.Pools().Global.Ipv4IPNet.Contains(ifIp) {
+		return fmt.Errorf("tapIp or Ip network err")
 	}
+	return nil
 }
 
-func checkTap() {
-	_setGateway()
-	_checkTapIp(bridgeName)
+// 校验桥接网卡与网关配置
+func (t *TapLink) checkAndSetGateway() error {
+	t.setGateway()
+	return t.checkIP(bridgeName)
+}
+
+// 校验 macvtap 依赖的物理网卡
+func (t *TapLink) checkAndSetGatewayForDev(name string) error {
+	t.setGateway()
+	return t.checkIP(name)
 }
 
 // 创建tap网卡
-func LinkTap(cSess *sessdata.ConnSession) error {
+func (t *TapLink) Link(cSess *sessdata.ConnSession) error {
 	cfg := water.Config{
 		DeviceType: water.TAP,
 	}
@@ -146,7 +158,7 @@ func LinkTap(cSess *sessdata.ConnSession) error {
 		}
 		v6GwAddr := &netlink.Addr{
 			IPNet: &net.IPNet{
-				IP:   cSess.IpPool.V6Gateway(),
+				IP:   cSess.V6Gateway(),
 				Mask: net.CIDRMask(128, 128),
 			},
 		}
@@ -156,15 +168,14 @@ func LinkTap(cSess *sessdata.ConnSession) error {
 	}
 
 	// 设置组NAT
-	setGroupNAT(cSess)
+	setGroupNAT(t.sessions, cSess)
 
-	go allTapRead(ifce, cSess)
-	go allTapWrite(ifce, cSess)
+	go t.read(ifce, cSess)
+	go t.write(ifce, cSess)
 	return nil
 }
 
-func allTapWrite(ifce LinkDriver, cSess *sessdata.ConnSession) {
-	// 注册 v6 地址→客户端MAC，供 NDP 代答和池内互访寻址
+func (t *TapLink) write(ifce LinkDriver, cSess *sessdata.ConnSession) {
 	if cSess.IpAddr6 != nil {
 		ndpdis.Add(cSess.IpAddr6, cSess.MacHw)
 	}
@@ -180,61 +191,50 @@ func allTapWrite(ifce LinkDriver, cSess *sessdata.ConnSession) {
 		ifce.Close()
 	}()
 
-	var (
-		err   error
-		dstHw net.HardwareAddr
-		pl    *sessdata.Payload
-		frame = make(ethernet.Frame, BufferSize)
-		ipDst = net.IPv4(1, 2, 3, 4)
-	)
+	// 复用帧缓冲，避免每包重新分配
+	frame := make(ethernet.Frame, sessdata.PayloadBufferSize)
 
-	for {
-		frame.Resize(BufferSize)
-
-		select {
-		case pl = <-cSess.PayloadIn:
-		case <-cSess.CloseChan:
-			return
+	writeFn := func(pl *sessdata.Payload) (int, error) {
+		// 完整以太网帧（ARP/NS 应答 LTypeEthernet）直接写出
+		if pl.LType == sessdata.LTypeEthernet {
+			return ifce.Write(pl.Data)
 		}
+		// LTypeIPData：封装为以太网帧再写出
+		frame.Resize(sessdata.PayloadBufferSize)
+		var (
+			dstHw net.HardwareAddr
+			ipDst = net.IPv4(1, 2, 3, 4)
+		)
 
-		switch pl.LType {
-		default:
-		case sessdata.LTypeEthernet:
-			copy(frame, pl.Data)
-			frame = frame[:len(pl.Data)]
-
-		case sessdata.LTypeIPData: // 需要转换成 Ethernet 数据
-			if waterutil.IsIPv6(pl.Data) {
-				if cSess.IpAddr6 == nil || len(pl.Data) < 40 {
-					continue
-				}
-				// 校验源地址为本会话分配的 v6 地址，防伪造
-				if !net.IP(pl.Data[8:24]).Equal(cSess.IpAddr6) {
-					continue
-				}
-				ipDst6 := net.IP(pl.Data[24:40])
-				dstHw = gatewayHw
-				if ipDst6[0] == 0xff {
-					// 组播地址按 RFC2464 映射以太网组播MAC 33:33:xxxx
-					dstHw = net.HardwareAddr{0x33, 0x33, ipDst6[12], ipDst6[13], ipDst6[14], ipDst6[15]}
-				} else if sessdata.IpPool.Ipv6IPNet.Contains(ipDst6) {
-					if hw := ndpdis.Lookup(ipDst6); hw != nil {
-						dstHw = hw
-					}
-				}
-				frame.Prepare(dstHw, cSess.MacHw, ethernet.NotTagged, ethernet.IPv6, len(pl.Data))
-				copy(frame[12+2:], pl.Data)
-				break
+		if waterutil.IsIPv6(pl.Data) {
+			if cSess.IpAddr6 == nil || len(pl.Data) < 40 {
+				return 0, nil // 丢弃（环统一回收）
 			}
-
+			// 校验源地址为本会话分配的 v6 地址，防伪造
+			if !net.IP(pl.Data[8:24]).Equal(cSess.IpAddr6) {
+				return 0, nil
+			}
+			ipDst6 := net.IP(pl.Data[24:40])
+			dstHw = t.gatewayHw
+			if ipDst6[0] == 0xff {
+				// 组播地址按 RFC2464 映射以太网组播MAC 33:33:xxxx
+				dstHw = net.HardwareAddr{0x33, 0x33, ipDst6[12], ipDst6[13], ipDst6[14], ipDst6[15]}
+			} else if t.sessions.Pools().Global.Ipv6IPNet.Contains(ipDst6) {
+				if hw := ndpdis.Lookup(ipDst6); hw != nil {
+					dstHw = hw
+				}
+			}
+			frame.Prepare(dstHw, cSess.MacHw, ethernet.NotTagged, ethernet.IPv6, len(pl.Data))
+			copy(frame[14:], pl.Data)
+		} else {
 			// IPv4 头至少 20 字节
 			if len(pl.Data) < 20 {
-				continue
+				return 0, nil
 			}
 			ipSrc := waterutil.IPv4Source(pl.Data)
 			if !ipSrc.Equal(cSess.IpAddr) {
 				// 非分配给客户端ip，直接丢弃
-				continue
+				return 0, nil
 			}
 
 			// 手动设置ipv4地址
@@ -243,29 +243,24 @@ func allTapWrite(ifce LinkDriver, cSess *sessdata.ConnSession) {
 			ipDst[14] = pl.Data[18]
 			ipDst[15] = pl.Data[19]
 
-			dstHw = gatewayHw
-			if sessdata.IpPool.Ipv4IPNet.Contains(ipDst) {
-				dstAddr := arpdis.Lookup(ipDst, true)
-				if dstAddr != nil {
+			dstHw = t.gatewayHw
+			if t.sessions.Pools().Global.Ipv4IPNet.Contains(ipDst) {
+				if dstAddr := arpdis.Lookup(ipDst, true); dstAddr != nil {
 					dstHw = dstAddr.HardwareAddr
 				}
 			}
 
 			frame.Prepare(dstHw, cSess.MacHw, ethernet.NotTagged, ethernet.IPv4, len(pl.Data))
-			copy(frame[12+2:], pl.Data)
+			copy(frame[14:], pl.Data)
 		}
 
-		_, err = ifce.Write(frame)
-		if err != nil {
-			base.Error("tap Write err", err)
-			return
-		}
-
-		putPayloadInBefore(cSess, pl)
+		return ifce.Write(frame)
 	}
+
+	runSessionWriteLoop(cSess, cSess.PayloadIn, cSess.CloseChan, writeFn, func(pl *sessdata.Payload) { putPayloadInBefore(cSess, pl) }, true)
 }
 
-func allTapRead(ifce LinkDriver, cSess *sessdata.ConnSession) {
+func (t *TapLink) read(ifce LinkDriver, cSess *sessdata.ConnSession) {
 	defer func() {
 		// 解析畸形二层帧等异常不应带崩整个进程
 		if err := recover(); err != nil {
@@ -275,33 +270,38 @@ func allTapRead(ifce LinkDriver, cSess *sessdata.ConnSession) {
 		ifce.Close()
 	}()
 
-	var (
-		err   error
-		n     int
-		data  []byte
-		frame = make(ethernet.Frame, BufferSize)
-	)
+	// TAP 无独立空闲超时，由 runSessionIdleCheck 兜底
+	go runSessionIdleCheck(cSess, cSess.CloseChan)
 
-	for {
-		frame.Resize(BufferSize)
-
-		n, err = ifce.Read(frame)
-		if err != nil {
-			base.Error("tap Read err", n, err)
-			return
+	readFn := func(pl *sessdata.Payload) (int, error) {
+		return ifce.Read(pl.Data)
+	}
+	// 处理二层帧分发：普通 IP 数据推送到客户端（PayloadOut），
+	// ARP/NS 请求由服务端代答（复用读缓冲构建应答帧后注入 PayloadInbound）
+	// 每个分支显式回收或转移 pl
+	decodeFn := func(pl *sessdata.Payload, n int) bool {
+		// 以太网帧头至少 14 字节，短包直接丢弃，避免 ethernet.Frame 越界 panic
+		if n < 14 {
+			sessdata.Payloads.PutPayload(pl)
+			return false
 		}
-		frame = frame[:n]
+		pl.Data = pl.Data[:n]
+		cSess.LastDataTime.Store(utils.NowSec().Unix())
 
+		frame := ethernet.Frame(pl.Data)
 		switch frame.Ethertype() {
 		default:
-			continue
+			sessdata.Payloads.PutPayload(pl)
+			return false
 		case ethernet.IPv6:
 			if cSess.IpAddr6 == nil {
-				continue
+				sessdata.Payloads.PutPayload(pl)
+				return false
 			}
-			data = frame.Payload()
+			data := frame.Payload()
 			if len(data) < 40 {
-				continue
+				sessdata.Payloads.PutPayload(pl)
+				return false
 			}
 
 			// NS(邻居请求) 代答（类比 ARP 代理）：目标为网关、本会话、或池内其他客户端地址时分别代答
@@ -310,85 +310,89 @@ func allTapRead(ifce LinkDriver, cSess *sessdata.ConnSession) {
 				packet := gopacket.NewPacket(frame, layers.LayerTypeEthernet, gopacket.NoCopy)
 				nsLayer := packet.Layer(layers.LayerTypeICMPv6NeighborSolicitation)
 				if nsLayer == nil {
-					continue
+					sessdata.Payloads.PutPayload(pl)
+					return false
 				}
 				// 畸形包各层可能缺失，逐一判防强制断言 panic
 				ns, ok := nsLayer.(*layers.ICMPv6NeighborSolicitation)
 				if !ok {
-					continue
+					sessdata.Payloads.PutPayload(pl)
+					return false
 				}
 				ethLayer, ok := packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet)
 				if !ok {
-					continue
+					sessdata.Payloads.PutPayload(pl)
+					return false
 				}
 				ip6Layer, ok := packet.Layer(layers.LayerTypeIPv6).(*layers.IPv6)
 				if !ok {
-					continue
+					sessdata.Payloads.PutPayload(pl)
+					return false
 				}
 				if ip6Layer.SrcIP.IsUnspecified() {
 					// DAD 探测(源为::)不代答，/128 池分配不存在地址冲突
-					continue
+					sessdata.Payloads.PutPayload(pl)
+					return false
 				}
-				// 决定代答 MAC：本会话地址→本 MAC；网关→gatewayHw；池内其他客户端→查 ndpdis
+				// 决定代答 MAC：本会话地址→本 MAC；网关→网关 MAC；池内其他客户端→查 ndpdis
 				var replyMac net.HardwareAddr
 				switch {
 				case cSess.IpAddr6.Equal(ns.TargetAddress):
 					replyMac = cSess.MacHw
-				case cSess.IpPool.V6Gateway() != nil && cSess.IpPool.V6Gateway().Equal(ns.TargetAddress):
-					replyMac = gatewayHw
+				case cSess.V6Gateway() != nil && cSess.V6Gateway().Equal(ns.TargetAddress):
+					replyMac = t.gatewayHw
 				default:
 					replyMac = ndpdis.Lookup(ns.TargetAddress)
 				}
 				if replyMac == nil {
-					continue
+					sessdata.Payloads.PutPayload(pl)
+					return false
 				}
-				data, err = ndpdis.NewNAReply(ns.TargetAddress, replyMac, ip6Layer.SrcIP, ethLayer.SrcMAC)
+				replyData, err := ndpdis.NewNAReply(ns.TargetAddress, replyMac, ip6Layer.SrcIP, ethLayer.SrcMAC)
 				if err != nil {
+					sessdata.Payloads.PutPayload(pl)
 					base.Error(err)
-					return
+					return false
 				}
-				pl := getPayload()
 				pl.LType = sessdata.LTypeEthernet
-				copy(pl.Data, data)
-				pl.Data = pl.Data[:len(data)]
-				if payloadIn(cSess, pl) {
-					return
-				}
-				continue
+				copy(pl.Data, replyData)
+				pl.Data = pl.Data[:len(replyData)]
+				return cSess.PayloadInbound(pl)
 			}
 
 			// 普通 v6 数据：仅投递目的为本会话地址的包
 			if !net.IP(data[24:40]).Equal(cSess.IpAddr6) {
-				continue
+				sessdata.Payloads.PutPayload(pl)
+				return false
 			}
-			pl := getPayload()
 			copy(pl.Data, data)
 			pl.Data = pl.Data[:len(data)]
-			if payloadOut(cSess, pl) {
-				return
+			if cSess.PayloadOut(pl) {
+				return true
 			}
+			return false
 
 		case ethernet.IPv4:
 			// 发送IP数据
-			data = frame.Payload()
+			data := frame.Payload()
 			if len(data) < 20 {
-				continue
+				sessdata.Payloads.PutPayload(pl)
+				return false
 			}
 
 			ip_dst := waterutil.IPv4Destination(data)
 			if !ip_dst.Equal(cSess.IpAddr) {
 				// 过滤非本机地址
-				continue
+				sessdata.Payloads.PutPayload(pl)
+				return false
 			}
 
-			pl := getPayload()
-			// 拷贝数据到pl
 			copy(pl.Data, data)
-			// 更新切片长度
 			pl.Data = pl.Data[:len(data)]
-			if payloadOut(cSess, pl) {
-				return
+			if cSess.PayloadOut(pl) {
+				return true
 			}
+			return false
 
 		case ethernet.ARP:
 			// 暂时仅实现了ARP协议
@@ -397,42 +401,44 @@ func allTapRead(ifce LinkDriver, cSess *sessdata.ConnSession) {
 			// 畸形 ARP 帧解析失败时 layer 为 nil，必须判 ok 否则强制断言 panic 崩进程
 			arpReq, ok := layer.(*layers.ARP)
 			if !ok {
-				continue
+				sessdata.Payloads.PutPayload(pl)
+				return false
 			}
 
 			if !cSess.IpAddr.Equal(arpReq.DstProtAddress) {
 				// 过滤非本机地址
-				continue
+				sessdata.Payloads.PutPayload(pl)
+				return false
 			}
 
 			// 返回ARP数据
 			src := &arpdis.Addr{IP: cSess.IpAddr, HardwareAddr: cSess.MacHw}
 			dst := &arpdis.Addr{IP: arpReq.SourceProtAddress, HardwareAddr: arpReq.SourceHwAddress}
-			data, err = arpdis.NewARPReply(src, dst)
+			replyData, err := arpdis.NewARPReply(src, dst)
 			if err != nil {
+				sessdata.Payloads.PutPayload(pl)
 				base.Error(err)
-				return
+				return false
 			}
 
 			// 从接受的arp信息添加arp地址
-			addr := &arpdis.Addr{
+			arpdis.Add(&arpdis.Addr{
 				IP:           append([]byte{}, dst.IP...),
 				HardwareAddr: append([]byte{}, dst.HardwareAddr...),
-			}
-			arpdis.Add(addr)
+			})
 
-			pl := getPayload()
 			// 设置为二层数据类型
 			pl.LType = sessdata.LTypeEthernet
-			// 拷贝数据到pl
-			copy(pl.Data, data)
-			// 更新切片长度
-			pl.Data = pl.Data[:len(data)]
+			copy(pl.Data, replyData)
+			pl.Data = pl.Data[:len(replyData)]
 
-			if payloadIn(cSess, pl) {
-				return
+			if cSess.PayloadInbound(pl) {
+				return true
 			}
+			return false
 
 		}
 	}
+
+	runSessionReadLoop(cSess, readFn, decodeFn, true)
 }

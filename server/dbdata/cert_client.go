@@ -17,10 +17,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wsczx/remlink/pkg/utils"
+
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/pkg/security"
 	"software.sslmate.com/src/go-pkcs12"
 )
+
+// 客户端证书的存储入口
+type CertStore struct{ *table[ClientCertData] }
+
+// 客户端证书的存储入口实例，由 SetDB 注入持久化实现
+var Certs = &CertStore{}
 
 // 客户端证书数据结构
 type ClientCertData struct {
@@ -116,9 +124,9 @@ func (c *ClientCertData) Save() error {
 	defer c.certMux.Unlock()
 
 	if c.Id > 0 {
-		return Set(c) // 更新现有记录
+		return GetDB().Save(c) // 更新现有记录
 	}
-	return Add(c)
+	return GetDB().Insert(c)
 }
 
 // 禁用证书
@@ -136,7 +144,7 @@ func (c *ClientCertData) Delete() error {
 	c.certMux.Lock()
 	defer c.certMux.Unlock()
 
-	return Del(c)
+	return GetDB().Delete(c)
 }
 
 // 切换证书状态
@@ -156,8 +164,8 @@ func (c *ClientCertData) UpdateStatus(status int) error {
 	c.Status = status
 	c.certMux.Unlock()
 
-	if _, err := GetXdb().ID(c.Id).Cols("status").Update(c); err != nil {
-		return fmt.Errorf("更新客户端证书状态失败: %v", err)
+	if _, err := GetDB().Engine().ID(c.Id).Cols("status").Update(c); err != nil {
+		return fmt.Errorf("更新客户端证书状态失败: %w", err)
 	}
 	return nil
 }
@@ -175,11 +183,11 @@ func (c *ClientCertData) CheckAndUpdateStatus() error {
 }
 
 // 绑定设备ID
-func (c *ClientCertData) BindDevice(deviceId string) error {
+func (c *ClientCertData) BindDevice(deviceID string) error {
 	if !c.DeviceBindingEnabled {
 		return nil
 	}
-	if deviceId == "" {
+	if deviceID == "" {
 		return fmt.Errorf("设备绑定功能仅支持Cisco AnyConnect客户端")
 	}
 
@@ -188,21 +196,21 @@ func (c *ClientCertData) BindDevice(deviceId string) error {
 	defer mu.Unlock()
 
 	cert := &ClientCertData{}
-	has, err := GetXdb().ID(c.Id).Get(cert)
+	has, err := GetDB().Engine().ID(c.Id).Get(cert)
 	if err != nil || !has {
 		return fmt.Errorf("查询证书失败")
 	}
 
-	if slices.Contains(cert.DeviceId, deviceId) {
+	if slices.Contains(cert.DeviceId, deviceID) {
 		return nil
 	}
 	if len(cert.DeviceId) >= cert.MaxDevices {
 		return fmt.Errorf("设备数量已达上限")
 	}
 
-	cert.DeviceId = append(cert.DeviceId, deviceId)
-	if _, err := GetXdb().ID(c.Id).Cols("device_id").Update(cert); err != nil {
-		return fmt.Errorf("绑定设备ID失败: %v", err)
+	cert.DeviceId = append(cert.DeviceId, deviceID)
+	if _, err := GetDB().Engine().ID(c.Id).Cols("device_id").Update(cert); err != nil {
+		return fmt.Errorf("绑定设备ID失败: %w", err)
 	}
 
 	c.certMux.Lock()
@@ -213,13 +221,13 @@ func (c *ClientCertData) BindDevice(deviceId string) error {
 }
 
 // 解绑设备ID
-func (c *ClientCertData) UnbindDevice(deviceId string) error {
+func (c *ClientCertData) UnbindDevice(deviceID string) error {
 	mu := getCertLock(c.Id)
 	mu.Lock()
 	defer mu.Unlock()
 
 	cert := &ClientCertData{}
-	has, err := GetXdb().ID(c.Id).Get(cert)
+	has, err := GetDB().Engine().ID(c.Id).Get(cert)
 	if err != nil {
 		return fmt.Errorf("查询证书失败: %w", err)
 	}
@@ -229,7 +237,7 @@ func (c *ClientCertData) UnbindDevice(deviceId string) error {
 
 	found := false
 	for i, id := range cert.DeviceId {
-		if id == deviceId {
+		if id == deviceID {
 			cert.DeviceId = append(cert.DeviceId[:i], cert.DeviceId[i+1:]...)
 			found = true
 			break
@@ -239,8 +247,8 @@ func (c *ClientCertData) UnbindDevice(deviceId string) error {
 		return fmt.Errorf("未绑定")
 	}
 
-	if _, err := GetXdb().ID(c.Id).Cols("device_id").Update(cert); err != nil {
-		return fmt.Errorf("解绑设备ID失败: %v", err)
+	if _, err := GetDB().Engine().ID(c.Id).Cols("device_id").Update(cert); err != nil {
+		return fmt.Errorf("解绑设备ID失败: %w", err)
 	}
 
 	c.certMux.Lock()
@@ -251,33 +259,33 @@ func (c *ClientCertData) UnbindDevice(deviceId string) error {
 }
 
 // 检查是否绑定了设备ID
-func (c *ClientCertData) CheckDevice(deviceId string) bool {
+func (c *ClientCertData) CheckDevice(deviceID string) bool {
 	c.certMux.Lock()
 	defer c.certMux.Unlock()
 
 	if !c.DeviceBindingEnabled {
 		return true // 不启用设备绑定
 	}
-	if deviceId == "" {
+	if deviceID == "" {
 		return false
 	}
-	return slices.Contains(c.DeviceId, deviceId)
+	return slices.Contains(c.DeviceId, deviceID)
 }
 
 // 获取客户端证书列表
-func GetClientCertList(pageSize, pageIndex int, username, groupname, status string) ([]ClientCertData, int64, error) {
+func (st *CertStore) GetClientCertList(pageSize, pageIndex int, username, groupname, status string) ([]ClientCertData, int64, error) {
 	var certs []ClientCertData
-	session := GetXdb().NewSession()
+	session := GetDB().Engine().NewSession()
 	defer session.Close()
 
 	session = session.Where("1=1")
 	session.OrderBy("id desc")
 	// 添加搜索条件
 	if username != "" {
-		session.And("username LIKE ? ESCAPE '\\'", "%"+EscapeLike(username)+"%")
+		session.And("username LIKE ? ESCAPE '\\'", "%"+utils.EscapeLike(username)+"%")
 	}
 	if groupname != "" {
-		session.And("groupname LIKE ? ESCAPE '\\'", "%"+EscapeLike(groupname)+"%")
+		session.And("groupname LIKE ? ESCAPE '\\'", "%"+utils.EscapeLike(groupname)+"%")
 	}
 	if status != "" {
 		if statusInt, err := strconv.Atoi(status); err == nil {
@@ -286,42 +294,41 @@ func GetClientCertList(pageSize, pageIndex int, username, groupname, status stri
 	}
 	total, err := FindAndCount(session, &certs, pageSize, pageIndex)
 	if err != nil {
-		return nil, 0, fmt.Errorf("获取客户端证书列表失败: %v", err)
+		return nil, 0, fmt.Errorf("获取客户端证书列表失败: %w", err)
 	}
 	return certs, total, nil
 }
 
 // 统计指定组的有效客户端证书数量（仅统计 status=0 的有效证书）
-func CountCertsByGroupName(groupname string) (int64, error) {
-	return GetXdb().Where("groupname = ? AND status = 0", groupname).Count(&ClientCertData{})
+func (st *CertStore) CountByGroupName(groupname string) (int64, error) {
+	return GetDB().Engine().Where("groupname = ? AND status = 0", groupname).Count(&ClientCertData{})
 }
 
 // 获取客户端证书
-func GetClientCert(username, groupname string) (*ClientCertData, error) {
+func (st *CertStore) GetClientCert(username, groupname string) (*ClientCertData, error) {
 	clientCert := &ClientCertData{}
-	has, err := GetXdb().Where("username = ? AND groupname = ?", username, groupname).Get(clientCert)
+	has, err := GetDB().Engine().Where("username = ? AND groupname = ?", username, groupname).Get(clientCert)
 	if err != nil {
 		return nil, err
 	}
 	if !has {
-		return nil, ErrNotFound
+		return nil, utils.ErrNotFound
 	}
 	return clientCert, err
 }
 
 // 获取用户名下所有组的客户端证书
-func GetClientCertsByUsername(username string) ([]ClientCertData, error) {
+func (st *CertStore) GetClientCertsByUsername(username string) ([]ClientCertData, error) {
 	var certs []ClientCertData
-	err := FindWhere(&certs, 0, 0, "username=?", username)
+	err := GetDB().FindWhere(&certs, 0, 0, "username=?", username)
 	return certs, err
 }
 
 // 生成客户端 CA 证书
-func GenerateClientCA() error {
-	// 生成RSA密钥
+func (st *CertStore) GenerateClientCA() error {
+
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
-	// 生成ECC密钥
-	// priv, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+
 	if err != nil {
 		return err
 	}
@@ -330,9 +337,9 @@ func GenerateClientCA() error {
 		SerialNumber: big.NewInt(1),
 		Subject:      pkix.Name{CommonName: base.GetCfg().Issuer},
 		NotBefore:    time.Now(),
-		NotAfter:     time.Now().Add(time.Hour * 24 * 365 * 10), // 10年有效期
+		NotAfter:     time.Now().Add(time.Hour * 24 * 365 * 10),
 		KeyUsage:     x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
-		// ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 	}
@@ -342,61 +349,48 @@ func GenerateClientCA() error {
 		return err
 	}
 
-	// 编码为 PEM
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
-	// RSA 私钥
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
-	// ECC 私钥
-	// keyBytes, err := x509.MarshalECPrivateKey(priv)
-	// if err != nil {
-	// 	return err
-	// }
-	// keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes})
 
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
 	// 重置 CA 加载状态，后续 LoadClientCA() 会重新解析新证书
 	resetClientCA()
 
-	// 证书 PEM 独立存储
-	if err := SettingSaveClientCA(string(certPEM), string(keyPEM)); err != nil {
+	if err := Settings.SaveClientCA(string(certPEM), string(keyPEM)); err != nil {
 		return fmt.Errorf("保存客户端CA到数据库失败: %w", err)
 	}
 	return nil
 }
 
 // 生成客户端证书并保存到数据库
-func GenerateClientCert(username, groupname string, deviceBindingEnabled bool, maxDevices int, csrData ...string) (*ClientCertData, error) {
+func (st *CertStore) GenerateClientCert(username, groupname string, deviceBindingEnabled bool, maxDevices int, csrData ...string) (*ClientCertData, error) {
 	mu := getCertLockByName(username)
 	mu.Lock()
 	defer mu.Unlock()
 
-	// 检查用户是否存在并验证组成员资格
 	user := &User{}
-	err := One("Username", username, user)
+	err := GetDB().Get("Username", username, user)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
+		if errors.Is(err, utils.ErrNotFound) {
 			return nil, fmt.Errorf("用户不存在: %s", username)
 		}
-		return nil, fmt.Errorf("获取用户信息失败: %v", err)
+		return nil, fmt.Errorf("获取用户信息失败: %w", err)
 	}
 
-	// 检查用户是否属于指定组
 	if !slices.Contains(user.Groups, groupname) {
 		return nil, fmt.Errorf("用户 %s 不属于组 %s", username, groupname)
 	}
-	// 检查是否已存在证书记录
-	_, err = GetClientCert(username, groupname)
+
+	_, err = st.GetClientCert(username, groupname)
 	if err != nil {
-		if !errors.Is(err, ErrNotFound) {
-			return nil, fmt.Errorf("获取用户证书失败: %v", err)
+		if !errors.Is(err, utils.ErrNotFound) {
+			return nil, fmt.Errorf("获取用户证书失败: %w", err)
 		}
 	} else {
-		// 用户已有证书记录，不允许重复生成
 		return nil, fmt.Errorf("用户 %s 已存在证书,所在组：%s，请先删除现有证书", username, groupname)
 	}
 
-	// 确保客户端 CA 已加载
-	if err := LoadClientCA(); err != nil {
-		return nil, fmt.Errorf("无法加载客户端 CA: %v", err)
+	if err := st.LoadClientCA(); err != nil {
+		return nil, fmt.Errorf("无法加载客户端 CA: %w", err)
 	}
 
 	var publicKey crypto.PublicKey
@@ -408,7 +402,6 @@ func GenerateClientCert(username, groupname string, deviceBindingEnabled bool, m
 	isCSRBased := csr != ""
 
 	if isCSRBased {
-		// CSR模式:解析CSR获取公钥
 		block, _ := pem.Decode([]byte(csrData[0]))
 		if block == nil {
 			return nil, fmt.Errorf("无法解析CSR PEM数据")
@@ -417,29 +410,20 @@ func GenerateClientCert(username, groupname string, deviceBindingEnabled bool, m
 		if err != nil {
 			return nil, fmt.Errorf("解析CSR失败: %w", err)
 		}
-		// 验证CSR签名
 		if err := csr.CheckSignature(); err != nil {
 			return nil, fmt.Errorf("CSR签名验证失败: %w", err)
 		}
 		publicKey = csr.PublicKey
-		keyPEM = nil // CSR模式不存储私钥
+		keyPEM = nil
 	} else {
-		// 服务端生成模式:生成客户端私钥
-		// RSA 私钥
 		clientKey, err := rsa.GenerateKey(rand.Reader, 2048)
-		// ECC 私钥
-		// clientKey, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 		if err != nil {
 			return nil, err
 		}
 		publicKey = &clientKey.PublicKey
-		// ECC私钥编码
-		// keyBytes, err := x509.MarshalECPrivateKey(clientKey)
-		// keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes})
 		keyPEM = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(clientKey)})
 	}
 
-	// 创建客户端证书模板
 	template := x509.Certificate{
 		SerialNumber: nextSerialNumber(),
 		Subject: pkix.Name{
@@ -451,7 +435,7 @@ func GenerateClientCert(username, groupname string, deviceBindingEnabled bool, m
 			// Locality:           []string{"Beijing"},
 		},
 		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(time.Hour * 24 * 365), // 1年有效期
+		NotAfter:              time.Now().Add(time.Hour * 24 * 365),
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 		DNSNames:              []string{username},
@@ -466,7 +450,6 @@ func GenerateClientCert(username, groupname string, deviceBindingEnabled bool, m
 	}
 
 	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	// 保存到数据库
 	clientCertData := &ClientCertData{
 		Username:             username,
 		Groupname:            groupname,
@@ -476,27 +459,27 @@ func GenerateClientCert(username, groupname string, deviceBindingEnabled bool, m
 		SerialNumber:         template.SerialNumber.String(),
 		NotAfter:             template.NotAfter,
 		CreatedAt:            time.Now(),
-		Status:               CertStatusActive, // 初始状态为有效
+		Status:               CertStatusActive,
 		DeviceId:             []string{},
 		DeviceBindingEnabled: deviceBindingEnabled,
 		MaxDevices:           maxDevices,
 	}
 
 	if err := clientCertData.Save(); err != nil {
-		return nil, fmt.Errorf("保存客户端证书失败: %v", err)
+		return nil, fmt.Errorf("保存客户端证书失败: %w", err)
 	}
 
 	return clientCertData, nil
 }
 
 // 批量生成客户端证书
-func BatchGenerateClientCert(usernames []string, groupname string, deviceBindingEnabled bool, maxDevices int) (success int, failed []string) {
+func (st *CertStore) BatchGenerateClientCert(usernames []string, groupname string, deviceBindingEnabled bool, maxDevices int) (success int, failed []string) {
 	for _, username := range usernames {
 		username = strings.TrimSpace(username)
 		if username == "" {
 			continue
 		}
-		if _, err := GenerateClientCert(username, groupname, deviceBindingEnabled, maxDevices); err != nil {
+		if _, err := st.GenerateClientCert(username, groupname, deviceBindingEnabled, maxDevices); err != nil {
 			failed = append(failed, fmt.Sprintf("%s: %v", username, err))
 			continue
 		}
@@ -508,22 +491,22 @@ func BatchGenerateClientCert(usernames []string, groupname string, deviceBinding
 // 为指定用户续期客户端证书：保留原设备绑定/最大设备数等参数
 // 删除旧证书后以相同用户名与组重新签发（有效期顺延 1 年）
 // CSR 模式证书因不持有私钥，续期需由调用方重新上传 CSR（csrData 非空）
-func RenewClientCert(username, groupname string, csrData ...string) (*ClientCertData, error) {
-	old, err := GetClientCert(username, groupname)
+func (st *CertStore) RenewClientCert(username, groupname string, csrData ...string) (*ClientCertData, error) {
+	old, err := st.GetClientCert(username, groupname)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
+		if errors.Is(err, utils.ErrNotFound) {
 			return nil, fmt.Errorf("用户 %s 在组 %s 下没有可续期的证书", username, groupname)
 		}
-		return nil, fmt.Errorf("获取旧证书失败: %v", err)
+		return nil, fmt.Errorf("获取旧证书失败: %w", err)
 	}
-	// CSR 模式必须有新 CSR 才能续期
+
 	if old.IsCSRBased && len(csrData) == 0 {
 		return nil, fmt.Errorf("CSR 模式证书续期需重新上传 CSR")
 	}
 	if err := old.Delete(); err != nil {
-		return nil, fmt.Errorf("删除旧证书失败: %v", err)
+		return nil, fmt.Errorf("删除旧证书失败: %w", err)
 	}
-	newCert, err := GenerateClientCert(username, groupname, old.DeviceBindingEnabled, old.MaxDevices, csrData...)
+	newCert, err := st.GenerateClientCert(username, groupname, old.DeviceBindingEnabled, old.MaxDevices, csrData...)
 	if err != nil {
 		return nil, err
 	}
@@ -533,23 +516,20 @@ func RenewClientCert(username, groupname string, csrData ...string) (*ClientCert
 	}
 	newCert.NotAfter = newNotAfter
 	if err := newCert.Save(); err != nil {
-		return nil, fmt.Errorf("更新续期后过期时间失败: %v", err)
+		return nil, fmt.Errorf("更新续期后过期时间失败: %w", err)
 	}
 	return newCert, nil
 }
 
 // 生成 PKCS#12 格式证书文件
-func GenerateClientP12FromDB(username, groupname, password string) ([]byte, error) {
-	// 从数据库获取证书
-	clientCert, err := GetClientCert(username, groupname)
+func (st *CertStore) GenerateClientP12FromDB(username, groupname, password string) ([]byte, error) {
+	clientCert, err := st.GetClientCert(username, groupname)
 	if err != nil {
 		return nil, err
 	}
-	// 检查并更新证书状态
 	if err := clientCert.CheckAndUpdateStatus(); err != nil {
 		base.Error("检查并更新证书状态失败:", err)
 	}
-	// 检查证书状态
 	if clientCert.GetStatus() != CertStatusActive {
 		return nil, fmt.Errorf("用户 %s 的证书状态为：%s", username, clientCert.GetStatusText())
 	}
@@ -557,12 +537,10 @@ func GenerateClientP12FromDB(username, groupname, password string) ([]byte, erro
 		return []byte(clientCert.Certificate), nil
 	}
 
-	// 确保客户端 CA 已加载
-	if err := LoadClientCA(); err != nil {
-		return nil, fmt.Errorf("无法加载客户端 CA: %v", err)
+	if err := st.LoadClientCA(); err != nil {
+		return nil, fmt.Errorf("无法加载客户端 CA: %w", err)
 	}
 
-	// 解析证书和私钥
 	certBlock, _ := pem.Decode([]byte(clientCert.Certificate))
 	if certBlock == nil {
 		return nil, fmt.Errorf("无法解析客户端证书 PEM 数据")
@@ -578,12 +556,9 @@ func GenerateClientP12FromDB(username, groupname, password string) ([]byte, erro
 	}
 	// RSA私钥
 	key, err := x509.ParsePKCS1PrivateKey(keyBlock.Bytes)
-	// ECC私钥
-	// key, err := x509.ParseECPrivateKey(keyBlock.Bytes)
 	if err != nil {
 		return nil, err
 	}
-
 	// 打包为 .p12 格式
 	p12Data, err := pkcs12.LegacyDES.Encode(key, cert, []*x509.Certificate{clientCACert}, password)
 	if err != nil {
@@ -594,14 +569,13 @@ func GenerateClientP12FromDB(username, groupname, password string) ([]byte, erro
 }
 
 // 验证客户端证书
-func ValidateClientCert(cert *x509.Certificate, deviceid string) bool {
-	// 获取用户和证书信息
+func (st *CertStore) ValidateClientCert(cert *x509.Certificate, deviceid string) bool {
 	user := &User{
 		Username: cert.Subject.CommonName,
 	}
-	err := One("Username", user.Username, user)
+	err := GetDB().Get("Username", user.Username, user)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
+		if errors.Is(err, utils.ErrNotFound) {
 			base.Error("证书验证失败：用户不存在", cert.Subject.CommonName)
 		} else {
 			base.Error("证书验证失败：查询用户失败:", err)
@@ -609,21 +583,18 @@ func ValidateClientCert(cert *x509.Certificate, deviceid string) bool {
 		return false
 	}
 
-	// 检查用户状态是否启用
 	if user.Status != 1 {
 		base.Error("证书验证失败：用户已禁用:", user.Username)
 		return false
 	}
 
-	// 检查证书是否包含组织单位信息
 	if len(cert.Subject.OrganizationalUnit) == 0 {
 		base.Error("证书验证失败：证书缺少组织单位(OU)信息")
 		return false
 	}
 	ou := cert.Subject.OrganizationalUnit[0]
 
-	// 获取客户端证书记录
-	clientCertData, err := GetClientCert(user.Username, ou)
+	clientCertData, err := st.GetClientCert(user.Username, ou)
 	if err != nil {
 		base.Error("证书验证失败：获取客户端证书失败:", err)
 		return false
@@ -633,7 +604,6 @@ func ValidateClientCert(cert *x509.Certificate, deviceid string) bool {
 		base.Error("证书验证失败：证书组名与用户组名不匹配")
 		return false
 	}
-	// 检查证书是否过期
 	if time.Now().After(cert.NotAfter) {
 		base.Error("证书验证失败：证书已过期:", cert.NotAfter)
 		return false
@@ -641,7 +611,7 @@ func ValidateClientCert(cert *x509.Certificate, deviceid string) bool {
 
 	// 验证证书链
 	verifyOptions := x509.VerifyOptions{
-		Roots:     LoadClientCAPool(),
+		Roots:     st.LoadClientCAPool(),
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
 	if _, err := cert.Verify(verifyOptions); err != nil {
@@ -691,8 +661,8 @@ func ValidateClientCert(cert *x509.Certificate, deviceid string) bool {
 }
 
 // 加载客户端 CA 证书池
-func LoadClientCAPool() *x509.CertPool {
-	if err := LoadClientCA(); err != nil {
+func (st *CertStore) LoadClientCAPool() *x509.CertPool {
+	if err := st.LoadClientCA(); err != nil {
 		return nil
 	}
 	caCertPool := x509.NewCertPool()
@@ -701,7 +671,7 @@ func LoadClientCAPool() *x509.CertPool {
 }
 
 // 加载客户端 CA 证书和私钥
-func LoadClientCA() error {
+func (st *CertStore) LoadClientCA() error {
 	caMu.Lock()
 	defer caMu.Unlock()
 	if caLoaded {
@@ -725,9 +695,9 @@ func resetClientCA() {
 
 func loadClientCAInternal() error {
 	ca := SettingClientCA{}
-	err := SettingGet(&ca)
+	err := Settings.Get(&ca)
 	if err != nil {
-		if CheckErrNotFound(err) {
+		if utils.CheckErrNotFound(err) {
 			base.Warn("无法读取客户端 CA 证书（可能尚未初始化）:", err)
 			return fmt.Errorf("无法读取客户端 CA 证书,请初始化CA")
 		}

@@ -13,6 +13,15 @@ import (
 	"github.com/xlzd/gotp"
 )
 
+type mockOTPSender struct{ called *bool }
+
+func (m mockOTPSender) SendOTP(info *auth.UserInfo) error {
+	if m.called != nil {
+		*m.called = true
+	}
+	return nil
+}
+
 func TestCheckOtp_ValidCode(t *testing.T) {
 	ast := assert.New(t)
 
@@ -117,7 +126,7 @@ func TestOTPAuth_Disabled(t *testing.T) {
 		Status:     1,
 		DisableOtp: true,
 	}
-	_ = dbdata.SetUser(u)
+	_ = dbdata.Users.SetUser(u)
 
 	oa := &OTPAuth{}
 	ctx := &auth.Context{
@@ -142,7 +151,7 @@ func TestOTPAuth_NoCode_StepPending(t *testing.T) {
 		Status:     1,
 		DisableOtp: false,
 	}
-	_ = dbdata.SetUser(u)
+	_ = dbdata.Users.SetUser(u)
 
 	oa := &OTPAuth{}
 	ctx := &auth.Context{
@@ -168,7 +177,7 @@ func TestOTPAuth_InvalidCode_Retry(t *testing.T) {
 		Status:     1,
 		DisableOtp: false,
 	}
-	_ = dbdata.SetUser(u)
+	_ = dbdata.Users.SetUser(u)
 
 	oa := &OTPAuth{}
 	ctx := &auth.Context{
@@ -200,7 +209,7 @@ func TestOTPAuth_LoadFromDB(t *testing.T) {
 		Status:     1,
 		DisableOtp: false,
 	}
-	_ = dbdata.SetUser(u)
+	_ = dbdata.Users.SetUser(u)
 
 	oa := &OTPAuth{}
 	ctx := &auth.Context{
@@ -273,17 +282,12 @@ func TestSendOtpToUser_PhoneCallsFunc(t *testing.T) {
 	base.UpdateCfg(func(c *base.ServerConfig) { c.SendOtpType = "phone" })
 	defer base.UpdateCfg(func(c *base.ServerConfig) { c.SendOtpType = oldType })
 
-	oldFunc := SendOtpFunc
 	var called bool
-	SendOtpFunc = func(info *auth.UserInfo) error {
-		called = true
-		ast.Equal("u", info.Username)
-		return nil
-	}
-	defer func() { SendOtpFunc = oldFunc }()
+	SetOTPSender(mockOTPSender{&called})
+	defer func() { otpSender = defaultOTPSender{} }()
 
 	sendOtpToUser(&auth.UserInfo{Username: "u"})
-	ast.True(called, "phone 类型应调用 SendOtpFunc 发送验证码（修复前 default 分支直接 return）")
+	ast.True(called, "phone 类型应调用 OTPSender 发送验证码")
 }
 
 func TestSendOtpToUser_MailCallsFunc(t *testing.T) {
@@ -294,16 +298,12 @@ func TestSendOtpToUser_MailCallsFunc(t *testing.T) {
 	base.UpdateCfg(func(c *base.ServerConfig) { c.SendOtpType = "mail" })
 	defer base.UpdateCfg(func(c *base.ServerConfig) { c.SendOtpType = oldType })
 
-	oldFunc := SendOtpFunc
 	var called bool
-	SendOtpFunc = func(info *auth.UserInfo) error {
-		called = true
-		return nil
-	}
-	defer func() { SendOtpFunc = oldFunc }()
+	SetOTPSender(mockOTPSender{&called})
+	defer func() { otpSender = defaultOTPSender{} }()
 
 	sendOtpToUser(&auth.UserInfo{Username: "u"})
-	ast.True(called, "mail 类型应调用 SendOtpFunc")
+	ast.True(called, "mail 类型应调用 OTPSender")
 }
 
 func TestSendOtpToUser_NilFuncNoPanic(t *testing.T) {
@@ -314,9 +314,8 @@ func TestSendOtpToUser_NilFuncNoPanic(t *testing.T) {
 	base.UpdateCfg(func(c *base.ServerConfig) { c.SendOtpType = "mail" })
 	defer base.UpdateCfg(func(c *base.ServerConfig) { c.SendOtpType = oldType })
 
-	oldFunc := SendOtpFunc
-	SendOtpFunc = nil
-	defer func() { SendOtpFunc = oldFunc }()
+	otpSender = nil
+	defer func() { otpSender = defaultOTPSender{} }()
 
-	ast.NotPanics(func() { sendOtpToUser(&auth.UserInfo{Username: "u"}) }, "SendOtpFunc 未注入时不应 panic")
+	ast.NotPanics(func() { sendOtpToUser(&auth.UserInfo{Username: "u"}) }, "OTPSender 未注入时不应 panic")
 }

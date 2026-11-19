@@ -18,7 +18,7 @@ import (
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
-	"github.com/wsczx/remlink/pkg/dbtest"
+	"github.com/wsczx/remlink/dbtest"
 )
 
 func createWebAuthSession(_ *testing.T, groupName string) string {
@@ -32,7 +32,7 @@ func createWebAuthSession(_ *testing.T, groupName string) string {
 			GroupName: groupName,
 		},
 	}
-	AuthSessionManager.Save(state, pending)
+	testAuthSession.Save(state, pending)
 	return state
 }
 
@@ -46,7 +46,7 @@ func TestWebAuthSPLogin_Valid(t *testing.T) {
 	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/sp/login?state="+state, nil)
 	w := httptest.NewRecorder()
 
-	WebAuthSPLogin(w, req)
+	testWebAuth.SPLogin(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusFound, w.Code)
@@ -61,7 +61,7 @@ func TestWebAuthSPLogin_InvalidState(t *testing.T) {
 	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/sp/login?state=nonexistent", nil)
 	w := httptest.NewRecorder()
 
-	WebAuthSPLogin(w, req)
+	testWebAuth.SPLogin(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusBadRequest, w.Code)
@@ -73,7 +73,7 @@ func TestWebAuthSPLogin_EmptyState(t *testing.T) {
 	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/sp/login", nil)
 	w := httptest.NewRecorder()
 
-	WebAuthSPLogin(w, req)
+	testWebAuth.SPLogin(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusBadRequest, w.Code)
@@ -89,7 +89,7 @@ func TestWebAuthStart_Success(t *testing.T) {
 		ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}},
 		Status:    1,
 	}
-	err := dbdata.SetPolicy(pt)
+	err := dbdata.Policies.SetPolicy(pt)
 	assert.New(t).Nil(err)
 
 	g := &dbdata.Group{
@@ -98,7 +98,7 @@ func TestWebAuthStart_Success(t *testing.T) {
 		PolicyId:    pt.Id,
 		AuthProfile: json.RawMessage(`{"step":[{"type":"local"}]}`),
 	}
-	err = dbdata.SetGroup(g)
+	err = dbdata.Groups.SetGroup(g)
 	assert.New(t).Nil(err)
 
 	state := createWebAuthSession(t, "webauth-group")
@@ -106,7 +106,7 @@ func TestWebAuthStart_Success(t *testing.T) {
 	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/start?state="+state, nil)
 	w := httptest.NewRecorder()
 
-	WebAuthStart(w, req)
+	testWebAuth.Start(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusOK, w.Code)
@@ -124,7 +124,7 @@ func TestWebAuthStart_EmptyState(t *testing.T) {
 	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/start", nil)
 	w := httptest.NewRecorder()
 
-	WebAuthStart(w, req)
+	testWebAuth.Start(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusOK, w.Code)
@@ -141,7 +141,7 @@ func TestWebAuthStart_InvalidState(t *testing.T) {
 	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/start?state=expired-session", nil)
 	w := httptest.NewRecorder()
 
-	WebAuthStart(w, req)
+	testWebAuth.Start(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusOK, w.Code)
@@ -158,7 +158,7 @@ func TestWebAuthStart_Disabled(t *testing.T) {
 	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/start?state=any", nil)
 	w := httptest.NewRecorder()
 
-	WebAuthStart(w, req)
+	testWebAuth.Start(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusNotFound, w.Code)
@@ -175,7 +175,7 @@ func TestWebAuthSelectGroup_Success(t *testing.T) {
 		ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}},
 		Status:    1,
 	}
-	err := dbdata.SetPolicy(pt)
+	err := dbdata.Policies.SetPolicy(pt)
 	ast.Nil(err)
 
 	g := &dbdata.Group{
@@ -184,7 +184,7 @@ func TestWebAuthSelectGroup_Success(t *testing.T) {
 		PolicyId:    pt.Id,
 		AuthProfile: json.RawMessage(`{"step":[{"type":"local"}]}`),
 	}
-	err = dbdata.SetGroup(g)
+	err = dbdata.Groups.SetGroup(g)
 	ast.Nil(err)
 
 	state := createWebAuthSession(t, "select-group")
@@ -194,7 +194,7 @@ func TestWebAuthSelectGroup_Success(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	WebAuthSelectGroup(w, req)
+	testWebAuth.SelectGroup(w, req)
 
 	ast.Equal(http.StatusOK, w.Code)
 
@@ -212,7 +212,7 @@ func TestWebAuthSelectGroup_InvalidState(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	WebAuthSelectGroup(w, req)
+	testWebAuth.SelectGroup(w, req)
 
 	ast := assert.New(t)
 	var resp map[string]any
@@ -228,7 +228,7 @@ func TestWebAuthSelectGroup_EmptyState(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	WebAuthSelectGroup(w, req)
+	testWebAuth.SelectGroup(w, req)
 
 	ast := assert.New(t)
 	var resp map[string]any
@@ -247,7 +247,7 @@ func TestWebAuthSelectGroup_GroupNotFound(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	WebAuthSelectGroup(w, req)
+	testWebAuth.SelectGroup(w, req)
 
 	ast := assert.New(t)
 	var resp map[string]any
@@ -263,7 +263,7 @@ func TestWebAuthSelectGroup_EmptyBody(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	WebAuthSelectGroup(w, req)
+	testWebAuth.SelectGroup(w, req)
 
 	ast := assert.New(t)
 	var resp map[string]any
@@ -279,7 +279,7 @@ func TestWebAuthStep_InvalidState(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	WebAuthStep(w, req)
+	testWebAuth.Step(w, req)
 
 	ast := assert.New(t)
 	var resp map[string]any
@@ -295,7 +295,7 @@ func TestWebAuthStep_EmptyState(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	WebAuthStep(w, req)
+	testWebAuth.Step(w, req)
 
 	ast := assert.New(t)
 	var resp map[string]any
@@ -309,7 +309,7 @@ func TestWebAuthComplete_InvalidState(t *testing.T) {
 	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/complete?state=expired", nil)
 	w := httptest.NewRecorder()
 
-	WebAuthComplete(w, req)
+	testWebAuth.Complete(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusBadRequest, w.Code)
@@ -321,7 +321,7 @@ func TestWebAuthComplete_EmptyState(t *testing.T) {
 	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/complete", nil)
 	w := httptest.NewRecorder()
 
-	WebAuthComplete(w, req)
+	testWebAuth.Complete(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusBadRequest, w.Code)
@@ -333,15 +333,15 @@ func TestWebAuthComplete_Success(t *testing.T) {
 
 	state := createWebAuthSession(t, "default")
 
-	sess, err := AuthSessionManager.Get(state)
+	sess, err := testAuthSession.Get(state)
 	assert.New(t).Nil(err)
 	sess.Ctx.GetSSO().WebAuthCompleted = true
-	AuthSessionManager.Save(state, sess)
+	testAuthSession.Save(state, sess)
 
 	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/complete?state="+state, nil)
 	w := httptest.NewRecorder()
 
-	WebAuthComplete(w, req)
+	testWebAuth.Complete(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusFound, w.Code)
@@ -396,7 +396,7 @@ func createWebAuthSessionWithCert(t *testing.T, groupName, certCN, certOU string
 		},
 		UserActLog: &dbdata.UserActLog{GroupName: groupName},
 	}
-	AuthSessionManager.Save(state, pending)
+	testAuthSession.Save(state, pending)
 	return state
 }
 
@@ -405,26 +405,26 @@ func createWebAuthSessionWithCert(t *testing.T, groupName, certCN, certOU string
 func TestWebAuthStart_CertGuardDisabled(t *testing.T) {
 	base.Test()
 	dbtest.SetupDB(t)
-	defer dbdata.InvalidateCertAuthCache()
+	defer dbdata.Groups.InvalidateCertAuthCache()
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.EnableWebAuth = true
 		c.EnableWebAuthGroupFilter = false
 	})
 
 	pt := &dbdata.Policy{Name: "plcy-guard", ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}}, Status: 1}
-	assert.New(t).Nil(dbdata.SetPolicy(pt))
-	assert.New(t).Nil(dbdata.SetGroup(&dbdata.Group{
+	assert.New(t).Nil(dbdata.Policies.SetPolicy(pt))
+	assert.New(t).Nil(dbdata.Groups.SetGroup(&dbdata.Group{
 		Name: "guard-group", Status: 1, PolicyId: pt.Id,
 		AuthProfile: json.RawMessage(`{"step":[{"type":"local"}]}`),
 	}))
-	dbdata.InvalidateCertAuthCache()
-	assert.False(t, dbdata.AnyGroupHasCertAuth(), "无 cert 组应返回 false")
+	dbdata.Groups.InvalidateCertAuthCache()
+	assert.False(t, dbdata.Groups.AnyGroupHasCertAuth(), "无 cert 组应返回 false")
 
 	state := createWebAuthSessionWithCert(t, "guard-group", "test", "guard-group")
 
 	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/start?state="+state, nil)
 	w := httptest.NewRecorder()
-	WebAuthStart(w, req)
+	testWebAuth.Start(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusOK, w.Code)
@@ -440,7 +440,7 @@ func TestWebAuthStart_CertGuardDisabled(t *testing.T) {
 func TestWebAuthStart_CertAutoAuthFallback(t *testing.T) {
 	base.Test()
 	dbtest.SetupDB(t)
-	defer dbdata.InvalidateCertAuthCache()
+	defer dbdata.Groups.InvalidateCertAuthCache()
 	base.UpdateCfg(func(c *base.ServerConfig) {
 		c.EnableWebAuth = true
 		c.EnableWebAuthGroupFilter = false
@@ -449,20 +449,20 @@ func TestWebAuthStart_CertAutoAuthFallback(t *testing.T) {
 	// 建一个纯 cert 首步组（触发 AnyGroupHasCertAuth()==true 且 CertAutoAuth 返回 true），
 	// 但测试用的自签名证书未登记到签发记录 → 证书认证失败 → 验证回退与清空逻辑
 	pt := &dbdata.Policy{Name: "plcy-cfall", ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}}, Status: 1}
-	assert.New(t).Nil(dbdata.SetPolicy(pt))
-	assert.New(t).Nil(dbdata.SetGroup(&dbdata.Group{
+	assert.New(t).Nil(dbdata.Policies.SetPolicy(pt))
+	assert.New(t).Nil(dbdata.Groups.SetGroup(&dbdata.Group{
 		Name: "cert-fallback", Status: 1, PolicyId: pt.Id,
 		// 纯 cert 首步组：CertAutoAuth 返回 true，但自签名证书未登记 → auto-login 失败回退
 		AuthProfile: json.RawMessage(`{"step":[{"type":"cert"}]}`),
 	}))
-	dbdata.InvalidateCertAuthCache()
-	assert.True(t, dbdata.AnyGroupHasCertAuth(), "含 cert 组应返回 true")
+	dbdata.Groups.InvalidateCertAuthCache()
+	assert.True(t, dbdata.Groups.AnyGroupHasCertAuth(), "含 cert 组应返回 true")
 
 	state := createWebAuthSessionWithCert(t, "cert-fallback", "test", "cert-fallback")
 
 	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/start?state="+state, nil)
 	w := httptest.NewRecorder()
-	WebAuthStart(w, req)
+	testWebAuth.Start(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusOK, w.Code)
@@ -483,14 +483,14 @@ func TestWebAuthSelectGroup_GroupFilterPrefill(t *testing.T) {
 	})
 
 	pt := &dbdata.Policy{Name: "plcy-prefill", ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}}, Status: 1}
-	assert.New(t).Nil(dbdata.SetPolicy(pt))
-	assert.New(t).Nil(dbdata.SetGroup(&dbdata.Group{
+	assert.New(t).Nil(dbdata.Policies.SetPolicy(pt))
+	assert.New(t).Nil(dbdata.Groups.SetGroup(&dbdata.Group{
 		Name: "prefill-group", Status: 1, PolicyId: pt.Id,
 		AuthProfile: json.RawMessage(`{"step":[{"type":"local"}]}`),
 	}))
 
 	state := GenerateSessionID()
-	AuthSessionManager.Save(state, &AuthSession{
+	testAuthSession.Save(state, &AuthSession{
 		Ctx:        &auth.Context{Conn: auth.ConnInfo{GroupName: "prefill-group", Username: "alice"}},
 		UserActLog: &dbdata.UserActLog{GroupName: "prefill-group", Username: "alice"},
 	})
@@ -499,7 +499,7 @@ func TestWebAuthSelectGroup_GroupFilterPrefill(t *testing.T) {
 	req := httptest.NewRequest("POST", "/+CSCOE+/web-auth/select-group?state="+state, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	WebAuthSelectGroup(w, req)
+	testWebAuth.SelectGroup(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusOK, w.Code)
@@ -519,15 +519,15 @@ func TestWebAuthSelectGroup_NoPrefillWhenFilterOff(t *testing.T) {
 	})
 
 	pt := &dbdata.Policy{Name: "plcy-noprefill", ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}}, Status: 1}
-	assert.New(t).Nil(dbdata.SetPolicy(pt))
-	assert.New(t).Nil(dbdata.SetGroup(&dbdata.Group{
+	assert.New(t).Nil(dbdata.Policies.SetPolicy(pt))
+	assert.New(t).Nil(dbdata.Groups.SetGroup(&dbdata.Group{
 		Name: "noprefill-group", Status: 1, PolicyId: pt.Id,
 		AuthProfile: json.RawMessage(`{"step":[{"type":"local"}]}`),
 	}))
 
 	// 会话残留用户名（模拟证书 CN 污染：test）
 	state := GenerateSessionID()
-	AuthSessionManager.Save(state, &AuthSession{
+	testAuthSession.Save(state, &AuthSession{
 		Ctx:        &auth.Context{Conn: auth.ConnInfo{GroupName: "noprefill-group", Username: "test"}},
 		UserActLog: &dbdata.UserActLog{GroupName: "noprefill-group", Username: "test"},
 	})
@@ -536,7 +536,7 @@ func TestWebAuthSelectGroup_NoPrefillWhenFilterOff(t *testing.T) {
 	req := httptest.NewRequest("POST", "/+CSCOE+/web-auth/select-group?state="+state, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	WebAuthSelectGroup(w, req)
+	testWebAuth.SelectGroup(w, req)
 
 	ast := assert.New(t)
 	ast.Equal(http.StatusOK, w.Code)
@@ -557,7 +557,7 @@ func TestWebAuthOnPass_NilCtxRejected(t *testing.T) {
 	req := httptest.NewRequest("POST", "/+CSCOE+/web-auth/step", nil)
 	w := httptest.NewRecorder()
 
-	webAuthOnPass(w, req, "nil-ctx-state", pending, result)
+	testWebAuth.OnPass(w, req, "nil-ctx-state", pending, result)
 
 	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
@@ -576,11 +576,11 @@ func TestWebAuthContinue_NilCtxRejected(t *testing.T) {
 	ast := assert.New(t)
 
 	state := GenerateSessionID()
-	AuthSessionManager.Save(state, &AuthSession{}) // Ctx 为 nil
+	testAuthSession.Save(state, &AuthSession{}) // Ctx 为 nil
 
 	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/continue?state="+state, nil)
 	w := httptest.NewRecorder()
-	WebAuthContinue(w, req)
+	testWebAuth.Continue(w, req)
 
 	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
@@ -588,7 +588,7 @@ func TestWebAuthContinue_NilCtxRejected(t *testing.T) {
 	ast.Contains(resp["message"], "已过期")
 
 	// 残留会话应被清理，不可再被驱动
-	_, err := AuthSessionManager.Get(state)
+	_, err := testAuthSession.Get(state)
 	ast.Error(err, "被拒的 nil Ctx 会话应被删除")
 }
 
@@ -600,16 +600,16 @@ func TestWebAuthSSOCallbackRejectsCrossGroup(t *testing.T) {
 	ast := assert.New(t)
 
 	// 注册测试用 SSO 源；按组名返回回调，便于断言访问控制用的是哪一组配置
-	ssoCallbacks["testxgroup"] = func(groupName string) (ssoCallback, error) {
+	testSSO.callbacks["testxgroup"] = func(groupName string) (ssoCallback, error) {
 		return &stubSSOCallbackX{group: groupName}, nil
 	}
-	defer delete(ssoCallbacks, "testxgroup")
+	defer delete(testSSO.callbacks, "testxgroup")
 
 	const remote = "10.9.9.9:5555"
 
 	// A 组的 sso_state：授权结果将按 A 组配置做部门/拒绝名单校验
 	ssoState := "sso-state-group-a"
-	AuthSessionManager.Save(ssoState, &AuthSession{
+	testAuthSession.Save(ssoState, &AuthSession{
 		Kind: AuthKindSSOPending,
 		Ctx: &auth.Context{
 			Conn: auth.ConnInfo{GroupName: "group-a", RemoteAddr: remote},
@@ -619,7 +619,7 @@ func TestWebAuthSSOCallbackRejectsCrossGroup(t *testing.T) {
 
 	// B 组的 WebAuth 管道会话（攻击目标）
 	webState := "web-state-group-b"
-	AuthSessionManager.Save(webState, &AuthSession{
+	testAuthSession.Save(webState, &AuthSession{
 		Kind: AuthKindPipeline,
 		Ctx: &auth.Context{
 			WebAuth: true,
@@ -631,23 +631,23 @@ func TestWebAuthSSOCallbackRejectsCrossGroup(t *testing.T) {
 		"/web-auth/sso-callback?web_state="+webState+"&sso_state="+ssoState+"&code=fake", nil)
 	req.RemoteAddr = remote
 	w := httptest.NewRecorder()
-	WebAuthSSOCallback(w, req)
+	testWebAuth.SSOCallback(w, req)
 
 	// 必须拒绝，且不得把 B 组会话标记为已认证
 	ast.Equal(http.StatusBadRequest, w.Code, "跨组回调必须被拒绝")
 
-	webPending, err := AuthSessionManager.Get(webState)
+	webPending, err := testAuthSession.Get(webState)
 	ast.NoError(err)
 	ast.False(webPending.Ctx.SSO != nil && webPending.Ctx.SSO.Authenticated,
 		"跨组回调不得把目标会话标记为已认证")
 
 	// sso_state 应被消费，防重放
-	_, err = AuthSessionManager.Get(ssoState)
+	_, err = testAuthSession.Get(ssoState)
 	ast.Error(err, "sso_state 应在拒绝后被清理")
 }
 
 // sso_state 必须是 SSO 待回调会话，其它来源（如 OTP 等待的管道会话）不得复用
-func TestWebAuthSSOCallbackRejectsNonSsoState(t *testing.T) {
+func TestWebAuthSSOCallbackRejectsNonSSOState(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
 	dbtest.SetupDB(t)
@@ -657,14 +657,14 @@ func TestWebAuthSSOCallbackRejectsNonSsoState(t *testing.T) {
 
 	// 把「等待 OTP」的管道会话 id 当作 sso_state 重放
 	pipelineState := "pipeline-otp-pending"
-	AuthSessionManager.Save(pipelineState, &AuthSession{
+	testAuthSession.Save(pipelineState, &AuthSession{
 		Kind: AuthKindPipeline,
 		Ctx: &auth.Context{
 			Conn: auth.ConnInfo{GroupName: "group-a", RemoteAddr: remote},
 		},
 	})
 	webState := "web-state-for-nonsso"
-	AuthSessionManager.Save(webState, &AuthSession{
+	testAuthSession.Save(webState, &AuthSession{
 		Kind: AuthKindPipeline,
 		Ctx:  &auth.Context{Conn: auth.ConnInfo{GroupName: "group-a", RemoteAddr: remote}},
 	})
@@ -673,12 +673,12 @@ func TestWebAuthSSOCallbackRejectsNonSsoState(t *testing.T) {
 		"/web-auth/sso-callback?web_state="+webState+"&sso_state="+pipelineState+"&code=fake", nil)
 	req.RemoteAddr = remote
 	w := httptest.NewRecorder()
-	WebAuthSSOCallback(w, req)
+	testWebAuth.SSOCallback(w, req)
 
 	ast.Equal(http.StatusBadRequest, w.Code, "非 SSO 来源的 sso_state 必须被拒绝")
 
 	// 被冒用的管道会话不得被消费/删除
-	_, err := AuthSessionManager.Get(pipelineState)
+	_, err := testAuthSession.Get(pipelineState)
 	ast.NoError(err, "被冒用的管道会话不应被消费")
 }
 

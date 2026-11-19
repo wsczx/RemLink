@@ -1,7 +1,7 @@
 package dbdata
 
 // 返回「账号(昵称)」格式。nickname 为空时仅返回 username
-func UserLabel(username, nickname string) string {
+func (st *UserStore) Label(username, nickname string) string {
 	if username == "" {
 		return ""
 	}
@@ -12,7 +12,7 @@ func UserLabel(username, nickname string) string {
 }
 
 // 按用户名批量查询昵称，返回 username -> nickname 的映射
-func NicknameMap(usernames []string) map[string]string {
+func (st *UserStore) NicknameMap(usernames []string) map[string]string {
 	m := make(map[string]string)
 	if len(usernames) == 0 {
 		return m
@@ -33,7 +33,7 @@ func NicknameMap(usernames []string) map[string]string {
 		return m
 	}
 	var users []User
-	if err := GetXdb().In("username", uniq).Cols("username", "nickname").Find(&users); err != nil {
+	if err := GetDB().Engine().In("username", uniq).Cols("username", "nickname").Find(&users); err != nil {
 		return m
 	}
 	for _, u := range users {
@@ -42,12 +42,4 @@ func NicknameMap(usernames []string) map[string]string {
 		}
 	}
 	return m
-}
-
-// 从 nickMap 取昵称，缺失时回退为空串（调用方据空串决定仅显示 username）
-func NicknameOf(nickMap map[string]string, username string) string {
-	if nickMap == nil {
-		return ""
-	}
-	return nickMap[username]
 }

@@ -13,7 +13,7 @@ import (
 
 func setupCookieTest(t *testing.T) {
 	t.Helper()
-	setupWebVpnDB(t)
+	setupDB(t)
 }
 
 func findCookie(t *testing.T, w *httptest.ResponseRecorder, name string) *http.Cookie {
@@ -28,7 +28,7 @@ func findCookie(t *testing.T, w *httptest.ResponseRecorder, name string) *http.C
 
 func TestIssueSessionCookieDomain(t *testing.T) {
 	setupCookieTest(t)
-	m := GetManager()
+	m := testManager
 	require.NotNil(t, m)
 
 	r := httptest.NewRequest(http.MethodGet, "https://app.wv.example.com/", nil)
@@ -50,7 +50,7 @@ func TestIssueSessionCookieDomain(t *testing.T) {
 
 func TestIssueSessionCookieDefaultsToLax(t *testing.T) {
 	setupCookieTest(t)
-	m := GetManager()
+	m := testManager
 	r := httptest.NewRequest(http.MethodGet, "https://app.wv.example.com/", nil)
 	w := httptest.NewRecorder()
 
@@ -63,7 +63,7 @@ func TestIssueSessionCookieDefaultsToLax(t *testing.T) {
 
 func TestIssueGrantCookieDomain(t *testing.T) {
 	setupCookieTest(t)
-	m := GetManager()
+	m := testManager
 	require.NotNil(t, m)
 
 	r := httptest.NewRequest(http.MethodGet, "https://portal.example.com/", nil)
@@ -83,7 +83,7 @@ func TestIssueGrantCookieDomain(t *testing.T) {
 
 func TestClearGrantCookieDomain(t *testing.T) {
 	setupCookieTest(t)
-	m := GetManager()
+	m := testManager
 	require.NotNil(t, m)
 
 	r := httptest.NewRequest(http.MethodGet, "https://app.wv.example.com/", nil)
@@ -98,7 +98,7 @@ func TestClearGrantCookieDomain(t *testing.T) {
 
 func TestClearSessionCookieDomain(t *testing.T) {
 	setupCookieTest(t)
-	m := GetManager()
+	m := testManager
 	require.NotNil(t, m)
 
 	r := httptest.NewRequest(http.MethodGet, "https://app.wv.example.com/", nil)
@@ -115,7 +115,7 @@ func TestClearSessionCookieDomain(t *testing.T) {
 
 func TestClearSessionCookieOnIP(t *testing.T) {
 	setupCookieTest(t)
-	m := GetManager()
+	m := testManager
 	require.NotNil(t, m)
 
 	r := httptest.NewRequest(http.MethodGet, "https://192.168.1.10/", nil)

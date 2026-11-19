@@ -14,8 +14,9 @@ import (
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
-	"github.com/wsczx/remlink/pkg/dbtest"
+	"github.com/wsczx/remlink/dbtest"
 	"github.com/wsczx/remlink/pkg/security"
+	"github.com/wsczx/remlink/sessdata"
 	"github.com/xlzd/gotp"
 )
 
@@ -34,19 +35,20 @@ func TestSessionStore(t *testing.T) {
 		},
 	}
 
-	AuthSessionManager.Save(sessionID, authSession)
+	authSessions := NewAuthSessionManager()
+	authSessions.Save(sessionID, authSession)
 
-	retrievedSession, err := AuthSessionManager.Get(sessionID)
+	retrievedSession, err := authSessions.Get(sessionID)
 	ast.Nil(err)
 	ast.NotNil(retrievedSession)
 	ast.Equal("test-user", retrievedSession.Ctx.Conn.Username)
 
-	_, err = AuthSessionManager.Get("nonexistent-session")
+	_, err = authSessions.Get("nonexistent-session")
 	ast.NotNil(err)
 	ast.Contains(err.Error(), "会话未找到")
 
-	AuthSessionManager.Delete(sessionID)
-	_, err = AuthSessionManager.Get(sessionID)
+	authSessions.Delete(sessionID)
+	_, err = authSessions.Get(sessionID)
 	ast.NotNil(err)
 }
 
@@ -93,7 +95,7 @@ func TestCookieOperations(t *testing.T) {
 	ast.Equal(-1, deleteCookies[0].MaxAge)
 }
 
-func TestLinkAuthOtp(t *testing.T) {
+func TestLinkAuthOTP(t *testing.T) {
 	base.Test()
 	ast := assert.New(t)
 
@@ -103,7 +105,7 @@ func TestLinkAuthOtp(t *testing.T) {
 
 	dns := []dbdata.ValData{{Val: "8.8.8.8"}}
 	pt := dbdata.Policy{Name: "otp-test-policy", Status: 1, ClientDns: dns}
-	err := dbdata.SetPolicy(&pt)
+	err := dbdata.Policies.SetPolicy(&pt)
 	ast.Nil(err)
 	group := "otp-test-group"
 	profile := auth.GroupAuthProfile{
@@ -114,7 +116,7 @@ func TestLinkAuthOtp(t *testing.T) {
 	}
 	profileBytes, _ := json.Marshal(profile)
 	g := dbdata.Group{Name: group, Status: 1, PolicyId: pt.Id, AuthProfile: profileBytes}
-	err = dbdata.SetGroup(&g)
+	err = dbdata.Groups.SetGroup(&g)
 	ast.Nil(err)
 
 	username := "otp-test-user"
@@ -125,7 +127,7 @@ func TestLinkAuthOtp(t *testing.T) {
 		Status:    1,
 		OtpSecret: otpSecret,
 	}
-	err = dbdata.SetUser(&u)
+	err = dbdata.Users.SetUser(&u)
 	ast.Nil(err)
 
 	totp := gotp.NewDefaultTOTP(otpSecret)
@@ -143,7 +145,9 @@ func TestLinkAuthOtp(t *testing.T) {
 		},
 	}
 	authSession.Ctx.SetStepIdx(2) // 含 forcepwd 插入后索引：local=0, forcepwd=1, otp=2
-	AuthSessionManager.Save(sessionID, authSession)
+	authSessions := NewAuthSessionManager()
+	svc := NewLinkAuthService(sessdata.NewSessionManager(), authSessions, auth.NewLockManager(), nil)
+	authSessions.Save(sessionID, authSession)
 
 	t.Run("ValidOTP", func(t *testing.T) {
 		ast := assert.New(t)
@@ -159,17 +163,17 @@ func TestLinkAuthOtp(t *testing.T) {
 		req.AddCookie(&http.Cookie{Name: "auth-session-id", Value: sessionID})
 		w := httptest.NewRecorder()
 
-		LinkAuthOtp(w, req)
+		svc.LinkAuthOTP(w, req)
 
 		ast.Equal(http.StatusOK, w.Code)
-		_, err := AuthSessionManager.Get(sessionID)
+		_, err := authSessions.Get(sessionID)
 		ast.NotNil(err)
 	})
 
 	t.Run("InvalidOTP", func(t *testing.T) {
 		ast := assert.New(t)
 
-		AuthSessionManager.Save(sessionID+"2", authSession)
+		authSessions.Save(sessionID+"2", authSession)
 
 		clientReq := ClientRequest{
 			Auth: authData{
@@ -182,12 +186,12 @@ func TestLinkAuthOtp(t *testing.T) {
 		req.AddCookie(&http.Cookie{Name: "auth-session-id", Value: sessionID + "2"})
 		w := httptest.NewRecorder()
 
-		LinkAuthOtp(w, req)
+		svc.LinkAuthOTP(w, req)
 
 		ast.Equal(http.StatusOK, w.Code)
 		// OTP 错误返回 StepPending 重试（tpl_otp 渲染），包含 "动态码错误" 提示
 		ast.Contains(w.Body.String(), "动态码错误")
-		_, err := AuthSessionManager.Get(sessionID + "2")
+		_, err := authSessions.Get(sessionID + "2")
 		ast.Nil(err, "OTP 错误应保留会话以允许重试")
 	})
 
@@ -205,7 +209,7 @@ func TestLinkAuthOtp(t *testing.T) {
 		req.AddCookie(&http.Cookie{Name: "auth-session-id", Value: "invalid-session"})
 		w := httptest.NewRecorder()
 
-		LinkAuthOtp(w, req)
+		svc.LinkAuthOTP(w, req)
 
 		ast.Equal(http.StatusUnauthorized, w.Code)
 	})
@@ -223,13 +227,13 @@ func TestLinkAuthOtp(t *testing.T) {
 		req := httptest.NewRequest("POST", "/otp-verification", bytes.NewReader(reqBody))
 		w := httptest.NewRecorder()
 
-		LinkAuthOtp(w, req)
+		svc.LinkAuthOTP(w, req)
 
 		ast.Equal(http.StatusUnauthorized, w.Code)
 	})
 }
 
-func TestHandleSsoTokenPreservesIdentityForOtpPending(t *testing.T) {
+func TestHandleSSOTokenPreservesIdentityForOTPPending(t *testing.T) {
 	base.Test()
 	ast := assert.New(t)
 
@@ -241,12 +245,12 @@ func TestHandleSsoTokenPreservesIdentityForOtpPending(t *testing.T) {
 		ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}},
 		Status:    1,
 	}
-	err := dbdata.SetPolicy(pt)
+	err := dbdata.Policies.SetPolicy(pt)
 	ast.Nil(err)
 
 	group := "sso-otp-test-group"
 
-	_ = dbdata.SetProvider(&dbdata.Provider{
+	_ = dbdata.Providers.Set(&dbdata.Provider{
 		Name:   "test-wxwork-sso-otp",
 		Type:   "wxwork",
 		Status: 1,
@@ -260,7 +264,7 @@ func TestHandleSsoTokenPreservesIdentityForOtpPending(t *testing.T) {
 		},
 	}
 	profileBytes, _ := json.Marshal(profile)
-	err = dbdata.SetGroup(&dbdata.Group{
+	err = dbdata.Groups.SetGroup(&dbdata.Group{
 		Name:        group,
 		Status:      1,
 		PolicyId:    pt.Id,
@@ -270,7 +274,7 @@ func TestHandleSsoTokenPreservesIdentityForOtpPending(t *testing.T) {
 
 	username := "sso-otp-user"
 	otpSecret := "JBSWY3DPEHPK3PXP"
-	err = dbdata.SetUser(&dbdata.User{
+	err = dbdata.Users.SetUser(&dbdata.User{
 		Username:  username,
 		Groups:    []string{group},
 		Status:    1,
@@ -279,7 +283,9 @@ func TestHandleSsoTokenPreservesIdentityForOtpPending(t *testing.T) {
 	ast.Nil(err)
 
 	ssoToken := "test-sso-token"
-	AuthSessionManager.Save(ssoToken, &AuthSession{
+	authSessions := NewAuthSessionManager()
+	svc := NewLinkAuthService(sessdata.NewSessionManager(), authSessions, auth.NewLockManager(), nil)
+	authSessions.Save(ssoToken, &AuthSession{
 		Kind: AuthKindSSODone,
 		Ctx: &auth.Context{
 			Conn: auth.ConnInfo{Username: username, GroupName: group},
@@ -312,7 +318,7 @@ func TestHandleSsoTokenPreservesIdentityForOtpPending(t *testing.T) {
 	req.RemoteAddr = "192.168.1.100:12345"
 	w := httptest.NewRecorder()
 
-	handleSsoToken(w, req, cr, sessionData)
+	svc.handleSSOToken(w, req, cr, sessionData)
 
 	ast.Equal(http.StatusOK, w.Code)
 	// SSO 回调后走管道：SSO 步骤 StepPass → OTP 步骤触发挑战（组 Profile: [otp]）
@@ -320,19 +326,21 @@ func TestHandleSsoTokenPreservesIdentityForOtpPending(t *testing.T) {
 	ast.NotContains(w.Body.String(), "<session-id>")
 
 	// SSO 临时会话应在处理后清理
-	_, err = AuthSessionManager.Get(ssoToken)
+	_, err = authSessions.Get(ssoToken)
 	ast.NotNil(err, "SSO 临时会话应在处理后清理")
 }
 
 // 把“等待第二因素(OTP)”的认证管道会话 id 当作 SSO token 重放，必须被拒绝
-func TestHandleSsoTokenRejectsPipelineSession(t *testing.T) {
+func TestHandleSSOTokenRejectsPipelineSession(t *testing.T) {
 	base.Test()
 	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
 	dbtest.SetupDB(t)
 
 	// 模拟攻击者已拿到的“等待 OTP”的管道会话：第一因素已过，断点停留在 OTP 步骤
 	pipelineToken := "pipeline-otp-pending-token"
-	AuthSessionManager.Save(pipelineToken, &AuthSession{
+	authSessions := NewAuthSessionManager()
+	svc := NewLinkAuthService(sessdata.NewSessionManager(), authSessions, auth.NewLockManager(), nil)
+	authSessions.Save(pipelineToken, &AuthSession{
 		Kind: AuthKindPipeline,
 		Ctx: &auth.Context{
 			Conn: auth.ConnInfo{Username: "victim", GroupName: "default"},
@@ -352,7 +360,7 @@ func TestHandleSsoTokenRejectsPipelineSession(t *testing.T) {
 	req := newAuthRequest(body)
 	req.RemoteAddr = "192.168.1.100:12345"
 	w := httptest.NewRecorder()
-	LinkAuth(w, req)
+	svc.Handle(w, req)
 
 	ast := assert.New(t)
 	// 必须为 401，且不得进入 OTP 挑战或签发任何会话
@@ -361,7 +369,7 @@ func TestHandleSsoTokenRejectsPipelineSession(t *testing.T) {
 	ast.NotContains(w.Body.String(), "<session-id>")
 
 	// 被拒绝后，该管道会话不应被当作 SSO 会话消费/删除
-	_, err := AuthSessionManager.Get(pipelineToken)
+	_, err := authSessions.Get(pipelineToken)
 	ast.Nil(err)
 }
 
@@ -372,7 +380,7 @@ func TestCreateSession(t *testing.T) {
 	dbtest.SetupDB(t)
 
 	other := &dbdata.SettingOther{Banner: "测试横幅内容", BannerEnable: true}
-	err := dbdata.SettingSave(other)
+	err := dbdata.Settings.Save(other)
 	ast.Nil(err)
 
 	group := "session-test-group"
@@ -380,14 +388,14 @@ func TestCreateSession(t *testing.T) {
 
 	dns := []dbdata.ValData{{Val: "8.8.8.8"}}
 	pt := &dbdata.Policy{Name: "session-test-policy", Status: 1, ClientDns: dns}
-	err = dbdata.SetPolicy(pt)
+	err = dbdata.Policies.SetPolicy(pt)
 	ast.Nil(err)
 	g := dbdata.Group{Name: group, Status: 1, PolicyId: pt.Id}
-	err = dbdata.SetGroup(&g)
+	err = dbdata.Groups.SetGroup(&g)
 	ast.Nil(err)
 
 	u := dbdata.User{Username: username, Groups: []string{group}, Status: 1}
-	err = dbdata.SetUser(&u)
+	err = dbdata.Users.SetUser(&u)
 	ast.Nil(err)
 
 	authSession := &AuthSession{
@@ -411,7 +419,7 @@ func TestCreateSession(t *testing.T) {
 
 	w := httptest.NewRecorder()
 
-	CreateSession(w, authSession)
+	testLinkAuth.CreateSession(w, authSession)
 
 	ast.Equal(http.StatusOK, w.Code)
 	ast.Contains(w.Body.String(), "session-token")
@@ -419,11 +427,11 @@ func TestCreateSession(t *testing.T) {
 
 	// 关闭 Banner 后不显示横幅
 	other.BannerEnable = false
-	err = dbdata.SettingSave(other)
+	err = dbdata.Settings.Save(other)
 	ast.Nil(err)
 
 	w2 := httptest.NewRecorder()
-	CreateSession(w2, authSession)
+	testLinkAuth.CreateSession(w2, authSession)
 
 	ast.Equal(http.StatusOK, w2.Code)
 	ast.NotContains(w2.Body.String(), "测试横幅内容")

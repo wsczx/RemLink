@@ -3,6 +3,7 @@ package auth
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // 定义认证步骤及执行顺序
@@ -24,6 +25,11 @@ func (p *GroupAuthProfile) HasStep(typ string) bool {
 		}
 	}
 	return false
+}
+
+// 判断是否包含不少于 2 个认证步骤（组合认证）
+func (p *GroupAuthProfile) HasMultiStep() bool {
+	return len(p.Step) >= 2
 }
 
 // 配置的统一接口
@@ -62,6 +68,17 @@ func GetProviderConfigFromMap(cfg map[string]any, target any) error {
 		return fmt.Errorf("序列化配置失败: %w", err)
 	}
 	return json.Unmarshal(b, target)
+}
+
+// 按逗号切分并去除空白与空项，无有效项时返回 nil
+func parseCSVList(s string) []string {
+	var out []string
+	for part := range strings.SplitSeq(s, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // 检查是否同时配置 RADIUS 和 OTP

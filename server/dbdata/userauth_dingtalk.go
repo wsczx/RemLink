@@ -11,32 +11,6 @@ type AuthDingtalk struct {
 	auth.DingtalkConfig
 }
 
-// 从组的 AuthProfile 中获取钉钉认证配置
-func GetAuthDingtalk(groupName string) (*AuthDingtalk, error) {
-	groupData := &Group{}
-	if err := One("Name", groupName, groupData); err != nil {
-		return nil, fmt.Errorf("用户组错误: %v", err)
-	}
-	return ResolveDingtalkConfig(groupData)
-}
-
-// 从 Group 的 AuthProfile 解析钉钉配置
-func ResolveDingtalkConfig(g *Group) (*AuthDingtalk, error) {
-	cfg, err := resolveProviderConfigMap(g, "dingtalk", "钉钉")
-	if err != nil {
-		return nil, err
-	}
-
-	result := &AuthDingtalk{}
-	if err := auth.GetProviderConfigFromMap(cfg, &result.DingtalkConfig); err != nil {
-		return nil, err
-	}
-	if result.ClientID == "" || result.ClientSecret == "" {
-		return nil, fmt.Errorf("钉钉配置不完整")
-	}
-	return result, nil
-}
-
 // 从钉钉同步用户到本地数据库
 func (a *AuthDingtalk) SaveUsers(g *Group) error {
 	contactToken, err := a.GetContactToken()
@@ -44,11 +18,10 @@ func (a *AuthDingtalk) SaveUsers(g *Group) error {
 		return fmt.Errorf("获取钉钉通讯录令牌失败: %w", err)
 	}
 
-	needOTP := HasAuthType(g.AuthProfile, "otp")
+	needOTP := Groups.HasAuthType(g.AuthProfile, "otp")
 	blocked := a.ParseBlockedUserIDs()
 	isBlocked := func(id string) bool { return a.CheckUserID(id, blocked) != nil }
 
-	// 拉取允许部门内的成员（含子部门）；未配置部门时拉取权限范围内全部用户（从根部门递归全公司）
 	remote := make(map[string]RemoteUser)
 	if departments := a.ParseDepartments(); len(departments) > 0 {
 		for _, deptID := range departments {
@@ -82,13 +55,39 @@ func (a *AuthDingtalk) SaveUsers(g *Group) error {
 	return syncExternalUsers(g, "dingtalk", "钉钉", remote, needOTP, isBlocked, false)
 }
 
+// 从组的 AuthProfile 中获取钉钉认证配置
+func (st *GroupStore) GetAuthDingtalk(groupName string) (*AuthDingtalk, error) {
+	groupData := &Group{}
+	if err := GetDB().Get("Name", groupName, groupData); err != nil {
+		return nil, fmt.Errorf("用户组错误: %w", err)
+	}
+	return st.ResolveDingtalkConfig(groupData)
+}
+
+// 从 Group 的 AuthProfile 解析钉钉配置
+func (st *GroupStore) ResolveDingtalkConfig(g *Group) (*AuthDingtalk, error) {
+	cfg, err := resolveProviderConfigMap(g, "dingtalk", "钉钉")
+	if err != nil {
+		return nil, err
+	}
+
+	result := &AuthDingtalk{}
+	if err := auth.GetProviderConfigFromMap(cfg, &result.DingtalkConfig); err != nil {
+		return nil, err
+	}
+	if result.ClientID == "" || result.ClientSecret == "" {
+		return nil, fmt.Errorf("钉钉配置不完整")
+	}
+	return result, nil
+}
+
 // 同步所有钉钉认证源用户（按各钉钉认证源的 sync_users 独立控制）
-func SyncDingtalkUsers() {
+func (st *GroupStore) SyncDingtalkUsers() {
 	syncExternalUsersBySource(extSyncSource{
 		authType: "dingtalk",
 		name:     "钉钉",
 		resolve: func(g *Group) (bool, func(*Group) error, error) {
-			cfg, err := ResolveDingtalkConfig(g)
+			cfg, err := st.ResolveDingtalkConfig(g)
 			if err != nil {
 				return false, nil, err
 			}

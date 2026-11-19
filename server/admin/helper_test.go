@@ -72,12 +72,12 @@ func TestReadJSONCallerNoDoubleWrite(t *testing.T) {
 		name    string
 		handler http.HandlerFunc
 	}{
-		{"LoginOTP", LoginOTP},
+		{"LoginOTP", (&Api{}).LoginOTP},
 		{"UserSet", UserSet},
 		{"GroupSet", GroupSet},
 		{"PolicySet", PolicySet},
 		{"UserBatchDelete", UserBatchDelete},
-		{"UnlockUser", UnlockUser},
+		{"UnlockUser", (&Api{}).UnlockUser},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assert := assert.New(t)
@@ -158,7 +158,7 @@ func TestDetailByIDDelByID(t *testing.T) {
 	defer dbdata.Stop()
 
 	p := dbdata.Policy{Name: "helper-test-policy", Status: 1}
-	assert.Nil(dbdata.Add(&p))
+	assert.Nil(dbdata.GetDB().Insert(&p))
 
 	t.Run("Detail查询存在记录", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodPost, "/", nil)
@@ -178,7 +178,7 @@ func TestDetailByIDDelByID(t *testing.T) {
 
 	t.Run("Del删除并执行回调", func(t *testing.T) {
 		p2 := dbdata.Policy{Name: "to-delete", Status: 1}
-		assert.Nil(dbdata.Add(&p2))
+		assert.Nil(dbdata.GetDB().Insert(&p2))
 
 		called := false
 		r := httptest.NewRequest(http.MethodPost, "/", nil)
@@ -191,7 +191,7 @@ func TestDetailByIDDelByID(t *testing.T) {
 		assert.True(called, "onDeleted 回调应被执行")
 
 		var check dbdata.Policy
-		assert.Error(dbdata.One("Id", p2.Id, &check))
+		assert.Error(dbdata.Policies.Get(p2.Id, &check))
 	})
 
 	t.Run("Del不存在记录返回错误", func(t *testing.T) {

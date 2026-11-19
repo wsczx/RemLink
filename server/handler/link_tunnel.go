@@ -16,9 +16,24 @@ import (
 	"github.com/wsczx/remlink/sessdata"
 )
 
-var (
-	hn string
-)
+type Tunnel struct {
+	hn       string
+	sessions *sessdata.SessionManager
+	tap      *TapLink
+}
+
+func NewTunnel(sessions *sessdata.SessionManager, tap *TapLink) *Tunnel {
+	hn, _ := os.Hostname()
+	return &Tunnel{hn: hn, sessions: sessions, tap: tap}
+}
+
+func (t *Tunnel) setHeader(w http.ResponseWriter, key, value string) {
+	w.Header()[key] = []string{value}
+}
+
+func (t *Tunnel) addHeader(w http.ResponseWriter, key, value string) {
+	w.Header()[key] = append(w.Header()[key], value)
+}
 
 // CSTP/DTLS 隧道参数（秒）
 const (
@@ -30,44 +45,79 @@ const (
 	dtlsRekeyTimeSec                   = "86400"   // DTLS 重协商间隔
 )
 
-func init() {
-	// 获取主机名称
-	hn, _ = os.Hostname()
+// 承载一次隧道协商的上下文
+type tunnelParams struct {
+	sess        *sessdata.Session
+	cSess       *sessdata.ConnSession
+	baseMtu     string
+	mobile      string
+	exportIp4   string
+	keepalive   int
+	dpd         int
+	dtlsPort    string
+	ciphersuite string
 }
 
-func HttpSetHeader(w http.ResponseWriter, key string, value string) {
-	w.Header()[key] = []string{value}
-}
-
-func HttpAddHeader(w http.ResponseWriter, key string, value string) {
-	w.Header()[key] = append(w.Header()[key], value)
-}
-
-func LinkTunnel(w http.ResponseWriter, r *http.Request) {
+// 处理 CSTP 隧道协商请求
+func (t *Tunnel) OpenCSTP(w http.ResponseWriter, r *http.Request) {
 	if base.GetLogLevel() == base.LogLevelTrace {
 		hd, _ := httputil.DumpRequest(r, true)
 		base.Trace("LinkTunnel: ", utils.RedactSensitive(string(hd)))
 	}
 
-	// 判断session-token的值
-	cookie, err := r.Cookie("webvpn")
-	if err != nil || cookie.Value == "" {
-		w.WriteHeader(http.StatusUnauthorized)
+	params, ok := t.openSession(w, r)
+	if !ok {
 		return
 	}
 
-	sess := sessdata.SToken2Sess(cookie.Value)
+	t.sendConfig(w, r, params)
+
+	w.WriteHeader(http.StatusOK)
+
+	hClone := w.Header().Clone()
+	buf := &bytes.Buffer{}
+	_ = hClone.Write(buf)
+	base.Debug("LinkTunnel Response Header:", buf.String())
+
+	hj := w.(http.Hijacker)
+	conn, bufRW, err := hj.Hijack()
+	if err != nil {
+		base.Error(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	if err := t.startDataPlane(params.cSess); err != nil {
+		base.Error(err)
+		// 显式关闭会话，否则已分配的 IP/连接数配额不会回收，长期运行导致地址池枯竭
+		params.cSess.SetLogoutCode(dbdata.UserLogoutTunErr)
+		params.cSess.Close()
+		conn.Close()
+		return
+	}
+	go LinkCSTP(conn, bufRW, params.cSess)
+}
+
+// 校验门户会话并建立数据面连接，失败时已写错误响应
+func (t *Tunnel) openSession(w http.ResponseWriter, r *http.Request) (*tunnelParams, bool) {
+	cookie, err := r.Cookie("webvpn")
+	if err != nil || cookie.Value == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		return nil, false
+	}
+
+	sess := t.sessions.SToken2Sess(cookie.Value)
 	if sess == nil {
 		w.WriteHeader(http.StatusUnauthorized)
-		return
+		return nil, false
 	}
 
 	// 用户已过期：立即关闭会话并拒绝建隧道
 	if sess.IsExpired() {
 		base.Info("用户已过期，拒绝重建隧道:", sess.Username)
-		sessdata.CloseSess(sess.Token, dbdata.UserLogoutExpire)
+		t.sessions.CloseSess(sess.Token, dbdata.UserLogoutExpire)
 		w.WriteHeader(http.StatusUnauthorized)
-		return
+		return nil, false
 	}
 
 	// 开启link
@@ -75,7 +125,7 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 	if cSess == nil {
 		base.Warn("LinkTunnel: NewConn returned nil")
 		w.WriteHeader(http.StatusUnauthorized)
-		return
+		return nil, false
 	}
 
 	// 客户端信息
@@ -115,9 +165,8 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	base.Info(dbdata.UserLabel(sess.Username, cSess.Nickname), cSess.IpAddr, cSess.MacHw, cSess.Client, mobile)
+	base.Info(dbdata.Users.Label(sess.Username, cSess.Nickname), cSess.IpAddr, cSess.MacHw, cSess.Client, mobile)
 
-	// 连接建立成功日志
 	connInfo := "连接成功"
 	if len(cSess.MacHw) > 0 {
 		connInfo = fmt.Sprintf("连接成功 | MAC:%s", cSess.MacHw.String())
@@ -134,45 +183,55 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 		Os:              sess.Os,
 	}, cSess.UserAgent)
 
-	// 检测密码套件
-	dtlsCiphersuite := checkDtls12Ciphersuite(r.Header.Get("X-Dtls12-Ciphersuite"))
-	base.Trace("dtlsCiphersuite", dtlsCiphersuite)
+	return &tunnelParams{
+		sess:        sess,
+		cSess:       cSess,
+		baseMtu:     cstpBaseMtu,
+		mobile:      mobile,
+		exportIp4:   exportIp4,
+		keepalive:   cstpKeepalive,
+		dpd:         cstpDpd,
+		dtlsPort:    dtlsPort,
+		ciphersuite: getDTLS12Ciphersuite(r.Header.Get("X-Dtls12-Ciphersuite")),
+	}, true
+}
 
-	// 返回客户端数据
-	// 不下发 Server 头：避免暴露服务端版本指纹（X-CSTP-Server-Name 为 CSTP 协议
-	// HttpSetHeader(w, "Server", fmt.Sprintf("%s %s", base.APP_NAME, base.APP_VER))
-	HttpSetHeader(w, "X-CSTP-Version", "1")
-	HttpSetHeader(w, "X-CSTP-Server-Name", fmt.Sprintf("%s %s", base.APP_NAME, base.APP_VER))
-	HttpSetHeader(w, "X-CSTP-Protocol", "Copyright (c) 2004 Cisco Systems, Inc.")
-	HttpSetHeader(w, "X-CSTP-Address", cSess.IpAddr.String())          // 分配的ip地址
-	HttpSetHeader(w, "X-CSTP-Netmask", cSess.IpPool.Ipv4Mask.String()) // 子网掩码
-	// IPv6 双栈：仅当分配了 v6 地址时下发
-	//   - AnyConnect 从 X-CSTP-Address-IP6 读取 v6 地址；
-	//   - OpenConnect 从 X-CSTP-Address（含冒号的值）读取 v6 地址，并把
-	//     X-CSTP-Address-IP6 当成 netmask（netmask6）处理
+// 下发 CSTP/DTLS 协商响应头
+func (t *Tunnel) sendConfig(w http.ResponseWriter, r *http.Request, params *tunnelParams) {
+	sess := params.sess
+	cSess := params.cSess
+
+	base.Trace("params.ciphersuite", params.ciphersuite)
+	t.setHeader(w, "X-CSTP-Version", "1")
+	t.setHeader(w, "X-CSTP-Server-Name", fmt.Sprintf("%s %s", base.APP_NAME, base.APP_VER))
+	t.setHeader(w, "X-CSTP-Protocol", "Copyright (c) 2004 Cisco Systems, Inc.")
+	t.setHeader(w, "X-CSTP-Address", cSess.IpAddr.String())          // 分配的ip地址
+	t.setHeader(w, "X-CSTP-Netmask", cSess.IpPool.Ipv4Mask.String()) // 子网掩码
+	// OpenConnect 从 X-CSTP-Address 读 v6 地址、把 X-CSTP-Address-IP6 当 netmask；
+	// AnyConnect 相反，故两种客户端需分别下发
 	if cSess.IpAddr6 != nil {
 		if strings.Contains(cSess.UserAgent, "openconnect") {
-			HttpAddHeader(w, "X-CSTP-Address", cSess.IpAddr6.String())
-			HttpAddHeader(w, "X-CSTP-Netmask", cSess.IpAddr6.String()+"/128")
+			t.addHeader(w, "X-CSTP-Address", cSess.IpAddr6.String())
+			t.addHeader(w, "X-CSTP-Netmask", cSess.IpAddr6.String()+"/128")
 		} else {
-			HttpSetHeader(w, "X-CSTP-Address-IP6", cSess.IpAddr6.String())
-			HttpSetHeader(w, "X-CSTP-Netmask-IP6", "128")
+			t.setHeader(w, "X-CSTP-Address-IP6", cSess.IpAddr6.String())
+			t.setHeader(w, "X-CSTP-Netmask-IP6", "128")
 		}
 	}
-	HttpSetHeader(w, "X-CSTP-Hostname", hn) // 机器名称
-	HttpSetHeader(w, "X-CSTP-Base-MTU", cstpBaseMtu)
+	t.setHeader(w, "X-CSTP-Hostname", t.hn) // 机器名称
+	t.setHeader(w, "X-CSTP-Base-MTU", params.baseMtu)
 	// 客户端dns的默认搜索域
 	if base.GetCfg().DefaultDomain != "" {
-		HttpSetHeader(w, "X-CSTP-Default-Domain", base.GetCfg().DefaultDomain)
+		t.setHeader(w, "X-CSTP-Default-Domain", base.GetCfg().DefaultDomain)
 	}
 
 	// 压缩
 	if cmpName, ok := cSess.SetPickCmp("cstp", r.Header.Get("X-Cstp-Accept-Encoding")); ok {
-		HttpSetHeader(w, "X-CSTP-Content-Encoding", cmpName)
+		t.setHeader(w, "X-CSTP-Content-Encoding", cmpName)
 	}
 	if base.GetCfg().ServerDTLS {
 		if cmpName, ok := cSess.SetPickCmp("dtls", r.Header.Get("X-Dtls-Accept-Encoding")); ok {
-			HttpSetHeader(w, "X-DTLS-Content-Encoding", cmpName)
+			t.setHeader(w, "X-DTLS-Content-Encoding", cmpName)
 		}
 	}
 
@@ -180,24 +239,24 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 
 	// 允许本地LAN访问vpn网络，必须放在路由的第一个
 	if rp.AllowLan {
-		HttpSetHeader(w, "X-CSTP-Split-Exclude", "0.0.0.0/255.255.255.255")
+		t.setHeader(w, "X-CSTP-Split-Exclude", "0.0.0.0/255.255.255.255")
 		// 双栈下同步排除本地 IPv6 局域网::/128
 		if cSess.IpAddr6 != nil {
-			HttpAddHeader(w, "X-CSTP-Split-Exclude-IP6", "::/128")
+			t.addHeader(w, "X-CSTP-Split-Exclude-IP6", "::/128")
 		}
 	}
 	// dns地址：IPv4 走 X-CSTP-DNS，IPv6 走 X-CSTP-DNS-IP6
 	for _, v := range rp.ClientDns {
 		ip := net.ParseIP(v.Val)
 		if ip != nil && ip.To4() == nil {
-			HttpAddHeader(w, "X-CSTP-DNS-IP6", v.Val)
+			t.addHeader(w, "X-CSTP-DNS-IP6", v.Val)
 		} else {
-			HttpAddHeader(w, "X-CSTP-DNS", v.Val)
+			t.addHeader(w, "X-CSTP-DNS", v.Val)
 		}
 	}
 	// 分割dns
 	for _, v := range cSess.Group.SplitDns {
-		HttpAddHeader(w, "X-CSTP-Split-DNS", v.Val)
+		t.addHeader(w, "X-CSTP-Split-DNS", v.Val)
 	}
 
 	// 允许的路由
@@ -208,27 +267,27 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 		// IPv6 路由下发到 -IP6 头（CIDR 格式）；v4 维持原 IpMask 下发
 		if _, ipNet, err := net.ParseCIDR(v.Val); err == nil {
 			if ipNet.IP.To4() == nil {
-				HttpAddHeader(w, "X-CSTP-Split-Include-IP6", ipNet.String())
+				t.addHeader(w, "X-CSTP-Split-Include-IP6", ipNet.String())
 				continue
 			}
 			if ones, bits := ipNet.Mask.Size(); ones == 0 && bits == 32 {
 				continue
 			}
 		}
-		HttpAddHeader(w, "X-CSTP-Split-Include", v.IpMask)
+		t.addHeader(w, "X-CSTP-Split-Include", v.IpMask)
 	}
 	// 不允许的路由
 	for _, v := range rp.RouteExclude {
 		if _, ipNet, err := net.ParseCIDR(v.Val); err == nil && ipNet.IP.To4() == nil {
-			HttpAddHeader(w, "X-CSTP-Split-Exclude-IP6", ipNet.String())
+			t.addHeader(w, "X-CSTP-Split-Exclude-IP6", ipNet.String())
 		} else {
-			HttpAddHeader(w, "X-CSTP-Split-Exclude", v.IpMask)
+			t.addHeader(w, "X-CSTP-Split-Exclude", v.IpMask)
 		}
 	}
 	// 排除出口ip路由(出口ip不加密传输)
 	if base.GetCfg().ExcludeExportIp {
-		if exportIp4 != "" {
-			HttpAddHeader(w, "X-CSTP-Split-Exclude", exportIp4+"/255.255.255.255")
+		if params.exportIp4 != "" {
+			t.addHeader(w, "X-CSTP-Split-Exclude", params.exportIp4+"/255.255.255.255")
 		}
 		// IPv6 出口地址：优先取客户端上报头 X-Cstp-Remote-Address-Ip6
 		// 取不到则回退到实际 TCP 连接源地址（客户端经 IPv6 连入时为 v6）
@@ -241,119 +300,92 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if exportIp6 != "" {
-			HttpAddHeader(w, "X-CSTP-Split-Exclude-IP6", exportIp6+"/128")
+			t.addHeader(w, "X-CSTP-Split-Exclude-IP6", exportIp6+"/128")
 		}
 	}
 	// 下发 FakeIP 段路由
 	if rp.EnableFakeDNS {
-		// 确保 FakeDNS 上游 DNS 服务器可达
+		// 上游与 FakeIP 段须走隧道，否则客户端无法解析 FakeIP 对应域名
 		if rp.FakeDNSUpstream != "" {
 			// 上游可能是 v4 或 v6 地址，掩码须对应 /32 或 /128
 			mask := "/255.255.255.255"
 			if up := net.ParseIP(rp.FakeDNSUpstream); up != nil && up.To4() == nil {
 				mask = "/128"
 			}
-			HttpAddHeader(w, "X-CSTP-Split-Include", rp.FakeDNSUpstream+mask)
+			t.addHeader(w, "X-CSTP-Split-Include", rp.FakeDNSUpstream+mask)
 		}
 		_, ipNet, err := net.ParseCIDR(sessdata.DefaultFakeIPRange)
 		if err == nil {
 			mask := net.IP(ipNet.Mask)
 			ipMask := fmt.Sprintf("%s/%s", ipNet.IP, mask)
-			HttpAddHeader(w, "X-CSTP-Split-Include", ipMask)
+			t.addHeader(w, "X-CSTP-Split-Include", ipMask)
 		}
 		// v6 FakeIP 段路由：仅「双栈开启 且 IPv6 优先开启」时下发
 		if base.GetCfg().Ipv6CIDR != "" && rp.PreferIPv6 {
 			if _, ipNet6, err6 := net.ParseCIDR(sessdata.DefaultFakeIPv6Range); err6 == nil {
-				HttpAddHeader(w, "X-CSTP-Split-Include-IP6", ipNet6.String())
+				t.addHeader(w, "X-CSTP-Split-Include-IP6", ipNet6.String())
 			}
 		}
 	}
 
-	HttpSetHeader(w, "X-CSTP-Lease-Duration", cstpLeaseDurationSec) // ip地址租期
-	HttpSetHeader(w, "X-CSTP-Session-Timeout", "none")
-	HttpSetHeader(w, "X-CSTP-Session-Timeout-Alert-Interval", cstpSessionTimeoutAlertIntervalSec)
-	HttpSetHeader(w, "X-CSTP-Session-Timeout-Remaining", "none")
-	HttpSetHeader(w, "X-CSTP-Idle-Timeout", cstpIdleTimeoutSec)
-	HttpSetHeader(w, "X-CSTP-Disconnected-Timeout", cstpDisconnectedTimeoutSec)
-	HttpSetHeader(w, "X-CSTP-Keep", "true")
+	t.setHeader(w, "X-CSTP-Lease-Duration", cstpLeaseDurationSec) // ip地址租期
+	t.setHeader(w, "X-CSTP-Session-Timeout", "none")
+	t.setHeader(w, "X-CSTP-Session-Timeout-Alert-Interval", cstpSessionTimeoutAlertIntervalSec)
+	t.setHeader(w, "X-CSTP-Session-Timeout-Remaining", "none")
+	t.setHeader(w, "X-CSTP-Idle-Timeout", cstpIdleTimeoutSec)
+	t.setHeader(w, "X-CSTP-Disconnected-Timeout", cstpDisconnectedTimeoutSec)
+	t.setHeader(w, "X-CSTP-Keep", "true")
 	tunnelAllDNS := "false"
 	if rp.EnableFakeDNS {
 		tunnelAllDNS = "true"
 	}
-	HttpSetHeader(w, "X-CSTP-Tunnel-All-DNS", tunnelAllDNS)
+	t.setHeader(w, "X-CSTP-Tunnel-All-DNS", tunnelAllDNS)
 
-	HttpSetHeader(w, "X-CSTP-Rekey-Time", cstpRekeyTimeSec) // 172800
-	HttpSetHeader(w, "X-CSTP-Rekey-Method", "new-tunnel")
-	HttpSetHeader(w, "X-DTLS-Rekey-Time", dtlsRekeyTimeSec)
-	HttpSetHeader(w, "X-DTLS-Rekey-Method", "new-tunnel")
+	t.setHeader(w, "X-CSTP-Rekey-Time", cstpRekeyTimeSec)
+	t.setHeader(w, "X-CSTP-Rekey-Method", "new-tunnel")
+	t.setHeader(w, "X-DTLS-Rekey-Time", dtlsRekeyTimeSec)
+	t.setHeader(w, "X-DTLS-Rekey-Method", "new-tunnel")
 
-	HttpSetHeader(w, "X-CSTP-DPD", fmt.Sprintf("%d", cstpDpd))
-	HttpSetHeader(w, "X-CSTP-Keepalive", fmt.Sprintf("%d", cstpKeepalive))
-	// HttpSetHeader(w, "X-CSTP-Banner", banner.Banner)
-	HttpSetHeader(w, "X-CSTP-MSIE-Proxy-Lockdown", "true")
-	HttpSetHeader(w, "X-CSTP-Smartcard-Removal-Disconnect", "true")
-
-	HttpSetHeader(w, "X-CSTP-MTU", fmt.Sprintf("%d", cSess.Mtu)) // 1399
-	HttpSetHeader(w, "X-DTLS-MTU", fmt.Sprintf("%d", cSess.Mtu))
-
+	t.setHeader(w, "X-CSTP-DPD", fmt.Sprintf("%d", params.dpd))
+	t.setHeader(w, "X-CSTP-Keepalive", fmt.Sprintf("%d", params.keepalive))
+	t.setHeader(w, "X-CSTP-MSIE-Proxy-Lockdown", "true")
+	t.setHeader(w, "X-CSTP-Smartcard-Removal-Disconnect", "true")
+	t.setHeader(w, "X-CSTP-MTU", fmt.Sprintf("%d", cSess.Mtu))
+	t.setHeader(w, "X-DTLS-MTU", fmt.Sprintf("%d", cSess.Mtu))
 	if base.GetCfg().ServerDTLS {
-		HttpSetHeader(w, "X-DTLS-Session-ID", sess.DtlsSid)
-		HttpSetHeader(w, "X-DTLS-Port", dtlsPort)
-		HttpSetHeader(w, "X-DTLS-DPD", fmt.Sprintf("%d", cstpDpd))
-		HttpSetHeader(w, "X-DTLS-Keepalive", fmt.Sprintf("%d", cstpKeepalive))
-		HttpSetHeader(w, "X-DTLS12-CipherSuite", dtlsCiphersuite)
+		t.setHeader(w, "X-DTLS-Session-ID", sess.DtlsSid)
+		t.setHeader(w, "X-DTLS-Port", params.dtlsPort)
+		t.setHeader(w, "X-DTLS-DPD", fmt.Sprintf("%d", params.dpd))
+		t.setHeader(w, "X-DTLS-Keepalive", fmt.Sprintf("%d", params.keepalive))
+		t.setHeader(w, "X-DTLS12-CipherSuite", params.ciphersuite)
 	}
-
-	HttpSetHeader(w, "X-CSTP-License", "accept")
-	HttpSetHeader(w, "X-CSTP-Routing-Filtering-Ignore", "false")
-	HttpSetHeader(w, "X-CSTP-Quarantine", "false")
-	HttpSetHeader(w, "X-CSTP-Disable-Always-On-VPN", "false")
-	HttpSetHeader(w, "X-CSTP-Client-Bypass-Protocol", "true")
-	HttpSetHeader(w, "X-CSTP-TCP-Keepalive", "false")
-	// 设置域名拆分隧道（移动端不支持）
-	if mobile != "mobile" {
-		SetPostAuthXml(cSess.Policy, w)
+	t.setHeader(w, "X-CSTP-License", "accept")
+	t.setHeader(w, "X-CSTP-Routing-Filtering-Ignore", "false")
+	t.setHeader(w, "X-CSTP-Quarantine", "false")
+	t.setHeader(w, "X-CSTP-Disable-Always-On-VPN", "false")
+	t.setHeader(w, "X-CSTP-Client-Bypass-Protocol", "true")
+	t.setHeader(w, "X-CSTP-TCP-Keepalive", "false")
+	if params.mobile != "mobile" {
+		t.postAuthXML(cSess.Policy, w)
 	}
-
-	w.WriteHeader(http.StatusOK)
-
-	hClone := w.Header().Clone()
-	buf := &bytes.Buffer{}
-	_ = hClone.Write(buf)
-	base.Debug("LinkTunnel Response Header:", buf.String())
-
-	hj := w.(http.Hijacker)
-	conn, bufRW, err := hj.Hijack()
-	if err != nil {
-		base.Error(err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	// 开始数据处理
-	switch base.GetCfg().LinkMode {
-	case base.LinkModeTUN:
-		err = LinkTun(cSess)
-	case base.LinkModeTAP:
-		err = LinkTap(cSess)
-	case base.LinkModeMacvtap:
-		err = LinkMacvtap(cSess)
-	case base.LinkModeIpvtap:
-		err = LinkIpvtap(cSess)
-	}
-	if err != nil {
-		base.Error(err)
-		// 显式关闭会话，否则已分配的 IP/连接数配额不会回收，长期运行导致地址池枯竭
-		cSess.SetLogoutCode(dbdata.UserLogoutTunErr)
-		cSess.Close()
-		conn.Close()
-		return
-	}
-	go LinkCstp(conn, bufRW, cSess)
 }
 
-// 设置域名拆分隧道
-func SetPostAuthXml(rp *dbdata.Policy, w http.ResponseWriter) error {
+func (t *Tunnel) startDataPlane(cSess *sessdata.ConnSession) error {
+	switch base.GetCfg().LinkMode {
+	case base.LinkModeTUN:
+		return LinkTun(t.sessions, cSess)
+	case base.LinkModeTAP:
+		return t.tap.Link(cSess)
+	case base.LinkModeMacvtap:
+		return LinkMacvtap(t.tap, t.sessions, cSess)
+	case base.LinkModeIpvtap:
+		return LinkIpvtap(t.tap, t.sessions, cSess)
+	}
+	return nil
+}
+
+// 下发域名拆分隧道配置
+func (t *Tunnel) postAuthXML(rp *dbdata.Policy, w http.ResponseWriter) error {
 	if rp.DsExcludeDomains == "" && rp.DsIncludeDomains == "" {
 		return nil
 	}
@@ -370,6 +402,6 @@ func SetPostAuthXml(rp *dbdata.Policy, w http.ResponseWriter) error {
 	for v := range strings.SplitSeq(result.String(), "\n") {
 		xmlAuth.WriteString(strings.TrimSpace(v))
 	}
-	HttpSetHeader(w, "X-CSTP-Post-Auth-XML", xmlAuth.String())
+	t.setHeader(w, "X-CSTP-Post-Auth-XML", xmlAuth.String())
 	return nil
 }

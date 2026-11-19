@@ -23,7 +23,7 @@ const (
 	tpl_request_force_pwd
 )
 
-// RequestData 模板渲染数据
+// 模板渲染数据
 type RequestData struct {
 	// 登录表单
 	Groups []string
@@ -335,7 +335,7 @@ func samlBrowserMode(r *http.Request, ssoType, groupName string) string {
 }
 
 // 判断是否是 AnyConnect 内置浏览器
-func isAnyConnectInternalBrowser(r *http.Request) bool {
+func isInternalBrowser(r *http.Request) bool {
 	userAgent := r.Header.Get("User-Agent")
 	if userAgent == "" {
 		return false

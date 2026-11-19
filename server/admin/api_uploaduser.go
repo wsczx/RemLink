@@ -52,7 +52,7 @@ func UserUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	os.Remove(fileName)
-	dbdata.AdminLog("用户管理", header.Filename, "批量导入了用户", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("用户管理", header.Filename, "批量导入了用户", r.RemoteAddr)
 	RespSuccess(w, "批量添加成功")
 }
 
@@ -77,7 +77,7 @@ func UploadUser(file string) error {
 		return fmt.Errorf("批量添加失败，表格格式不正确")
 	}
 	groupSet := make(map[string]struct{})
-	for _, v := range dbdata.GetGroupNames() {
+	for _, v := range dbdata.Groups.GetGroupNames() {
 		groupSet[v] = struct{}{}
 	}
 	for index, row := range rows {
@@ -105,8 +105,6 @@ func UploadUser(file string) error {
 		status := int8(statusVal)
 		sendmail, _ := strconv.ParseBool(row[10])
 		changePwd, _ := strconv.ParseBool(row[11])
-		// createdAt, _ := time.ParseInLocation("2006-01-02 15:04:05", row[12], time.Local)
-		// updatedAt, _ := time.ParseInLocation("2006-01-02 15:04:05", row[13], time.Local)
 		user := &dbdata.User{
 			Id:         id,
 			Type:       "local",
@@ -124,7 +122,7 @@ func UploadUser(file string) error {
 			// CreatedAt:  createdAt,
 			// UpdatedAt:  updatedAt,
 		}
-		if err := dbdata.AddBatch(user); err != nil {
+		if err := dbdata.GetDB().InsertBatch(user); err != nil {
 			return fmt.Errorf("请检查第%d行数据是否导入有重复用户", index)
 		}
 		user.PinCode = row[4]

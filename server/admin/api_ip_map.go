@@ -48,46 +48,21 @@ func UserIpMapList(w http.ResponseWriter, r *http.Request) {
 		where = strings.Join(conditions, " AND ")
 	}
 
-	var count int
-	if where != "" {
-		count = dbdata.FindWhereCount(&dbdata.IpMap{}, where, args...)
-	} else {
-		count = dbdata.CountAll(&dbdata.IpMap{})
-	}
-
-	var datas []dbdata.IpMap
-	var err error
-	if where != "" {
-		err = dbdata.FindWhere(&datas, pageSize, page, where, args...)
-	} else {
-		err = dbdata.Find(&datas, pageSize, page)
-	}
-	if err != nil && !dbdata.CheckErrNotFound(err) {
-		RespError(w, RespInternalErr, err)
+	datas, count, ok := findPage(w, &dbdata.IpMap{}, page, pageSize, where, args...)
+	if !ok {
 		return
-	}
-
-	// 确保空结果返回 [] 而非 null
-	if datas == nil {
-		datas = []dbdata.IpMap{}
 	}
 
 	names := make([]string, 0, len(datas))
 	for _, d := range datas {
 		names = append(names, d.Username)
 	}
-	nickMap := dbdata.NicknameMap(names)
+	nickMap := dbdata.Users.NicknameMap(names)
 	for i := range datas {
 		datas[i].Nickname = nickMap[datas[i].Username]
 	}
 
-	data := map[string]any{
-		"count":     count,
-		"page_size": pageSize,
-		"datas":     datas,
-	}
-
-	RespSuccess(w, data)
+	listResp(w, count, pageSize, datas)
 }
 
 // 批量删除 IP 映射（按选中的 ID 列表）
@@ -107,11 +82,11 @@ func UserIpMapBatchDel(w http.ResponseWriter, r *http.Request) {
 	successCount, failCount := 0, 0
 	for _, id := range req.Ids {
 		var data dbdata.IpMap
-		if err := dbdata.One("Id", id, &data); err != nil {
+		if err := dbdata.IpMaps.GetByID(id, &data); err != nil {
 			failCount++
 			continue
 		}
-		if err := dbdata.Del(&data); err != nil {
+		if err := dbdata.IpMaps.Delete(id); err != nil {
 			failCount++
 			continue
 		}
@@ -119,7 +94,7 @@ func UserIpMapBatchDel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	msg := fmt.Sprintf("批量删除完成，成功：%d，失败：%d", successCount, failCount)
-	dbdata.AdminLog("IP映射管理", "批量删除", fmt.Sprintf("批量删除了%d个IP映射", successCount), r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("IP映射管理", "批量删除", fmt.Sprintf("批量删除了%d个IP映射", successCount), r.RemoteAddr)
 
 	if successCount > 0 {
 		RespSuccess(w, msg)
@@ -140,17 +115,16 @@ func UserIpMapSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := dbdata.SetIpMap(v); err != nil {
+	if err := dbdata.IpMaps.SetIpMap(v); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-
-	dbdata.AdminLog("IP映射管理", v.IpAddr, "创建/修改了IP映射", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("IP映射管理", v.IpAddr, "创建/修改了IP映射", r.RemoteAddr)
 	RespSuccess(w, nil)
 }
 
 func UserIpMapDel(w http.ResponseWriter, r *http.Request) {
 	delByID(w, r, "IP映射id错误", func(data *dbdata.IpMap) {
-		dbdata.AdminLog("IP映射管理", data.IpAddr, "删除了IP映射", r.RemoteAddr)
+		dbdata.AdminLogs.AdminLog("IP映射管理", data.IpAddr, "删除了IP映射", r.RemoteAddr)
 	})
 }

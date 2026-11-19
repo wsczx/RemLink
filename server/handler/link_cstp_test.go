@@ -2,10 +2,13 @@ package handler
 
 import (
 	"bytes"
+	"encoding/binary"
 	"testing"
+
+	"github.com/wsczx/remlink/sessdata"
 )
 
-func TestValidCstpDataLen(t *testing.T) {
+func TestCSTPFormatDecode(t *testing.T) {
 	tests := []struct {
 		name    string
 		dataLen uint16
@@ -24,8 +27,11 @@ func TestValidCstpDataLen(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := validCstpDataLen(tt.dataLen, tt.n); got != tt.want {
-				t.Errorf("validCstpDataLen(%d, %d) = %v, want %v", tt.dataLen, tt.n, got, tt.want)
+			pl := sessdata.Payloads.GetPayload()
+			defer sessdata.Payloads.PutPayload(pl)
+			binary.BigEndian.PutUint16(pl.Data[4:6], tt.dataLen)
+			if _, ok := cstpFormat.Decode(pl, tt.n); ok != tt.want {
+				t.Errorf("cstpFormat.Decode(dataLen=%d, n=%d) ok=%v, want %v", tt.dataLen, tt.n, ok, tt.want)
 			}
 		})
 	}
@@ -33,16 +39,16 @@ func TestValidCstpDataLen(t *testing.T) {
 
 // 复用缓冲区必须清零，防跨会话残留数据泄出（H-1）
 func TestPutPayloadZeroesBuffer(t *testing.T) {
-	pl := getPayload()
+	pl := sessdata.Payloads.GetPayload()
 	for i := range pl.Data {
 		pl.Data[i] = 0xAA
 	}
 	pl.Data = pl.Data[:100]
-	putPayload(pl)
+	sessdata.Payloads.PutPayload(pl)
 
-	pl2 := getPayload()
-	defer putPayload(pl2)
-	if !bytes.Equal(pl2.Data, make([]byte, BufferSize)) {
+	pl2 := sessdata.Payloads.GetPayload()
+	defer sessdata.Payloads.PutPayload(pl2)
+	if !bytes.Equal(pl2.Data, make([]byte, sessdata.PayloadBufferSize)) {
 		t.Error("putPayload 后复用缓冲区未被清零，残留数据可能跨会话泄露")
 	}
 }

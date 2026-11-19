@@ -12,12 +12,13 @@ import (
 func TestLimitClient(t *testing.T) {
 	assert := assert.New(t)
 	base.SetCfgForTest(&base.ServerConfig{MaxClient: 2, MaxUserClient: 1})
+	l := NewClientLimiter()
 
-	res1 := LimitClient("user1", false)
-	res2 := LimitClient("user1", false)
-	res3 := LimitClient("user2", false)
-	res4 := LimitClient("user3", false)
-	res5 := LimitClient("user1", true)
+	res1 := l.LimitClient("user1", false)
+	res2 := l.LimitClient("user1", false)
+	res3 := l.LimitClient("user2", false)
+	res4 := l.LimitClient("user3", false)
+	res5 := l.LimitClient("user1", true)
 
 	assert.True(res1)
 	assert.False(res2)

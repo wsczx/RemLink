@@ -174,7 +174,7 @@ func (ua *UserActLogProcess) Add(u UserActLog, userAgent string, isPortal ...boo
 	// 异步落库：队列满时丢弃本条
 	select {
 	case UserActLogIns.Pool.JobQueue <- func() {
-		err := Add(u)
+		err := GetDB().Insert(u)
 		if err != nil {
 			base.Error("Add UserActLog error: ", err)
 		}
@@ -297,13 +297,13 @@ func (ua *UserActLogProcess) ParseUserAgent(userAgent string) (os_idx, client_id
 
 // 清除用户操作日志
 func (ua *UserActLogProcess) ClearUserActLog(ts string) (int64, error) {
-	affected, err := xdb.Where("created_at < ?", ts).Delete(&UserActLog{})
+	affected, err := GetDB().Engine().Where("created_at < ?", ts).Delete(&UserActLog{})
 	return affected, err
 }
 
 // 后台筛选用户操作日志
 func (ua *UserActLogProcess) GetSession(values url.Values) *xorm.Session {
-	session := xdb.Where("1=1")
+	session := GetDB().Engine().Where("1=1")
 	if v := values.Get("username"); v != "" {
 		fuzzy := "%" + v + "%"
 		session.And("username IN (SELECT username FROM "+QuoteIdent("user")+" WHERE username LIKE ? OR nickname LIKE ?)", fuzzy, fuzzy)

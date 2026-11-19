@@ -12,12 +12,6 @@ import (
 	"layeh.com/radius/rfc2865"
 )
 
-func init() {
-	auth.Registry.Register("radius", func() auth.Authenticator {
-		return &RADIUSAuth{}
-	})
-}
-
 type RADIUSAuth struct {
 	auth.RADIUSConfig
 }
@@ -29,7 +23,7 @@ func (a *RADIUSAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 		return auth.StepPending, nil
 	}
 
-	// Access-Challenge 恢复时必须带回服务端下发的 State。
+	// Access-Challenge 恢复时必须带回服务端下发的 State
 	var prevState []byte
 	isResume := ctx.RADIUS != nil && ctx.RADIUS.State != nil
 	if isResume {
@@ -39,10 +33,7 @@ func (a *RADIUSAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 	// Resume 时用二次验证码作为 User-Password (RADIUS Challenge 协议要求)
 	password := ctx.Conn.Password
 	if isResume {
-		code := ""
-		if ctx.RADIUS != nil {
-			code = ctx.RADIUS.ChallengeCode
-		}
+		code := ctx.RADIUS.ChallengeCode
 		if code == "" {
 			return auth.StepPending, nil // 等待用户输入验证码
 		}

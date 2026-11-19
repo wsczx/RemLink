@@ -16,14 +16,14 @@ func TestRemoveGroupFromUsers(t *testing.T) {
 	u2 := User{Type: "local", Username: "rgf-u2", Groups: []string{"keep2", "todelete"}, Status: 1}
 	u3 := User{Type: "local", Username: "rgf-u3", Groups: []string{"other"}, Status: 1}
 	for _, u := range []*User{&u0, &u1, &u2, &u3} {
-		ast.Nil(Add(u))
+		ast.Nil(GetDB().Insert(u))
 	}
 
-	ast.Nil(RemoveGroupFromUsers("todelete"))
+	ast.Nil(Users.RemoveGroupFromUsers("todelete"))
 
 	check := func(username string, want []string) {
 		var u User
-		ast.Nil(One("username", username, &u))
+		ast.Nil(Users.GetByUsername(username, &u))
 		ast.Equal(want, u.Groups, username+" 的组关系应被正确清理")
 	}
 	check("rgf-u0", []string{"keep0"})
@@ -39,11 +39,11 @@ func TestRemoveGroupFromUsers_LastGroup(t *testing.T) {
 	defer closeIpdata()
 
 	u := User{Type: "local", Username: "rgf-solo", Groups: []string{"todelete"}, Status: 1}
-	ast.Nil(Add(&u))
+	ast.Nil(GetDB().Insert(&u))
 
-	ast.Nil(RemoveGroupFromUsers("todelete"))
+	ast.Nil(Users.RemoveGroupFromUsers("todelete"))
 
 	var got User
-	ast.Nil(One("username", "rgf-solo", &got))
+	ast.Nil(Users.GetByUsername("rgf-solo", &got))
 	ast.Empty(got.Groups, "唯一组被移除后 Groups 应为空")
 }

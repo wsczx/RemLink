@@ -28,6 +28,9 @@ type Flow struct {
 	Source     string // 来源标识：native / webauth / portal，用于日志标注
 	Callbacks  FlowCallbacks
 	Session    *AuthSession // 非 nil 时，savePendingState 在写回断点后持久化会话
+
+	locks        *auth.LockManager
+	authSessions authSessionStore
 }
 
 // 首次执行认证管道并按结果分发
@@ -79,13 +82,13 @@ func (f *Flow) dispatch(w http.ResponseWriter, r *http.Request, result *auth.Pip
 
 	switch result.Result {
 	case auth.StepPass:
-		lockManager.Success(f.Username, f.RemoteAddr)
+		f.locks.Success(f.Username, f.RemoteAddr)
 		if f.Callbacks.OnPass != nil {
 			f.Callbacks.OnPass(f, w, r)
 		}
 
 	case auth.StepFail:
-		lockManager.Fail(f.Username, f.RemoteAddr)
+		f.locks.Fail(f.Username, f.RemoteAddr)
 		if f.Callbacks.OnFail != nil {
 			f.Callbacks.OnFail(f, w, r)
 		}
@@ -97,7 +100,7 @@ func (f *Flow) dispatch(w http.ResponseWriter, r *http.Request, result *auth.Pip
 		}
 
 	default:
-		lockManager.Fail(f.Username, f.RemoteAddr)
+		f.locks.Fail(f.Username, f.RemoteAddr)
 		base.Warn("认证管道返回未知结果:", result.Result)
 		if f.Callbacks.OnFail != nil {
 			f.Callbacks.OnFail(f, w, r)
@@ -108,7 +111,7 @@ func (f *Flow) dispatch(w http.ResponseWriter, r *http.Request, result *auth.Pip
 // 挑战阶段锁定计数决策：true=阶段成功（仅清首因子计数）
 // false=挑战失败（独立计数）。挑战码错误或无活动挑战计失败；正常进入挑战仅清首因子——
 // 防已知口令者反复重跑认证重置 OTP 尝试
-func (f *Flow) pendingLockDecision(result *auth.PipelineResult) bool {
+func (f *Flow) isChallengeStageSuccess(result *auth.PipelineResult) bool {
 	if result.IsChallengeRetry() {
 		return false
 	}
@@ -120,10 +123,10 @@ func (f *Flow) pendingLockDecision(result *auth.PipelineResult) bool {
 
 // 维护挑战阶段的锁定计数：挑战码错误则累加挑战计数；首次进入挑战（带 Challenge）仅清首因子计数
 func (f *Flow) handlePendingLock(result *auth.PipelineResult) {
-	if f.pendingLockDecision(result) {
-		lockManager.StageSuccess(f.Username, f.RemoteAddr)
+	if f.isChallengeStageSuccess(result) {
+		f.locks.StageSuccess(f.Username, f.RemoteAddr)
 	} else {
-		lockManager.ChallengeFail(f.Username, f.RemoteAddr)
+		f.locks.ChallengeFail(f.Username, f.RemoteAddr)
 	}
 }
 
@@ -135,6 +138,6 @@ func (f *Flow) savePendingState() {
 	f.Ctx.SetStepIdx(f.Result.State.StepIdx)
 	f.Ctx.SetPassedSteps(f.Result.State.PassedSteps)
 	if f.Session != nil && f.Session.SessionID != "" {
-		AuthSessionManager.Save(f.Session.SessionID, f.Session)
+		f.authSessions.Save(f.Session.SessionID, f.Session)
 	}
 }

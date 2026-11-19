@@ -9,12 +9,12 @@ import (
 )
 
 var tcpParsers = []func([]byte) (uint8, string){
-	sniNewParser,
+	newSNIParser,
 	httpParser,
 	commonProtocolParser,
 }
 
-// onTCP 接收一段完整的 TCP 报文（含 TCP 头，不含 IP 头），跳过 TCP 头后
+// 接收一段完整的 TCP 报文（含 TCP 头，不含 IP 头），跳过 TCP 头后
 // 用 SNI/HTTP parser 提取域名。tcpPl 长度必须 >= 14（TCP 头最小长度）
 func onTCP(tcpPl []byte) (uint8, string) {
 	if len(tcpPl) < 14 {
@@ -36,11 +36,11 @@ func onTCP(tcpPl []byte) (uint8, string) {
 
 // 从 TLS ClientHello 中提取 SNI 域名
 // 基于游标遍历：先定位 Handshake 主体，再跳过固定字段，最后按扩展声明长度遍历扩展链
-func sniNewParser(b []byte) (uint8, string) {
+func newSNIParser(b []byte) (uint8, string) {
 	if len(b) < 5 || b[0] != 0x16 || b[1] != 0x03 {
 		return acc_proto_tcp, ""
 	}
-	// TLS 记录层：record type(1) + version(2) + length(2)，之后为握手消息。
+	// TLS 记录层：record type(1) + version(2) + length(2)，之后为握手消息
 	recordLen := int(b[3])<<8 | int(b[4])
 	if recordLen < 4 || len(b) < 5+recordLen || len(b) < 9 {
 		return acc_proto_tcp, ""
@@ -142,7 +142,7 @@ func sniNewParser(b []byte) (uint8, string) {
 }
 
 // Beta
-func httpNewParser(data []byte) (uint8, string) {
+func newHTTPParser(data []byte) (uint8, string) {
 	methodArr := []string{"OPTIONS", "HEAD", "GET", "POST", "PUT", "DELETE", "TRACE", "CONNECT"}
 	before, _, ok := bytes.Cut(data, []byte{10})
 	if !ok {

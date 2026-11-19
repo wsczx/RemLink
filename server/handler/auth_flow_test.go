@@ -40,7 +40,7 @@ func TestFlowUsername_LockSemantics(t *testing.T) {
 	}
 }
 
-// 验证断点写回与可选持久化收口：
+// 验证断点写回与可选持久化的行为：
 // 当 Flow.Session 注入且持有 SessionID 时，savePendingState 写回 StepIdx 后
 // 自动持久化；否则仅写回不持久化（调用方自行负责存储）
 func TestSavePendingState_WritesBack(t *testing.T) {
@@ -73,7 +73,7 @@ func TestFlow_pendingLockDecision(t *testing.T) {
 		State:       auth.PipelineState{StepIdx: 1},
 		Challenge:   &auth.ChallengeInfo{},
 	}
-	ast.False(f.pendingLockDecision(retry), "挑战码错误应计失败")
+	ast.False(f.isChallengeStageSuccess(retry), "挑战码错误应计失败")
 
 	noChallenge := &auth.PipelineResult{
 		Result:      auth.StepPending,
@@ -81,7 +81,7 @@ func TestFlow_pendingLockDecision(t *testing.T) {
 		State:       auth.PipelineState{StepIdx: 0},
 		Challenge:   nil,
 	}
-	ast.False(f.pendingLockDecision(noChallenge), "非重试且无活动挑战应计失败")
+	ast.False(f.isChallengeStageSuccess(noChallenge), "非重试且无活动挑战应计失败")
 
 	ok := &auth.PipelineResult{
 		Result:      auth.StepPending,
@@ -89,5 +89,5 @@ func TestFlow_pendingLockDecision(t *testing.T) {
 		State:       auth.PipelineState{StepIdx: 0},
 		Challenge:   &auth.ChallengeInfo{},
 	}
-	ast.True(f.pendingLockDecision(ok), "正常进入挑战应清计数")
+	ast.True(f.isChallengeStageSuccess(ok), "正常进入挑战应清计数")
 }

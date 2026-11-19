@@ -1,6 +1,7 @@
 package sessdata
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 
@@ -14,70 +15,74 @@ const (
 	AddCycleSec   = 60 // 记录到数据表周期（秒）
 )
 
-func saveStatsInfo() {
+func (m *SessionManager) saveStatsInfo(ctx context.Context) {
 	go func() {
 		tick := time.NewTicker(time.Second * StatsCycleSec)
+		defer tick.Stop()
 		count := 0
-		for range tick.C {
-			up := uint64(0)
-			down := uint64(0)
-			upGroups := make(map[int]uint64)
-			downGroups := make(map[int]uint64)
-			numGroups := make(map[int]int)
-			onlineNum := 0
-			sessMux.Lock()
-			for _, v := range sessions {
-				v.mux.Lock()
-				if v.IsActive && v.CSess.Group != nil {
-					// 在线人数
-					onlineNum += 1
-					numGroups[v.CSess.Group.Id] += 1
-					// 网络吞吐
-					userUp := v.CSess.BandwidthUpPeriod.Load()
-					userDown := v.CSess.BandwidthDownPeriod.Load()
-					if userUp > 0 {
-						upGroups[v.CSess.Group.Id] += userUp
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				up := uint64(0)
+				down := uint64(0)
+				upGroups := make(map[int]uint64)
+				downGroups := make(map[int]uint64)
+				numGroups := make(map[int]int)
+				onlineNum := 0
+				m.Range(func(v *Session) {
+					v.mux.Lock()
+					if v.IsActive && v.CSess.Group != nil {
+						// 在线人数
+						onlineNum += 1
+						numGroups[v.CSess.Group.Id] += 1
+						// 网络吞吐
+						userUp := v.CSess.BandwidthUpPeriod.Load()
+						userDown := v.CSess.BandwidthDownPeriod.Load()
+						if userUp > 0 {
+							upGroups[v.CSess.Group.Id] += userUp
+						}
+						if userDown > 0 {
+							downGroups[v.CSess.Group.Id] += userDown
+						}
+						up += userUp
+						down += userDown
 					}
-					if userDown > 0 {
-						downGroups[v.CSess.Group.Id] += userDown
-					}
-					up += userUp
-					down += userDown
-				}
-				v.mux.Unlock()
-			}
-			sessMux.Unlock()
+					v.mux.Unlock()
+				})
 
-			tNow := time.Now()
-			// online
-			numData, err := json.Marshal(numGroups)
-			if err != nil {
-				numData = []byte("{}")
+				tNow := time.Now()
+				// online
+				numData, err := json.Marshal(numGroups)
+				if err != nil {
+					numData = []byte("{}")
+				}
+				so := dbdata.StatsOnline{Num: onlineNum, NumGroups: string(numData), CreatedAt: tNow}
+				// network
+				upData, err := json.Marshal(upGroups)
+				if err != nil {
+					upData = []byte("{}")
+				}
+				downData, err := json.Marshal(downGroups)
+				if err != nil {
+					downData = []byte("{}")
+				}
+				sn := dbdata.StatsNetwork{Up: up, Down: down, UpGroups: string(upData), DownGroups: string(downData), CreatedAt: tNow}
+				// cpu
+				sc := dbdata.StatsCpu{Percent: getCpuPercent(), CreatedAt: tNow}
+				// mem
+				sm := dbdata.StatsMem{Percent: getMemPercent(), CreatedAt: tNow}
+				count++
+				// 是否保存至数据库
+				save := count*StatsCycleSec >= AddCycleSec
+				// 历史数据
+				if save {
+					count = 0
+				}
+				// 设置统计数据
+				setStatsData(save, so, sn, sc, sm)
 			}
-			so := dbdata.StatsOnline{Num: onlineNum, NumGroups: string(numData), CreatedAt: tNow}
-			// network
-			upData, err := json.Marshal(upGroups)
-			if err != nil {
-				upData = []byte("{}")
-			}
-			downData, err := json.Marshal(downGroups)
-			if err != nil {
-				downData = []byte("{}")
-			}
-			sn := dbdata.StatsNetwork{Up: up, Down: down, UpGroups: string(upData), DownGroups: string(downData), CreatedAt: tNow}
-			// cpu
-			sc := dbdata.StatsCpu{Percent: getCpuPercent(), CreatedAt: tNow}
-			// mem
-			sm := dbdata.StatsMem{Percent: getMemPercent(), CreatedAt: tNow}
-			count++
-			// 是否保存至数据库
-			save := count*StatsCycleSec >= AddCycleSec
-			// 历史数据
-			if save {
-				count = 0
-			}
-			// 设置统计数据
-			setStatsData(save, so, sn, sc, sm)
 		}
 	}()
 }

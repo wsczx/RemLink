@@ -8,9 +8,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wsczx/remlink/pkg/utils"
+
 	"github.com/wsczx/remlink/base"
 	"xorm.io/xorm"
 )
+
+// WebVPN 应用、会话与吊销的存储入口
+type WebVpnStore struct{ *table[WebVpnApp] }
+
+// WebVPN 应用、会话与吊销的存储入口实例，由 SetDB 注入持久化实现
+var WebVpn = &WebVpnStore{}
 
 var (
 	errWebVpnEmptyName      = errors.New("应用名称不能为空")
@@ -23,11 +31,11 @@ var (
 
 // 校验应用名是否仅含小写字母、数字与中划线
 // 用于作为 WebVPN 子域前缀（a.Name + "." + 域名）时的安全过滤
-func webVpnAppNameValid(name string) bool {
-	if name == "" {
+func (a *WebVpnApp) validName() bool {
+	if a.Name == "" {
 		return false
 	}
-	for _, c := range name {
+	for _, c := range a.Name {
 		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' {
 			continue
 		}
@@ -38,7 +46,7 @@ func webVpnAppNameValid(name string) bool {
 
 // 校验并解析 WebVPN 反向代理目标
 // 保留内网目标能力，但拒绝无法安全解释的 URL 形式
-func ParseWebVpnBackendURL(raw string) (*url.URL, error) {
+func ParseBackendURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u == nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.Opaque != "" || u.RawQuery != "" || u.Fragment != "" || u.Hostname() == "" {
 		return nil, errWebVpnInvalidBackend
@@ -54,7 +62,7 @@ func ParseWebVpnBackendURL(raw string) (*url.URL, error) {
 }
 
 // 应用配置的进程内缓存，避免每个请求都查库
-// Set/Del 后通过 InvalidateWebVpnAppCache 主动失效；TTL 兜底防止遗漏
+// Set/Del 后通过 InvalidateAppCache 主动失效；TTL 兜底防止遗漏
 var webVpnAppCache = struct {
 	mu     sync.RWMutex
 	m      map[string]*WebVpnApp
@@ -62,13 +70,6 @@ var webVpnAppCache = struct {
 }{m: make(map[string]*WebVpnApp)}
 
 const webVpnAppCacheTTL = 60 * time.Second
-
-// 主动失效缓存（配置变更后调用）
-func InvalidateWebVpnAppCache() {
-	webVpnAppCache.mu.Lock()
-	webVpnAppCache.m = make(map[string]*WebVpnApp)
-	webVpnAppCache.mu.Unlock()
-}
 
 // 反向代理应用配置
 // 通过子域名 *.WebVpnDomain 访问：子域名 = Name，反代到 Backend
@@ -90,90 +91,9 @@ type WebVpnApp struct {
 	UpdatedAt          time.Time `json:"updated_at" xorm:"DateTime updated"`
 }
 
-// 分页查询所有 WebVPN 应用；name 非空时按子域名/名称前缀模糊过滤
-func WebVpnAppList(pageSize, page int, name string) ([]WebVpnApp, int, error) {
-	var datas []WebVpnApp
-	name = strings.TrimSpace(name)
-	if name == "" {
-		count := CountAll(&WebVpnApp{})
-		err := Find(&datas, pageSize, page)
-		return datas, count, err
-	}
-	like := "%" + EscapeLike(name) + "%"
-	count := FindWhereCount(&WebVpnApp{}, "name LIKE ? OR note LIKE ?", like, like)
-	err := FindWhere(&datas, pageSize, page, "name LIKE ? OR note LIKE ?", like, like)
-	return datas, count, err
-}
-
-// 新增或更新 WebVPN 应用
-func SetWebVpnApp(a *WebVpnApp) error {
-	if a.Name == "" {
-		return errWebVpnEmptyName
-	}
-	// 应用名作为 WebVPN 子域名前缀使用（a.Name + "." + 域名），
-	// 仅允许小写字母、数字与中划线，避免拼接出非预期主机或注入
-	if !webVpnAppNameValid(a.Name) {
-		return errWebVpnInvalidName
-	}
-	if a.Backend == "" {
-		return errWebVpnEmptyBackend
-	}
-	if _, err := ParseWebVpnBackendURL(a.Backend); err != nil {
-		return err
-	}
-	if err := normalizeWebVpnCorsOrigins(a); err != nil {
-		return err
-	}
-	// 记录变更前的授权范围，用于权限收窄/调整时吊销相关用户会话
-	var oldUsers, oldGroups []string
-	if a.Id > 0 {
-		var old WebVpnApp
-		if err := One("Id", a.Id, &old); err == nil {
-			oldUsers, oldGroups = old.Users, old.Groups
-		}
-	}
-	a.UpdatedAt = time.Now()
-	var err error
-	if a.Id > 0 {
-		// 更新
-		err = Set(a)
-	} else {
-		// 新增：默认启用
-		if a.Status == 0 {
-			a.Status = 1
-		}
-		err = Add(a)
-	}
-	if err == nil {
-		InvalidateWebVpnAppCache()
-		// 权限白名单变更后，令新旧授权范围内的用户重新签发会话，使权限立即生效
-		revokeAffectedWebVpnUsers(oldUsers, oldGroups, a.Users, a.Groups)
-	}
-	return err
-}
-
-// 删除 WebVPN 应用
-func DelWebVpnApp(id int) error {
-	if id < 1 {
-		return errWebVpnInvalidId
-	}
-	// 删除前取出授权范围，删除后吊销相关用户会话
-	var delUsers, delGroups []string
-	var old WebVpnApp
-	if err := One("Id", id, &old); err == nil {
-		delUsers, delGroups = old.Users, old.Groups
-	}
-	err := Del(&WebVpnApp{Id: id})
-	if err == nil {
-		InvalidateWebVpnAppCache()
-		revokeAffectedWebVpnUsers(delUsers, delGroups, nil, nil)
-	}
-	return err
-}
-
 // 权限白名单（用户/组）变更后，仅吊销「被移除授权」的用户 WebVPN 会话，
 // 使已签发的会话（token 内固化的 webvpn_groups）立即失效，下次访问须重新授权
-func revokeAffectedWebVpnUsers(oldUsers, oldGroups, newUsers, newGroups []string) {
+func (st *WebVpnStore) revokeAffected(oldUsers, oldGroups, newUsers, newGroups []string) {
 	keepUsers := make(map[string]bool, len(newUsers))
 	for _, u := range newUsers {
 		if u != "" {
@@ -206,73 +126,18 @@ func revokeAffectedWebVpnUsers(oldUsers, oldGroups, newUsers, newGroups []string
 		if g == "" || keepGroups[g] {
 			continue
 		}
-		for _, u := range UsernamesOfGroup(g) {
+		for _, u := range st.UsernamesOfGroup(g) {
 			if !keepUsers[u] {
 				add(u)
 			}
 		}
 	}
 	if len(toKick) > 0 {
-		WebVpnRevokeUsers(toKick)
+		st.RevokeUsers(toKick)
 	}
 }
 
-// 按子域名前缀（Name）查找应用，带进程内缓存
-func GetWebVpnAppByName(name string) (*WebVpnApp, error) {
-	webVpnAppCache.mu.RLock()
-	hit := webVpnAppCache.m[name]
-	fresh := time.Now().Before(webVpnAppCache.expire)
-	webVpnAppCache.mu.RUnlock()
-	if hit != nil && fresh {
-		return hit, nil
-	}
-
-	a := &WebVpnApp{}
-	if err := One("Name", name, a); err != nil {
-		if CheckErrNotFound(err) {
-			// 未命中也缓存空标记，避免穿透；用独立负缓存 key
-			webVpnAppCache.mu.Lock()
-			webVpnAppCache.m[name] = nil
-			webVpnAppCache.expire = time.Now().Add(webVpnAppCacheTTL)
-			webVpnAppCache.mu.Unlock()
-		}
-		return nil, err
-	}
-
-	webVpnAppCache.mu.Lock()
-	webVpnAppCache.m[name] = a
-	webVpnAppCache.expire = time.Now().Add(webVpnAppCacheTTL)
-	webVpnAppCache.mu.Unlock()
-	return a, nil
-}
-
-// 空白名单=全部放行；用户维度判断与 handler 层 webVpnAuthorized 保持一致
-func WebVpnUserAllowed(a *WebVpnApp, user *User) bool {
-	if len(a.Users) > 0 {
-		if !contains(a.Users, user.Username) {
-			return false
-		}
-	}
-	if len(a.Groups) > 0 {
-		hit := false
-		for _, g := range user.Groups {
-			if contains(a.Groups, g) {
-				hit = true
-				break
-			}
-		}
-		if !hit {
-			return false
-		}
-	}
-	return true
-}
-
-func contains(slice []string, target string) bool {
-	return slices.Contains(slice, target)
-}
-
-func normalizeWebVpnCorsOrigins(a *WebVpnApp) error {
+func (a *WebVpnApp) normalizeCors() error {
 	if len(a.CorsAllowedOrigins) == 0 {
 		a.CorsAllowedOrigins = nil
 		return nil
@@ -296,25 +161,6 @@ func normalizeWebVpnCorsOrigins(a *WebVpnApp) error {
 	return nil
 }
 
-// 检查 WebVPN app的精确配置源
-func WebVpnCorsOriginAllowed(a *WebVpnApp, origin string) bool {
-	if a == nil || !a.AllowCrossSite || origin == "" {
-		return false
-	}
-	u, err := url.Parse(origin)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
-		return false
-	}
-	key := strings.ToLower(u.Scheme + "://" + u.Host)
-	for _, allowed := range a.CorsAllowedOrigins {
-		v, err := url.Parse(strings.TrimSpace(allowed))
-		if err == nil && strings.ToLower(v.Scheme+"://"+v.Host) == key {
-			return true
-		}
-	}
-	return false
-}
-
 // 访问审计记录（每次代理请求落一条，异步批量写入）
 type WebVpnAudit struct {
 	Id         int64     `json:"id" xorm:"pk autoincr not null"`
@@ -334,40 +180,11 @@ type WebVpnAudit struct {
 }
 
 // 显式指定审计表名
-func (WebVpnAudit) TableName() string  { return "webvpn_audit" }
-func (WebVpnApp) TableName() string    { return "webvpn_app" }
-func (WebVpnRevoke) TableName() string { return "webvpn_revoke" }
+func (WebVpnAudit) TableName() string { return "webvpn_audit" }
 
-// 分页查询（支持按用户名/应用名/时间范围过滤）
-func WebVpnAuditList(pageSize, page int, search WebVpnAuditSearch) ([]WebVpnAudit, int, error) {
-	var datas []WebVpnAudit
-	buildCond := func(s *xorm.Session) {
-		if search.Username != "" {
-			s.And("username = ?", search.Username)
-		}
-		if search.AppName != "" {
-			s.And("app_name = ?", search.AppName)
-		}
-		if search.Method != "" {
-			s.And("method = ?", search.Method)
-		}
-		if len(search.Date) == 2 && search.Date[0] != "" {
-			s.And("created_at BETWEEN ? AND ?", search.Date[0], search.Date[1])
-		}
-	}
-	countSession := xdb.Where("1=1")
-	buildCond(countSession)
-	count, err := countSession.Count(&WebVpnAudit{})
-	if err != nil {
-		return nil, 0, err
-	}
-	listSession := xdb.Where("1=1")
-	buildCond(listSession)
-	if err := listSession.OrderBy("id desc").Limit(pageSize, (page-1)*pageSize).Find(&datas); err != nil {
-		return nil, 0, err
-	}
-	return datas, int(count), nil
-}
+func (WebVpnApp) TableName() string { return "webvpn_app" }
+
+func (WebVpnRevoke) TableName() string { return "webvpn_revoke" }
 
 // 审计查询条件
 type WebVpnAuditSearch struct {
@@ -381,9 +198,210 @@ type WebVpnAuditSearch struct {
 // 审计表可能极大，导出设硬上限防止一次性拉爆内存（命中条数超过上限时截断）
 const webVpnAuditExportLimit = 100000
 
-func WebVpnAuditExportList(search WebVpnAuditSearch) ([]WebVpnAudit, error) {
+// 会话整用户踢出阈值：username -> 吊销时间戳（unix 秒）
+// 该时间戳之前签发的 WebVPN 会话一律视为已吊销
+var (
+	webVpnRevokeBeforeMu sync.Mutex
+	webVpnRevokeBefore   = map[string]int64{}
+)
+
+// 主动失效缓存（配置变更后调用）
+func (st *WebVpnStore) InvalidateAppCache() {
+	webVpnAppCache.mu.Lock()
+	webVpnAppCache.m = make(map[string]*WebVpnApp)
+	webVpnAppCache.mu.Unlock()
+}
+
+// 分页查询所有 WebVPN 应用；name 非空时按子域名/名称前缀模糊过滤
+func (st *WebVpnStore) AppList(pageSize, page int, name string) ([]WebVpnApp, int, error) {
+	var datas []WebVpnApp
+	name = strings.TrimSpace(name)
+	if name == "" {
+		count := GetDB().Count(&WebVpnApp{})
+		err := GetDB().Find(&datas, pageSize, page)
+		return datas, count, err
+	}
+	like := "%" + utils.EscapeLike(name) + "%"
+	count := GetDB().CountWhere(&WebVpnApp{}, "name LIKE ? OR note LIKE ?", like, like)
+	err := GetDB().FindWhere(&datas, pageSize, page, "name LIKE ? OR note LIKE ?", like, like)
+	return datas, count, err
+}
+
+// 新增或更新 WebVPN 应用
+func (st *WebVpnStore) SetApp(a *WebVpnApp) error {
+	if a.Name == "" {
+		return errWebVpnEmptyName
+	}
+
+	if !a.validName() {
+		return errWebVpnInvalidName
+	}
+	if a.Backend == "" {
+		return errWebVpnEmptyBackend
+	}
+	if _, err := ParseBackendURL(a.Backend); err != nil {
+		return err
+	}
+	if err := a.normalizeCors(); err != nil {
+		return err
+	}
+	// 记录变更前的授权范围，用于权限收窄/调整时吊销相关用户会话
+	var oldUsers, oldGroups []string
+	if a.Id > 0 {
+		var old WebVpnApp
+		if err := GetDB().Get("Id", a.Id, &old); err == nil {
+			oldUsers, oldGroups = old.Users, old.Groups
+		}
+	}
+	a.UpdatedAt = time.Now()
+	var err error
+	if a.Id > 0 {
+
+		err = GetDB().Save(a)
+	} else {
+
+		if a.Status == 0 {
+			a.Status = 1
+		}
+		err = GetDB().Insert(a)
+	}
+	if err == nil {
+		st.InvalidateAppCache()
+
+		st.revokeAffected(oldUsers, oldGroups, a.Users, a.Groups)
+	}
+	return err
+}
+
+// 删除 WebVPN 应用
+func (st *WebVpnStore) DelApp(id int) error {
+	if id < 1 {
+		return errWebVpnInvalidId
+	}
+	// 删除前取出授权范围，删除后吊销相关用户会话
+	var delUsers, delGroups []string
+	var old WebVpnApp
+	if err := GetDB().Get("Id", id, &old); err == nil {
+		delUsers, delGroups = old.Users, old.Groups
+	}
+	err := GetDB().Delete(&WebVpnApp{Id: id})
+	if err == nil {
+		st.InvalidateAppCache()
+		st.revokeAffected(delUsers, delGroups, nil, nil)
+	}
+	return err
+}
+
+// 返回全部启用中的应用（不分页、无过滤）
+func (st *WebVpnStore) EnabledApps() ([]WebVpnApp, error) {
+	var apps []WebVpnApp
+	err := GetDB().FindWhere(&apps, 0, 0, "status=1")
+	return apps, err
+}
+
+// 按子域名前缀（Name）查找应用，带进程内缓存
+func (st *WebVpnStore) GetAppByName(name string) (*WebVpnApp, error) {
+	webVpnAppCache.mu.RLock()
+	hit := webVpnAppCache.m[name]
+	fresh := time.Now().Before(webVpnAppCache.expire)
+	webVpnAppCache.mu.RUnlock()
+	if hit != nil && fresh {
+		return hit, nil
+	}
+
+	a := &WebVpnApp{}
+	if err := GetDB().Get("Name", name, a); err != nil {
+		if utils.CheckErrNotFound(err) {
+
+			webVpnAppCache.mu.Lock()
+			webVpnAppCache.m[name] = nil
+			webVpnAppCache.expire = time.Now().Add(webVpnAppCacheTTL)
+			webVpnAppCache.mu.Unlock()
+		}
+		return nil, err
+	}
+
+	webVpnAppCache.mu.Lock()
+	webVpnAppCache.m[name] = a
+	webVpnAppCache.expire = time.Now().Add(webVpnAppCacheTTL)
+	webVpnAppCache.mu.Unlock()
+	return a, nil
+}
+
+// 空白名单=全部放行
+func (st *WebVpnStore) UserAllowed(a *WebVpnApp, user *User) bool {
+	if len(a.Users) > 0 {
+		if !slices.Contains(a.Users, user.Username) {
+			return false
+		}
+	}
+	if len(a.Groups) > 0 {
+		hit := false
+		for _, g := range user.Groups {
+			if slices.Contains(a.Groups, g) {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			return false
+		}
+	}
+	return true
+}
+
+// 检查 WebVPN app的精确配置源
+func (st *WebVpnStore) CorsOriginAllowed(a *WebVpnApp, origin string) bool {
+	if a == nil || !a.AllowCrossSite || origin == "" {
+		return false
+	}
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return false
+	}
+	key := strings.ToLower(u.Scheme + "://" + u.Host)
+	for _, allowed := range a.CorsAllowedOrigins {
+		v, err := url.Parse(strings.TrimSpace(allowed))
+		if err == nil && strings.ToLower(v.Scheme+"://"+v.Host) == key {
+			return true
+		}
+	}
+	return false
+}
+
+// 分页查询（支持按用户名/应用名/时间范围过滤）
+func (st *WebVpnStore) AuditList(pageSize, page int, search WebVpnAuditSearch) ([]WebVpnAudit, int, error) {
 	var datas []WebVpnAudit
-	session := xdb.Where("1=1")
+	buildCond := func(st *xorm.Session) {
+		if search.Username != "" {
+			st.And("username = ?", search.Username)
+		}
+		if search.AppName != "" {
+			st.And("app_name = ?", search.AppName)
+		}
+		if search.Method != "" {
+			st.And("method = ?", search.Method)
+		}
+		if len(search.Date) == 2 && search.Date[0] != "" {
+			st.And("created_at BETWEEN ? AND ?", search.Date[0], search.Date[1])
+		}
+	}
+	countSession := GetDB().Engine().Where("1=1")
+	buildCond(countSession)
+	count, err := countSession.Count(&WebVpnAudit{})
+	if err != nil {
+		return nil, 0, err
+	}
+	listSession := GetDB().Engine().Where("1=1")
+	buildCond(listSession)
+	if err := listSession.OrderBy("id desc").Limit(pageSize, (page-1)*pageSize).Find(&datas); err != nil {
+		return nil, 0, err
+	}
+	return datas, int(count), nil
+}
+func (st *WebVpnStore) AuditExportList(search WebVpnAuditSearch) ([]WebVpnAudit, error) {
+	var datas []WebVpnAudit
+	session := GetDB().Engine().Where("1=1")
 	if search.Username != "" {
 		session.And("username = ?", search.Username)
 	}
@@ -406,8 +424,8 @@ func WebVpnAuditExportList(search WebVpnAuditSearch) ([]WebVpnAudit, error) {
 }
 
 // 返回导出查询命中总数（用于上限校验）
-func WebVpnAuditExportCount(search WebVpnAuditSearch) (int64, error) {
-	session := xdb.Where("1=1")
+func (st *WebVpnStore) AuditExportCount(search WebVpnAuditSearch) (int64, error) {
+	session := GetDB().Engine().Where("1=1")
 	if search.Username != "" {
 		session.And("username = ?", search.Username)
 	}
@@ -424,25 +442,18 @@ func WebVpnAuditExportCount(search WebVpnAuditSearch) (int64, error) {
 }
 
 // 批量写入审计记录
-func AddBatchWebVpnAudit(datas []WebVpnAudit) error {
+func (st *WebVpnStore) AddBatchAudit(datas []WebVpnAudit) error {
 	if len(datas) == 0 {
 		return nil
 	}
-	_, err := xdb.Insert(&datas)
+	_, err := GetDB().Engine().Insert(&datas)
 	return err
 }
 
-// 会话整用户踢出阈值：username -> 吊销时间戳（unix 秒）
-// 该时间戳之前签发的 WebVPN 会话一律视为已吊销，实现 O(1) 整用户下线
-var (
-	webVpnRevokeBeforeMu sync.Mutex
-	webVpnRevokeBefore   = map[string]int64{}
-)
-
 // 在服务启动时将 DB 中的吊销记录加载到内存缓存，保证重启后旧 token 仍按上次吊销阈值失效
-func LoadWebVpnRevoke() {
+func (st *WebVpnStore) LoadRevoke() {
 	var rows []WebVpnRevoke
-	if err := xdb.Find(&rows); err != nil {
+	if err := GetDB().Engine().Find(&rows); err != nil {
 		base.Error("加载 WebVPN 吊销记录失败:", err)
 		return
 	}
@@ -455,26 +466,27 @@ func LoadWebVpnRevoke() {
 
 // 吊销指定用户的全部 WebVPN 会话（整用户下线）
 // 通过抬高吊销阈值实现：此后该用户签名时间早于阈值的会话都将被拒绝
-func WebVpnRevokeUser(username string) error {
+func (st *WebVpnStore) RevokeUser(username string) error {
 	if username == "" {
 		return nil
 	}
 	ts := time.Now().Unix()
 
-	// 写内存缓存并保留旧值，以便持久化失败时恢复
 	webVpnRevokeBeforeMu.Lock()
 	oldTs, hadOld := webVpnRevokeBefore[username]
+	if hadOld && oldTs >= ts {
+		ts = oldTs + 1
+	}
 	webVpnRevokeBefore[username] = ts
 	webVpnRevokeBeforeMu.Unlock()
 
-	// 持久化到 DB
 	rec := &WebVpnRevoke{Username: username, RevokedAt: ts}
 	var probe WebVpnRevoke
 	var err error
-	if e := One("Username", username, &probe); e == nil {
-		err = Update("Username", username, rec)
+	if e := GetDB().Get("Username", username, &probe); e == nil {
+		err = GetDB().Update("Username", username, rec)
 	} else {
-		err = Add(rec)
+		err = GetDB().Insert(rec)
 	}
 	if err != nil {
 		webVpnRevokeBeforeMu.Lock()
@@ -494,7 +506,7 @@ func WebVpnRevokeUser(username string) error {
 
 // 返回指定用户的吊销阈值（0 表示未吊销）
 // 优先读内存缓存；未命中时回查 DB 并回填缓存
-func WebVpnRevokeBeforeOf(username string) int64 {
+func (st *WebVpnStore) RevokeBeforeOf(username string) int64 {
 	webVpnRevokeBeforeMu.Lock()
 	ts, ok := webVpnRevokeBefore[username]
 	webVpnRevokeBeforeMu.Unlock()
@@ -502,10 +514,10 @@ func WebVpnRevokeBeforeOf(username string) int64 {
 		return ts
 	}
 	rec := &WebVpnRevoke{}
-	if err := One("Username", username, rec); err != nil {
+	if err := GetDB().Get("Username", username, rec); err != nil {
 		return 0
 	}
-	// 回查命中，回填内存缓存
+
 	webVpnRevokeBeforeMu.Lock()
 	webVpnRevokeBefore[username] = rec.RevokedAt
 	webVpnRevokeBeforeMu.Unlock()
@@ -514,7 +526,7 @@ func WebVpnRevokeBeforeOf(username string) int64 {
 
 // 清空全部吊销阈值（取消整用户下线状态）
 // 主要用于测试隔离与运维排障，生产环境应谨慎使用
-func WebVpnRevokeReset() {
+func (st *WebVpnStore) RevokeReset() {
 	webVpnRevokeBeforeMu.Lock()
 	webVpnRevokeBefore = map[string]int64{}
 	webVpnRevokeBeforeMu.Unlock()
@@ -522,12 +534,12 @@ func WebVpnRevokeReset() {
 
 // 批量吊销一批用户的 WebVPN 会话（权限变更后让已签发会话立即失效）
 // 未启用（WebVpnDomain 为空）时直接跳过，避免无意义地逐用户写库
-func WebVpnRevokeUsers(usernames []string) {
+func (st *WebVpnStore) RevokeUsers(usernames []string) {
 	if len(usernames) == 0 || base.GetCfg().WebVpnDomain == "" {
 		return
 	}
 	for _, u := range usernames {
-		if err := WebVpnRevokeUser(u); err != nil {
+		if err := st.RevokeUser(u); err != nil {
 			base.Error("批量持久化 WebVPN 吊销记录失败:", u, err)
 		}
 	}
@@ -535,15 +547,15 @@ func WebVpnRevokeUsers(usernames []string) {
 
 // 吊销指定用户组全部成员的 WebVPN 会话
 // 改/删用户组后，成员 token 内固化的 webvpn_groups 已过期，须令其重新签发
-func WebVpnRevokeGroupMembers(groupNames []string) {
+func (st *WebVpnStore) RevokeGroupMembers(groupNames []string) {
 	if len(groupNames) == 0 {
 		return
 	}
-	// 未启用时无需吊销，直接返回
+
 	if base.GetCfg().WebVpnDomain == "" {
 		return
 	}
-	users, err := UsersInGroups(groupNames)
+	users, err := Users.InGroups(groupNames)
 	if err != nil {
 		base.Error("WebVPN 查询用户失败:", err)
 		return
@@ -553,7 +565,7 @@ func WebVpnRevokeGroupMembers(groupNames []string) {
 		if kicked[u.Username] {
 			continue
 		}
-		if err := WebVpnRevokeUser(u.Username); err != nil {
+		if err := st.RevokeUser(u.Username); err != nil {
 			base.Error("批量持久化 WebVPN 吊销记录失败:", u.Username, err)
 			continue
 		}
@@ -561,13 +573,13 @@ func WebVpnRevokeGroupMembers(groupNames []string) {
 	}
 }
 
-// 返回某用户组下的全部用户名（内存过滤，因 Groups 以 Text 序列化存储）
-func UsernamesOfGroup(groupName string) []string {
+// 返回某用户组下的全部用户名
+func (st *WebVpnStore) UsernamesOfGroup(groupName string) []string {
 	if groupName == "" {
 		return nil
 	}
 	var users []User
-	if err := Find(&users, -1, 0); err != nil {
+	if err := GetDB().Find(&users, -1, 0); err != nil {
 		base.Error("查询用户组成员失败:", err)
 		return nil
 	}
@@ -578,4 +590,9 @@ func UsernamesOfGroup(groupName string) []string {
 		}
 	}
 	return names
+}
+
+// 按 ID 加载 WebVPN 应用
+func (st *WebVpnStore) GetApp(id int, dest *WebVpnApp) error {
+	return GetDB().Get("Id", id, dest)
 }

@@ -19,7 +19,7 @@ func createTestUser(username, password string, disableOtp bool) *dbdata.User {
 		DisableOtp: disableOtp,
 	}
 	// OtpSecret 为 "" 会被 SetUser 自动填充，所以需要 DisableOtp=true 来跳过 OTP 检查
-	err := dbdata.SetUser(u)
+	err := dbdata.Users.SetUser(u)
 	if err != nil {
 		panic("createTestUser failed: " + err.Error())
 	}
@@ -156,7 +156,7 @@ func TestLocalAuth_LdapUser(t *testing.T) {
 		DisableOtp: true,
 		Type:       "ldap",
 	}
-	_ = dbdata.SetUser(u)
+	_ = dbdata.Users.SetUser(u)
 
 	la := &LocalAuth{}
 	ctx := &auth.Context{
@@ -184,7 +184,7 @@ func TestLocalAuth_WithOtpDisabled(t *testing.T) {
 		Status:     1,
 		DisableOtp: true,
 	}
-	_ = dbdata.SetUser(u)
+	_ = dbdata.Users.SetUser(u)
 
 	la := &LocalAuth{}
 	ctx := &auth.Context{
@@ -210,7 +210,7 @@ func TestLocalAuth_ExistingOtpCode(t *testing.T) {
 		Status:     1,
 		DisableOtp: false,
 	}
-	_ = dbdata.SetUser(u)
+	_ = dbdata.Users.SetUser(u)
 
 	la := &LocalAuth{}
 	ctx := &auth.Context{
@@ -239,7 +239,7 @@ func TestLocalAuth_ExistingOtpCode_WrongPwd(t *testing.T) {
 		Status:     1,
 		DisableOtp: false,
 	}
-	_ = dbdata.SetUser(u)
+	_ = dbdata.Users.SetUser(u)
 
 	la := &LocalAuth{}
 	ctx := &auth.Context{

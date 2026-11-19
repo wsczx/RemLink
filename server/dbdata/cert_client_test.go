@@ -4,6 +4,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"github.com/wsczx/remlink/pkg/utils"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -23,7 +24,7 @@ func TestEscapeLike(t *testing.T) {
 	}
 	for input, want := range tests {
 		t.Run(input, func(t *testing.T) {
-			assert.Equal(t, want, EscapeLike(input))
+			assert.Equal(t, want, utils.EscapeLike(input))
 		})
 	}
 }
@@ -36,25 +37,24 @@ func TestGenerateClientCert(t *testing.T) {
 	preIpData(t)
 	defer closeIpdata()
 
-	// 使用 GenerateClientCA 生成 CA
-	err := GenerateClientCA()
+	err := Certs.GenerateClientCA()
 	req.NoError(err, "生成客户端 CA 失败")
 
 	dns := []ValData{{Val: "8.8.8.8"}}
 	p := Policy{Name: "cert-test-policy", Status: 1, ClientDns: dns}
-	err = SetPolicy(&p)
+	err = Policies.SetPolicy(&p)
 	req.NoError(err)
 	group := "cert-test-group"
 	g := Group{Name: group, Status: 1, PolicyId: p.Id}
-	err = SetGroup(&g)
+	err = Groups.SetGroup(&g)
 	req.NoError(err)
 
 	username := "cert-test-user"
 	u := User{Username: username, Groups: []string{group}, Status: 1}
-	err = SetUser(&u)
+	err = Users.SetUser(&u)
 	req.NoError(err)
 
-	certData, err := GenerateClientCert(username, group, true, 3)
+	certData, err := Certs.GenerateClientCert(username, group, true, 3)
 	req.NoError(err)
 	req.NotNil(certData)
 	ast.Equal(username, certData.Username)
@@ -64,18 +64,19 @@ func TestGenerateClientCert(t *testing.T) {
 	ast.NotEmpty(certData.PrivateKey)
 	ast.NotEmpty(certData.SerialNumber)
 
-	_, err = GenerateClientCert(username, group, true, 3)
+	_, err = Certs.GenerateClientCert(username, group, true, 3)
 	ast.NotNil(err)
 	ast.Contains(err.Error(), "已存在证书")
 
-	_, err = GenerateClientCert(username, "nonexistent-group", true, 3)
+	_, err = Certs.GenerateClientCert(username, "nonexistent-group", true, 3)
 	ast.NotNil(err)
 	ast.Contains(err.Error(), "不属于组")
 
-	_, err = GenerateClientCert("nonexistent-user", group, true, 3)
+	_, err = Certs.GenerateClientCert("nonexistent-user", group, true, 3)
 	ast.NotNil(err)
 	ast.Contains(err.Error(), "用户不存在")
 }
+
 func TestCertificateAuthFlow(t *testing.T) {
 	base.Test()
 	ast := assert.New(t)
@@ -89,32 +90,31 @@ func TestCertificateAuthFlow(t *testing.T) {
 
 	dns := []ValData{{Val: "8.8.8.8"}}
 	pt := Policy{Name: "auth-test-policy", Status: 1, ClientDns: dns}
-	err := SetPolicy(&pt)
+	err := Policies.SetPolicy(&pt)
 	req.NoError(err)
 	g := Group{Name: group, Status: 1, PolicyId: pt.Id}
-	err = SetGroup(&g)
+	err = Groups.SetGroup(&g)
 	req.NoError(err)
 
 	u := User{Username: username, Groups: []string{group}, Status: 1}
-	err = SetUser(&u)
+	err = Users.SetUser(&u)
 	req.NoError(err)
 
-	certData, err := GenerateClientCert(username, group, true, 3)
+	certData, err := Certs.GenerateClientCert(username, group, true, 3)
 	req.NoError(err)
 	req.NotNil(certData)
 
 	cert, err := parseCertFromPEM(certData.Certificate)
 	req.NoError(err)
 
-	// 证书验证
-	valid := ValidateClientCert(cert, "test-ID")
+	valid := Certs.ValidateClientCert(cert, "test-ID")
 	ast.True(valid)
 
 	certData.Status = CertStatusDisabled
 	err = certData.UpdateStatus(CertStatusDisabled)
 	ast.Nil(err)
-	deviceId := "test-device-id"
-	valid = ValidateClientCert(cert, deviceId)
+	deviceID := "test-device-id"
+	valid = Certs.ValidateClientCert(cert, deviceID)
 	ast.False(valid)
 }
 
@@ -126,24 +126,24 @@ func TestValidateClientCert(t *testing.T) {
 	preIpData(t)
 	defer closeIpdata()
 
-	err := GenerateClientCA()
+	err := Certs.GenerateClientCA()
 	req.NoError(err, "初始化客户端 CA 失败")
 
 	dns := []ValData{{Val: "8.8.8.8"}}
 	pt := Policy{Name: "cert-gen-test-policy", Status: 1, ClientDns: dns}
-	err = SetPolicy(&pt)
+	err = Policies.SetPolicy(&pt)
 	req.NoError(err)
 	group := "test-group"
 	g := Group{Name: group, Status: 1, PolicyId: pt.Id}
-	err = SetGroup(&g)
+	err = Groups.SetGroup(&g)
 	req.NoError(err)
 
 	username := "test-user"
 	u := User{Username: username, Groups: []string{group}, Status: 1}
-	err = SetUser(&u)
+	err = Users.SetUser(&u)
 	req.NoError(err)
 
-	certData, err := GenerateClientCert(username, group, true, 3)
+	certData, err := Certs.GenerateClientCert(username, group, true, 3)
 	req.NoError(err)
 	req.NotNil(certData)
 	ast.Equal(username, certData.Username)
@@ -154,34 +154,34 @@ func TestValidateClientCert(t *testing.T) {
 	ast.Equal(username, cert.Subject.CommonName)
 	ast.Equal(group, cert.Subject.OrganizationalUnit[0])
 
-	deviceId := "test-device-id"
-	valid := ValidateClientCert(cert, deviceId)
+	deviceID := "test-device-id"
+	valid := Certs.ValidateClientCert(cert, deviceID)
 	ast.True(valid)
 
 	cert.Subject.CommonName = "nonexistent-user"
-	valid = ValidateClientCert(cert, deviceId)
+	valid = Certs.ValidateClientCert(cert, deviceID)
 	ast.False(valid)
 
 	cert.Subject.CommonName = username
 	u.Status = 0
-	err = SetUser(&u)
+	err = Users.SetUser(&u)
 	ast.Nil(err)
-	valid = ValidateClientCert(cert, deviceId)
+	valid = Certs.ValidateClientCert(cert, deviceID)
 	ast.False(valid)
 
 	u.Status = 1
-	err = SetUser(&u)
+	err = Users.SetUser(&u)
 	ast.Nil(err)
 
 	cert.Subject.OrganizationalUnit[0] = "wrong-group"
-	valid = ValidateClientCert(cert, deviceId)
+	valid = Certs.ValidateClientCert(cert, deviceID)
 	ast.False(valid)
 
 	cert.Subject.OrganizationalUnit[0] = group
 	certData.Status = CertStatusDisabled
 	err = certData.Save()
 	ast.Nil(err)
-	valid = ValidateClientCert(cert, deviceId)
+	valid = Certs.ValidateClientCert(cert, deviceID)
 	ast.False(valid)
 }
 
@@ -201,18 +201,18 @@ func TestClientCertConcurrency(t *testing.T) {
 	preIpData(t)
 	defer closeIpdata()
 
-	req.NoError(GenerateClientCA())
+	req.NoError(Certs.GenerateClientCA())
 
 	group := "test-group"
 	username := "test-user"
 	pt := Policy{Name: "maxdev-test-policy", Status: 1, ClientDns: []ValData{{Val: "8.8.8.8"}}}
-	err := SetPolicy(&pt)
+	err := Policies.SetPolicy(&pt)
 	req.NoError(err)
-	req.NoError(SetGroup(&Group{Name: group, Status: 1, PolicyId: pt.Id}))
-	req.NoError(SetUser(&User{Username: username, Groups: []string{group}, Status: 1}))
+	req.NoError(Groups.SetGroup(&Group{Name: group, Status: 1, PolicyId: pt.Id}))
+	req.NoError(Users.SetUser(&User{Username: username, Groups: []string{group}, Status: 1}))
 
 	maxDevices := 3
-	certData, err := GenerateClientCert(username, group, true, maxDevices)
+	certData, err := Certs.GenerateClientCert(username, group, true, maxDevices)
 	req.NoError(err)
 	req.NotNil(certData)
 	cert, err := parseCertFromPEM(certData.Certificate)
@@ -227,8 +227,8 @@ func TestClientCertConcurrency(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			deviceId := fmt.Sprintf("device-%d", id)
-			if ValidateClientCert(cert, deviceId) {
+			deviceID := fmt.Sprintf("device-%d", id)
+			if Certs.ValidateClientCert(cert, deviceID) {
 				atomic.AddInt32(&successCount, 1)
 			} else {
 				atomic.AddInt32(&failCount, 1)
@@ -241,7 +241,7 @@ func TestClientCertConcurrency(t *testing.T) {
 		return successCount <= int32(maxDevices)
 	}, fmt.Sprintf("并发绑定成功的数量不应超过 MaxDevices，期望<= %d，实际 %d", maxDevices, successCount))
 
-	latestCert, _ := GetClientCert(username, group)
+	latestCert, _ := Certs.GetClientCert(username, group)
 	ast.Condition(func() bool {
 		return len(latestCert.DeviceId) <= maxDevices
 	},
@@ -257,7 +257,7 @@ func TestClientCertConcurrency(t *testing.T) {
 			case <-stopChan:
 				return
 			default:
-				ValidateClientCert(cert, "device-0")
+				Certs.ValidateClientCert(cert, "device-0")
 			}
 		}
 	}()
@@ -265,7 +265,7 @@ func TestClientCertConcurrency(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		time.Sleep(100 * time.Millisecond)
-		currentCert, err := GetClientCert(username, group)
+		currentCert, err := Certs.GetClientCert(username, group)
 		if err != nil {
 			t.Errorf("获取证书失败: %v", err)
 			return
@@ -276,7 +276,7 @@ func TestClientCertConcurrency(t *testing.T) {
 
 	wg.Wait()
 
-	finalCert, _ := GetClientCert(username, group)
+	finalCert, _ := Certs.GetClientCert(username, group)
 	ast.Equal(CertStatusDisabled, finalCert.GetStatus(), "证书应该已被禁用")
-	ast.False(ValidateClientCert(cert, "device-0"), "证书禁用后，验证不应通过")
+	ast.False(Certs.ValidateClientCert(cert, "device-0"), "证书禁用后，验证不应通过")
 }

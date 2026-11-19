@@ -5,22 +5,23 @@ import (
 
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/utils"
 )
 
-// 加载组配置并构建管道，执行首次认证。
+// 加载组配置并构建管道，执行首次认证
 func Authenticate(ctx *auth.Context) *auth.PipelineResult {
 	profile, err := loadAndParseProfile(ctx.Conn.GroupName)
 	if err != nil {
 		return &auth.PipelineResult{Result: auth.StepFail, Err: err}
 	}
 
-	pipeline, err := auth.GetPipeline(*profile, dbdata.ResolveProviderConfig)
+	pipeline, err := auth.GetPipeline(*profile, dbdata.Providers.ResolveConfig)
 	if err != nil {
 		return &auth.PipelineResult{Result: auth.StepFail, Err: err}
 	}
 	insertForcePwd(pipeline)
 
-	// 管道含 otp 且首步非 local 时，提前加载用户信息供后续步骤共享。
+	// 管道含 otp 且首步非 local 时，提前加载用户信息供后续步骤共享
 	if profile.HasStep("otp") && profile.Step[0].Type != "local" {
 		LoadUserInfo(ctx)
 	}
@@ -31,14 +32,14 @@ func Authenticate(ctx *auth.Context) *auth.PipelineResult {
 	return pr
 }
 
-// 从挂起状态恢复管道，从指定步骤继续。
+// 从挂起状态恢复管道，从指定步骤继续
 func Resume(ctx *auth.Context, state auth.PipelineState) *auth.PipelineResult {
 	profile, err := loadAndParseProfile(ctx.Conn.GroupName)
 	if err != nil {
 		return &auth.PipelineResult{Result: auth.StepFail, Err: err}
 	}
 
-	pipeline, err := auth.GetPipeline(*profile, dbdata.ResolveProviderConfig)
+	pipeline, err := auth.GetPipeline(*profile, dbdata.Providers.ResolveConfig)
 	if err != nil {
 		return &auth.PipelineResult{Result: auth.StepFail, Err: err}
 	}
@@ -51,7 +52,7 @@ func Resume(ctx *auth.Context, state auth.PipelineState) *auth.PipelineResult {
 	return pr
 }
 
-// 将管道执行结果封装为 PipelineResult。
+// 将管道执行结果封装为 PipelineResult
 func getPipelineResult(ctx *auth.Context, result auth.StepResult, err error, pipeline *auth.Pipeline) *auth.PipelineResult {
 	pr := &auth.PipelineResult{
 		Result:    result,
@@ -81,13 +82,13 @@ func getPipelineResult(ctx *auth.Context, result auth.StepResult, err error, pip
 // 加载用户信息
 func loadUser(username string) (*auth.UserInfo, error) {
 	u := &dbdata.User{}
-	if err := dbdata.One("Username", username, u); err != nil {
+	if err := dbdata.Users.GetByUsername(username, u); err != nil {
 		return nil, err
 	}
 	return u.ToAuthInfo(), nil
 }
 
-// 将用户信息写入 ctx.UserInfo（已加载或用户名为空则跳过，避免重复查库；查库失败静默忽略）。
+// 将用户信息写入 ctx.UserInfo（已加载或用户名为空则跳过，避免重复查库；查库失败静默忽略）
 func LoadUserInfo(ctx *auth.Context) {
 	if ctx.Conn.Username == "" || ctx.UserInfo != nil {
 		return
@@ -114,9 +115,9 @@ func ReloadAndCheckUser(ctx *auth.Context) error {
 		return nil
 	}
 	u := &dbdata.User{}
-	err := dbdata.One("Username", ctx.Conn.Username, u)
+	err := dbdata.Users.GetByUsername(ctx.Conn.Username, u)
 	if err != nil {
-		if dbdata.CheckErrNotFound(err) {
+		if utils.CheckErrNotFound(err) {
 			// 本地无此用户（三方源未同步），无状态可复核
 			return nil
 		}
@@ -135,7 +136,7 @@ func ReloadAndCheckUser(ctx *auth.Context) error {
 // 返回组的 SSO 类型：只要认证管道中包含 SSO 步骤即返回该步骤类型
 func GetSSOType(groupName string) string {
 	profile, err := loadAndParseProfile(groupName)
-	if err != nil || len(profile.Step) == 0 {
+	if err != nil {
 		return ""
 	}
 	for _, step := range profile.Step {
@@ -146,10 +147,10 @@ func GetSSOType(groupName string) string {
 	return ""
 }
 
-// 判断证书自动认证是否可行：首步必须为 cert，且后续不能出现需要交互的步骤。
+// 判断证书自动认证是否可行：首步必须为 cert，且后续不能出现需要交互的步骤
 func CertAutoAuth(groupName string) bool {
 	profile, err := loadAndParseProfile(groupName)
-	if err != nil || len(profile.Step) == 0 {
+	if err != nil {
 		return false
 	}
 	if profile.Step[0].Type != "cert" {
@@ -164,7 +165,7 @@ func CertAutoAuth(groupName string) bool {
 	return true
 }
 
-// 返回 SSO 浏览器模式（"external" 表示使用默认浏览器，否则为空）。
+// 返回 SSO 浏览器模式（"external" 表示使用默认浏览器，否则为空）
 func GetSSOBrowserMode(ssoType, groupName string) string {
 	useDefaultBrowser, err := loadSSOConfig(groupName, ssoType)
 	if err != nil {
@@ -185,8 +186,8 @@ func loadAndParseProfile(groupName string) (*auth.GroupAuthProfile, error) {
 }
 
 func loadGroup(name string) (*auth.GroupInfo, error) {
-	g := &dbdata.Group{}
-	if err := dbdata.One("Name", name, g); err != nil {
+	g, err := dbdata.Groups.ByName(name)
+	if err != nil {
 		return nil, err
 	}
 	if g.Status != 1 {
@@ -198,19 +199,19 @@ func loadGroup(name string) (*auth.GroupInfo, error) {
 func loadSSOConfig(groupName, ssoType string) (bool, error) {
 	switch ssoType {
 	case "wxwork":
-		cfg, err := dbdata.GetAuthWework(groupName)
+		cfg, err := dbdata.Groups.GetAuthWework(groupName)
 		if err != nil {
 			return false, err
 		}
 		return cfg.UseDefaultBrowser, nil
 	case "feishu":
-		cfg, err := dbdata.GetAuthFeishu(groupName)
+		cfg, err := dbdata.Groups.GetAuthFeishu(groupName)
 		if err != nil {
 			return false, err
 		}
 		return cfg.UseDefaultBrowser, nil
 	case "dingtalk":
-		cfg, err := dbdata.GetAuthDingtalk(groupName)
+		cfg, err := dbdata.Groups.GetAuthDingtalk(groupName)
 		if err != nil {
 			return false, err
 		}

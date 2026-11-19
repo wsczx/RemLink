@@ -1,6 +1,7 @@
 package dbdata
 
 import (
+	"github.com/wsczx/remlink/pkg/utils"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,17 +23,17 @@ func TestUserGroupFilterSQL(t *testing.T) {
 	}
 	for _, c := range cases {
 		u := &User{Username: c.username, Groups: c.groups, Status: 1}
-		ast.NoError(Add(u), "插入测试用户失败: "+c.username)
+		ast.NoError(GetDB().Insert(u), "插入测试用户失败: "+c.username)
 	}
 
 	groupWhere := func(group string) (string, []any) {
-		return "groups LIKE ? ESCAPE '\\'", []any{"%\"" + EscapeLike(group) + "\"%"}
+		return "groups LIKE ? ESCAPE '\\'", []any{"%\"" + utils.EscapeLike(group) + "\"%"}
 	}
 
 	query := func(group string) []string {
 		where, args := groupWhere(group)
 		var users []User
-		ast.NoError(FindWhere(&users, 0, 0, where, args...))
+		ast.NoError(GetDB().FindWhere(&users, 0, 0, where, args...))
 		names := make([]string, 0, len(users))
 		for _, u := range users {
 			names = append(names, u.Username)
@@ -46,7 +47,7 @@ func TestUserGroupFilterSQL(t *testing.T) {
 
 	ast.ElementsMatch([]string{"u-devops"}, query("devops"))
 	where, args := groupWhere("dev")
-	ast.Equal(2, FindWhereCount(&User{}, where, args...), "计数应与查询结果一致")
+	ast.Equal(2, GetDB().CountWhere(&User{}, where, args...), "计数应与查询结果一致")
 }
 
 func TestUserPagingSQL(t *testing.T) {
@@ -54,18 +55,18 @@ func TestUserPagingSQL(t *testing.T) {
 	ast := assert.New(t)
 
 	const total = 25
-	for i := 0; i < total; i++ {
+	for i := range total {
 		u := &User{Username: "pager-" + pad3(i), Groups: []string{"default"}, Status: 1}
-		ast.NoError(Add(u))
+		ast.NoError(GetDB().Insert(u))
 	}
 
-	ast.Equal(total, FindWhereCount(&User{}, "username LIKE ?", "pager-%"), "总数应正确")
+	ast.Equal(total, GetDB().CountWhere(&User{}, "username LIKE ?", "pager-%"), "总数应正确")
 
 	seen := map[string]bool{}
 	pageSize := 10
 	for page := 1; page <= 3; page++ {
 		var users []User
-		ast.NoError(FindWhere(&users, pageSize, page, "username LIKE ?", "pager-%"))
+		ast.NoError(GetDB().FindWhere(&users, pageSize, page, "username LIKE ?", "pager-%"))
 		ast.LessOrEqual(len(users), pageSize)
 		for _, u := range users {
 			ast.False(seen[u.Username], "不应出现重复记录: "+u.Username)

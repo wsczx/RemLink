@@ -7,13 +7,8 @@ import (
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/utils"
 )
-
-func init() {
-	auth.Registry.Register("local", func() auth.Authenticator {
-		return &LocalAuth{}
-	})
-}
 
 type LocalAuth struct {
 	auth.NopChallenger
@@ -27,10 +22,10 @@ func (a *LocalAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 	}
 
 	v := &dbdata.User{}
-	err := dbdata.One("Username", ctx.Conn.Username, v)
+	err := dbdata.Users.GetByUsername(ctx.Conn.Username, v)
 	if err != nil {
 		// 防用户枚举：用户名不存在与密码错误返回一致的文案
-		if dbdata.CheckErrNotFound(err) {
+		if utils.CheckErrNotFound(err) {
 			base.Debug("local auth account invalid:", ctx.Conn.Username)
 		} else {
 			base.Warn("local auth query user failed:", ctx.Conn.Username, err)
@@ -46,7 +41,7 @@ func (a *LocalAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 	ctx.Conn.Nickname = v.Nickname
 
 	// 先校验密码，再校验组/类型等配置项：避免在校验密码前按组归属泄露用户名是否存在
-	if !dbdata.VerifyPassword(ctx.Conn.Password, v.PinCode) {
+	if !utils.VerifyPassword(ctx.Conn.Password, v.PinCode) {
 		return auth.StepFail, fmt.Errorf("用户名或密码错误")
 	}
 

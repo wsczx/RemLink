@@ -23,17 +23,17 @@ func handlerTcpPayload(packet []byte) []byte {
 	data := packet[ihl:]
 	return data
 }
-func BenchmarkSniParser(b *testing.B) {
+func BenchmarkSNIParser(b *testing.B) {
 	data := handlerTcpPayload(httpsPacket)
 	for b.Loop() {
 		sniParser(data)
 	}
 }
 
-func BenchmarkNewSniParser(b *testing.B) {
+func BenchmarkNewSNIParser(b *testing.B) {
 	data := handlerTcpPayload(httpsPacket)
 	for b.Loop() {
-		sniNewParser(data)
+		newSNIParser(data)
 	}
 }
 
@@ -47,14 +47,14 @@ func BenchmarkHttpParser(b *testing.B) {
 func BenchmarkNewHttpParser(b *testing.B) {
 	data := handlerTcpPayload(httpPacket)
 	for b.Loop() {
-		httpNewParser(data)
+		newHTTPParser(data)
 	}
 }
 
-func TestNewSniParser(t *testing.T) {
+func TestNewSNIParser(t *testing.T) {
 	ast := assert.New(t)
 	data := handlerTcpPayload(httpsPacket)
-	proto, sni := sniNewParser(data)
+	proto, sni := newSNIParser(data)
 	ast.Equal(sni, httpsSni)
 	ast.Equal(int(proto), acc_proto_https)
 }
@@ -62,15 +62,15 @@ func TestNewSniParser(t *testing.T) {
 func TestNewHttpParser(t *testing.T) {
 	ast := assert.New(t)
 	data := handlerTcpPayload(httpPacket)
-	proto, hostname := httpNewParser(data)
+	proto, hostname := newHTTPParser(data)
 	ast.Equal(hostname, httpHost)
 	ast.Equal(int(proto), acc_proto_http)
 	data = handlerTcpPayload(httpPacket2)
-	proto, hostname = httpNewParser(data)
+	proto, hostname = newHTTPParser(data)
 	ast.Equal(hostname, httpHost)
 	ast.Equal(int(proto), acc_proto_http)
 	data = handlerTcpPayload(httpPacket3)
-	proto, hostname = httpNewParser(data)
+	proto, hostname = newHTTPParser(data)
 	ast.Equal(hostname, httpHost)
 	ast.Equal(int(proto), acc_proto_http)
 }
@@ -84,7 +84,7 @@ func TestCheckLinkAclV6Guard(t *testing.T) {
 	v6Data[0] = 0x60
 	v6pl := &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: v6Data}
 
-	ast.True(checkLinkAcl(&dbdata.Policy{}, v6pl), "无 ACL 规则时 v6 包应放行")
+	ast.True((&sessdata.ConnSession{Policy: &dbdata.Policy{}}).CheckLinkAcl(v6pl), "无 ACL 规则时 v6 包应放行")
 
 	_, denyNet6, _ := net.ParseCIDR("::/0")
 	rpDeny6 := &dbdata.Policy{
@@ -92,7 +92,7 @@ func TestCheckLinkAclV6Guard(t *testing.T) {
 			{Action: dbdata.Deny, Protocol: dbdata.ALL, Val: "::/0", IpNet: denyNet6},
 		},
 	}
-	ast.False(checkLinkAcl(rpDeny6, v6pl), "命中 v6 deny 规则的 v6 包应被丢弃")
+	ast.False((&sessdata.ConnSession{Policy: rpDeny6}).CheckLinkAcl(v6pl), "命中 v6 deny 规则的 v6 包应被丢弃")
 
 	_, denyNet4, _ := net.ParseCIDR("0.0.0.0/0")
 	rpDeny4 := &dbdata.Policy{
@@ -100,11 +100,11 @@ func TestCheckLinkAclV6Guard(t *testing.T) {
 			{Action: dbdata.Deny, Protocol: dbdata.ALL, Val: "0.0.0.0/0", IpNet: denyNet4},
 		},
 	}
-	ast.False(checkLinkAcl(rpDeny4, v6pl), "v4 deny 规则不匹配 v6 包，默认拒绝")
+	ast.False((&sessdata.ConnSession{Policy: rpDeny4}).CheckLinkAcl(v6pl), "v4 deny 规则不匹配 v6 包，默认拒绝")
 
 	// 对照：同策略下 v4 包命中 deny-all 应被丢弃
 	v4Data := make([]byte, 40)
 	v4Data[0] = 0x45 // version=4, ihl=5
 	v4pl := &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: v4Data}
-	ast.False(checkLinkAcl(rpDeny4, v4pl), "v4 包命中 deny-all 应被丢弃")
+	ast.False((&sessdata.ConnSession{Policy: rpDeny4}).CheckLinkAcl(v4pl), "v4 包命中 deny-all 应被丢弃")
 }

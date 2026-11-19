@@ -36,7 +36,7 @@ func preIpData(t *testing.T) {
 }
 
 func closeIpdata() {
-	xdb.Close()
+	GetDB().Engine().Close()
 	// DB 文件由 t.TempDir() 自动清理
 }
 
@@ -46,7 +46,7 @@ func TestDb(t *testing.T) {
 	defer closeIpdata()
 
 	u := User{Username: "a"}
-	err := Add(&u)
+	err := GetDB().Insert(&u)
 	ast.Nil(err)
 
 	ast.Equal(u.Id, 1)

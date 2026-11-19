@@ -33,7 +33,7 @@ var auth_request_force_pwd = `<?xml version="1.0" encoding="UTF-8"?>
     </auth>
 </config-auth>`
 
-var forcePwdPageHTML = `<!DOCTYPE html>
+var forcePasswordPageHTML = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="utf-8">
@@ -72,71 +72,71 @@ var forcePwdPageHTML = `<!DOCTYPE html>
 </html>`
 
 // 改密页（GET /+CSCOE+/force-pwd?state=xxx）
-func ForcePwdPage(w http.ResponseWriter, r *http.Request) {
+func (s *LinkAuthService) ForcePasswordPage(w http.ResponseWriter, r *http.Request) {
 	state := r.URL.Query().Get("state")
 	if state == "" {
 		http.Error(w, "缺少认证参数", http.StatusBadRequest)
 		return
 	}
-	if _, err := AuthSessionManager.Get(state); err != nil {
+	if _, err := s.authSessions.Get(state); err != nil {
 		http.Error(w, "认证会话已过期，请重新连接", http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	t, _ := template.New("force_pwd").Parse(forcePwdPageHTML)
+	t, _ := template.New("force_pwd").Parse(forcePasswordPageHTML)
 	if err := t.Execute(w, map[string]string{"State": state}); err != nil {
 		base.Error("渲染强制改密页面失败:", err)
 	}
 }
 
 // 处理改密提交（POST /+CSCOE+/force-pwd/submit）
-func ForcePwdSubmit(w http.ResponseWriter, r *http.Request) {
+func (s *LinkAuthService) ForcePasswordSubmit(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "不支持的请求方法", http.StatusMethodNotAllowed)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
 	if err := r.ParseForm(); err != nil {
-		forcePwdMessage(w, "请求参数错误", "", false)
+		forcePasswordMessage(w, "请求参数错误", "", false)
 		return
 	}
 	state := r.FormValue("state")
 	newPwd := r.FormValue("new_password")
 	confirm := r.FormValue("new_password_confirm")
 	if state == "" || newPwd == "" {
-		forcePwdMessage(w, "参数错误", "", false)
+		forcePasswordMessage(w, "参数错误", "", false)
 		return
 	}
 	if newPwd != confirm {
-		forcePwdMessage(w, "两次输入的密码不一致", state, false)
+		forcePasswordMessage(w, "两次输入的密码不一致", state, false)
 		return
 	}
 	if err := utils.CheckPasswordPolicy(newPwd); err != nil {
-		forcePwdMessage(w, err.Error(), state, false)
+		forcePasswordMessage(w, err.Error(), state, false)
 		return
 	}
-	sess, err := AuthSessionManager.Get(state)
+	sess, err := s.authSessions.Get(state)
 	if err != nil {
-		forcePwdMessage(w, "认证会话已过期，请重新连接 VPN", "", false)
+		forcePasswordMessage(w, "认证会话已过期，请重新连接 VPN", "", false)
 		return
 	}
 	if !sess.ForcePwd {
-		forcePwdMessage(w, "会话状态异常", "", false)
+		forcePasswordMessage(w, "会话状态异常", "", false)
 		return
 	}
 	username := sess.Ctx.Conn.Username
-	if !lockManager.Check(username, r.RemoteAddr) {
-		forcePwdMessage(w, "账户已被锁定，请联系管理员", "", false)
+	if !s.locks.Check(username, r.RemoteAddr) {
+		forcePasswordMessage(w, "账户已被锁定，请联系管理员", "", false)
 		return
 	}
 	// 复用共享的强制改密核心：校验策略 → 哈希 → 写库（pin_code + 清除 change_pwd）→ 重载会话用户
-	if err := RunForcePwdChange(sess.Ctx, username, newPwd); err != nil {
+	if err := RunForcePasswordChange(sess.Ctx, username, newPwd); err != nil {
 		base.Error("强制改密失败:", err)
-		forcePwdMessage(w, "修改密码失败", state, false)
+		forcePasswordMessage(w, "修改密码失败", state, false)
 		return
 	}
-	lockManager.Success(username, r.RemoteAddr)
+	s.locks.Success(username, r.RemoteAddr)
 	// 强制改密只走 Cisco AnyConnect 内置浏览器
 	encodeState := base64.StdEncoding.EncodeToString([]byte(state))
 	SetCookie(w, "acSamlv2Token", encodeState, 0)
@@ -144,11 +144,11 @@ func ForcePwdSubmit(w http.ResponseWriter, r *http.Request) {
 }
 
 // 渲染提示页：带 state 时回显错误表单，否则显示成功/提示文案
-func forcePwdMessage(w http.ResponseWriter, msg, state string, success bool) {
+func forcePasswordMessage(w http.ResponseWriter, msg, state string, success bool) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	if state != "" {
-		t, _ := template.New("force_pwd_err").Parse(forcePwdPageHTML)
+		t, _ := template.New("force_pwd_err").Parse(forcePasswordPageHTML)
 		if err := t.Execute(w, map[string]string{"State": state, "Error": msg}); err != nil {
 			base.Error("渲染强制改密错误页失败:", err)
 		}

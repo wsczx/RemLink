@@ -11,10 +11,11 @@ import (
 	"github.com/wsczx/remlink/auth/authsrv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/utils"
 )
 
 func portalSSOGroup(ssoType string) (string, error) {
-	groups, err := dbdata.GetAllGroups()
+	groups, err := dbdata.Groups.GetAllGroups()
 	if err != nil {
 		return "", fmt.Errorf("获取用户组失败")
 	}
@@ -28,14 +29,14 @@ func portalSSOGroup(ssoType string) (string, error) {
 	}
 	// 无纯 SSO 组时返回第一个含该类型的组
 	for _, group := range groups {
-		if dbdata.HasAuthType(group.AuthProfile, ssoType) {
+		if dbdata.Groups.HasAuthType(group.AuthProfile, ssoType) {
 			return group.Name, nil
 		}
 	}
 	return "", fmt.Errorf("未找到可用的第三方登录配置")
 }
 
-func portalSSOLogin(w http.ResponseWriter, r *http.Request, pending *AuthSession, ssoType, username string) bool {
+func (p *PortalService) portalSSOLogin(w http.ResponseWriter, r *http.Request, pending *AuthSession, ssoType, username string) bool {
 	if pending == nil || pending.Ctx == nil {
 		return false
 	}
@@ -43,12 +44,12 @@ func portalSSOLogin(w http.ResponseWriter, r *http.Request, pending *AuthSession
 		return false
 	}
 	if pending.SessionID != "" {
-		defer AuthSessionManager.Delete(pending.SessionID)
+		defer p.authSessions.Delete(pending.SessionID)
 	}
 	user := &dbdata.User{}
 	userExists := true
-	if err := dbdata.One("Username", username, user); err != nil {
-		if dbdata.CheckErrNotFound(err) {
+	if err := dbdata.Users.GetByUsername(username, user); err != nil {
+		if utils.CheckErrNotFound(err) {
 			userExists = false
 			user = &dbdata.User{Username: username, Type: ssoType, Status: 1}
 		} else {
@@ -87,16 +88,16 @@ func portalSSOLogin(w http.ResponseWriter, r *http.Request, pending *AuthSession
 	result := authsrv.Authenticate(ctx)
 	switch result.Result {
 	case auth.StepPass:
-		_ = portalIssueLoginResponse(w, r, user, ctx.LogInfo())
+		_ = p.portalIssueLoginResponse(w, r, user, ctx.LogInfo())
 		// 子域名第三方登录：认证成功后回跳原 WebVPN 子域名；否则回门户首页
 		// redirect 只允许本站注册域（.WebVpnDomain 后缀）内的 https URL，杜绝开放重定向
-		if rp := pending.Ctx.SSO.Redirect; webVpnSafeRedirect(rp) {
+		if rp := pending.Ctx.SSO.Redirect; isSafeRedirect(rp) {
 			http.Redirect(w, r, rp, http.StatusFound)
 		} else {
 			http.Redirect(w, r, "/ui/#/portal", http.StatusFound)
 		}
 	case auth.StepPending:
-		sessionID := portalSaveChallengeSession(result, ctx)
+		sessionID := p.portalSaveChallengeSession(result, ctx)
 		http.Redirect(w, r, "/ui/#/portal?session_id="+url.QueryEscape(sessionID)+"&challenge=otp", http.StatusFound)
 	default:
 		if result.Err != nil {
@@ -111,7 +112,7 @@ func portalSSOLogin(w http.ResponseWriter, r *http.Request, pending *AuthSession
 // 校验 SSO 登录成功后的回跳地址是否安全：
 // 必须是 https，且 host 与 WebVpnDomain 主域相同或是其子域（如 app.wv.example.com），
 // 防止第三方登录回调被用于开放重定向
-func webVpnSafeRedirect(u string) bool {
+func isSafeRedirect(u string) bool {
 	if u == "" {
 		return false
 	}

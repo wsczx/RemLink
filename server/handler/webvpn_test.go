@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
-	"github.com/wsczx/remlink/pkg/dbtest"
+	"github.com/wsczx/remlink/dbtest"
 	"github.com/wsczx/remlink/pkg/jwt"
 	"github.com/wsczx/remlink/webvpn"
 )
@@ -119,47 +119,47 @@ func setupWebVpnTest(t *testing.T) (backend *httptest.Server, teardown func()) {
 
 	beURL, _ := url.Parse(backend.URL)
 
-	assert.NoError(t, dbdata.SetWebVpnApp(&dbdata.WebVpnApp{
+	assert.NoError(t, dbdata.WebVpn.SetApp(&dbdata.WebVpnApp{
 		Name: "app1", Backend: beURL.String(), Status: 1, Users: []string{"alice"},
 	}))
-	assert.NoError(t, dbdata.SetWebVpnApp(&dbdata.WebVpnApp{
+	assert.NoError(t, dbdata.WebVpn.SetApp(&dbdata.WebVpnApp{
 		Name: "app2", Backend: beURL.String(), Status: 1, Users: []string{"bob"},
 	}))
-	assert.NoError(t, dbdata.SetWebVpnApp(&dbdata.WebVpnApp{
+	assert.NoError(t, dbdata.WebVpn.SetApp(&dbdata.WebVpnApp{
 		Name: "appg", Backend: beURL.String(), Status: 1, Users: []string{"alice"}, Groups: []string{"ops"},
 	}))
-	assert.NoError(t, dbdata.SetWebVpnApp(&dbdata.WebVpnApp{
+	assert.NoError(t, dbdata.WebVpn.SetApp(&dbdata.WebVpnApp{
 		Name: "appip", Backend: beURL.String(), Status: 1, Users: []string{"alice"},
 		IpAllowList: []string{"10.0.0.0/8"},
 	}))
-	assert.NoError(t, dbdata.SetWebVpnApp(&dbdata.WebVpnApp{
+	assert.NoError(t, dbdata.WebVpn.SetApp(&dbdata.WebVpnApp{
 		Name: "apppath", Backend: beURL.String(), Status: 1, Users: []string{"alice"},
 		AllowPath: []string{"/api/"},
 	}))
-	assert.NoError(t, dbdata.SetWebVpnApp(&dbdata.WebVpnApp{
+	assert.NoError(t, dbdata.WebVpn.SetApp(&dbdata.WebVpnApp{
 		Name: "apphost", Backend: beURL.String(), Status: 1, Users: []string{"alice"},
 		HostRewrite: "backend.internal",
 	}))
 	appx := &dbdata.WebVpnApp{Name: "appx", Backend: beURL.String(), Users: []string{"alice"}}
-	assert.NoError(t, dbdata.SetWebVpnApp(appx))
-	got, err := dbdata.GetWebVpnAppByName("appx")
+	assert.NoError(t, dbdata.WebVpn.SetApp(appx))
+	got, err := dbdata.WebVpn.GetAppByName("appx")
 	assert.NoError(t, err)
 	got.Status = 0
-	assert.NoError(t, dbdata.SetWebVpnApp(got))
+	assert.NoError(t, dbdata.WebVpn.SetApp(got))
 
 	alice := &dbdata.User{Username: "alice", Type: "local", Status: 1}
-	assert.NoError(t, dbdata.Add(alice))
+	assert.NoError(t, dbdata.GetDB().Insert(alice))
 	bob := &dbdata.User{Username: "bob", Type: "local", Status: 1}
-	assert.NoError(t, dbdata.Add(bob))
+	assert.NoError(t, dbdata.GetDB().Insert(bob))
 
-	dbdata.WebVpnRevokeReset()
-	webvpn.GetManager().Session().ResetCache()
+	dbdata.WebVpn.RevokeReset()
+	testWebvpn.Session().ResetCache()
 
-	webvpn.GetManager().Audit().Start()
+	testWebvpn.Audit().Start()
 	teardown = func() {
-		webvpn.GetManager().Audit().Stop()
+		testWebvpn.Audit().Stop()
 		// 失效 AppStore 缓存：否则后续用例反代连到已关闭端口（502）
-		webvpn.GetManager().Apps().Invalidate()
+		testWebvpn.Apps().Invalidate()
 		backend.Close()
 	}
 	return backend, teardown
@@ -268,7 +268,7 @@ func TestWebVpnProxyRewrite(t *testing.T) {
 	beHost := strings.TrimPrefix(backend.URL, "http://")
 
 	req, rec := newWebVpnReq(t, backend, "alice", "/")
-	webVpnProxy(rec, req, "app1")
+	webVpnProxy(testWebvpn, rec, req, "app1")
 
 	backendSeen.Lock()
 	got := backendSeen.last
@@ -288,7 +288,7 @@ func TestWebVpnProxyLocationRewrite(t *testing.T) {
 	defer teardown()
 
 	req, rec := newWebVpnReq(t, backend, "alice", "/redirect")
-	webVpnProxy(rec, req, "app1")
+	webVpnProxy(testWebvpn, rec, req, "app1")
 
 	loc := rec.Result().Header.Get("Location")
 	assert.True(t, strings.Contains(loc, "app1.wv.example.com"),
@@ -315,7 +315,7 @@ func TestWebVpnProxyStripSecurityHeaders(t *testing.T) {
 	defer teardown()
 
 	req, rec := newWebVpnReq(t, backend, "alice", "/csp")
-	webVpnProxy(rec, req, "app1")
+	webVpnProxy(testWebvpn, rec, req, "app1")
 
 	assert.Empty(t, rec.Result().Header.Get("Content-Security-Policy"),
 		"被代理响应不应继承全局 CSP")
@@ -327,7 +327,7 @@ func TestWebVpnProxyUnauthorized(t *testing.T) {
 
 	req, rec := newWebVpnReq(t, backend, "alice", "/")
 	req.Host = "app2.wv.example.com"
-	webVpnProxy(rec, req, "app2")
+	webVpnProxy(testWebvpn, rec, req, "app2")
 	assert.Equal(t, http.StatusForbidden, rec.Code, "未授权用户应 403")
 }
 
@@ -337,7 +337,7 @@ func TestWebVpnProxyDisabledApp(t *testing.T) {
 
 	req, rec := newWebVpnReq(t, backend, "alice", "/")
 	req.Host = "appx.wv.example.com"
-	webVpnProxy(rec, req, "appx")
+	webVpnProxy(testWebvpn, rec, req, "appx")
 	assert.Equal(t, http.StatusForbidden, rec.Code, "禁用应用应拒绝")
 }
 
@@ -349,7 +349,7 @@ func TestWebVpnProxyUnauthenticated(t *testing.T) {
 	req.Host = "app1.wv.example.com"
 	req.Header.Set("X-Forwarded-Proto", "https")
 	rec := httptest.NewRecorder()
-	webVpnProxy(rec, req, "app1")
+	webVpnProxy(testWebvpn, rec, req, "app1")
 
 	assert.Equal(t, http.StatusFound, rec.Code, "未登录应 302 到登录")
 	loc := rec.Result().Header.Get("Location")
@@ -361,7 +361,7 @@ func TestWebVpnProxyBackendDown(t *testing.T) {
 	backend.Close() // 后端立即不可用
 
 	req, rec := newWebVpnReq(t, backend, "alice", "/")
-	webVpnProxy(rec, req, "app1")
+	webVpnProxy(testWebvpn, rec, req, "app1")
 	assert.Equal(t, http.StatusBadGateway, rec.Code, "后端不可达应 502")
 	assert.Contains(t, rec.Body.String(), "后端", "应返回友好错误页")
 	teardown()
@@ -376,20 +376,20 @@ func TestWebVpnProxySkipVerify(t *testing.T) {
 	}))
 	defer tlsBackend.Close()
 
-	assert.NoError(t, dbdata.SetWebVpnApp(&dbdata.WebVpnApp{
+	assert.NoError(t, dbdata.WebVpn.SetApp(&dbdata.WebVpnApp{
 		Name: "tlsnoskip", Backend: tlsBackend.URL, Status: 1, Users: []string{"alice"},
 	}))
 	req, rec := newWebVpnReq(t, backend, "alice", "/")
 	req.Host = "tlsnoskip.wv.example.com"
-	webVpnProxy(rec, req, "tlsnoskip")
+	webVpnProxy(testWebvpn, rec, req, "tlsnoskip")
 	assert.Equal(t, http.StatusBadGateway, rec.Code, "自签证书且未开启跳过校验应 502")
 
-	assert.NoError(t, dbdata.SetWebVpnApp(&dbdata.WebVpnApp{
+	assert.NoError(t, dbdata.WebVpn.SetApp(&dbdata.WebVpnApp{
 		Name: "tlsskip", Backend: tlsBackend.URL, Status: 1, Users: []string{"alice"}, SkipVerify: true,
 	}))
 	req2, rec2 := newWebVpnReq(t, backend, "alice", "/")
 	req2.Host = "tlsskip.wv.example.com"
-	webVpnProxy(rec2, req2, "tlsskip")
+	webVpnProxy(testWebvpn, rec2, req2, "tlsskip")
 	assert.Equal(t, http.StatusOK, rec2.Code, "开启跳过校验后自签后端应可访问")
 	assert.Equal(t, "tls-ok", rec2.Body.String())
 }
@@ -402,12 +402,12 @@ func TestWebVpnRevokeAllForUser(t *testing.T) {
 		"webvpn_user": "alice", "webvpn_type": "local", "webvpn_groups": []string{},
 	}, time.Now().Add(3*time.Hour).Unix())
 	assert.NoError(t, err)
-	u, ok := webvpn.GetManager().Session().UserFromToken(token)
+	u, ok := testWebvpn.Session().UserFromToken(token)
 	assert.True(t, ok)
 	assert.Equal(t, "alice", u.Username)
 
-	webvpn.GetManager().Revoker().RevokeUser("alice")
-	_, ok = webvpn.GetManager().Session().UserFromToken(token)
+	testWebvpn.Revoker().User("alice")
+	_, ok = testWebvpn.Session().UserFromToken(token)
 	assert.False(t, ok, "踢出后旧会话应立即失效")
 }
 
@@ -417,7 +417,7 @@ func TestWebVpnProxyStripClientIPSpoofing(t *testing.T) {
 	defer teardown()
 
 	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{})
-	webVpnProxy(rec, req, "app1")
+	webVpnProxy(testWebvpn, rec, req, "app1")
 
 	backendSeen.Lock()
 	got := backendSeen.last
@@ -446,7 +446,7 @@ func TestWebVpnProxyStripAllSecurityHeaders(t *testing.T) {
 	})
 
 	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", path: "/"})
-	webVpnProxy(rec, req, "app1")
+	webVpnProxy(testWebvpn, rec, req, "app1")
 
 	h := rec.Result().Header
 	assert.Empty(t, h.Get("Content-Security-Policy"), "CSP 应被剥离")
@@ -460,11 +460,11 @@ func TestWebVpnProxyGroupAuthorization(t *testing.T) {
 	defer teardown()
 
 	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "appg", groups: []string{"dev"}})
-	webVpnProxy(rec, req, "appg")
+	webVpnProxy(testWebvpn, rec, req, "appg")
 	assert.Equal(t, http.StatusForbidden, rec.Code, "无授权组的用户应 403")
 
 	req2, rec2, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "appg", groups: []string{"ops"}})
-	webVpnProxy(rec2, req2, "appg")
+	webVpnProxy(testWebvpn, rec2, req2, "appg")
 	assert.Equal(t, http.StatusOK, rec2.Code, "命中授权组的用户应放行")
 }
 
@@ -473,11 +473,11 @@ func TestWebVpnProxyIpAllowList(t *testing.T) {
 	defer teardown()
 
 	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "appip", clientIP: "203.0.113.9"})
-	webVpnProxy(rec, req, "appip")
+	webVpnProxy(testWebvpn, rec, req, "appip")
 	assert.Equal(t, http.StatusForbidden, rec.Code, "不在 IP 白名单应 403")
 
 	req2, rec2, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "appip", clientIP: "10.1.2.3"})
-	webVpnProxy(rec2, req2, "appip")
+	webVpnProxy(testWebvpn, rec2, req2, "appip")
 	assert.Equal(t, http.StatusOK, rec2.Code, "命中 IP 白名单应放行")
 }
 
@@ -486,11 +486,11 @@ func TestWebVpnProxyPathAllowList(t *testing.T) {
 	defer teardown()
 
 	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "apppath", path: "/admin"})
-	webVpnProxy(rec, req, "apppath")
+	webVpnProxy(testWebvpn, rec, req, "apppath")
 	assert.Equal(t, http.StatusForbidden, rec.Code, "越权路径应 403")
 
 	req2, rec2, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "apppath", path: "/api/users"})
-	webVpnProxy(rec2, req2, "apppath")
+	webVpnProxy(testWebvpn, rec2, req2, "apppath")
 	assert.Equal(t, http.StatusOK, rec2.Code, "命中路径白名单应放行")
 }
 
@@ -500,7 +500,7 @@ func TestWebVpnProxySlidingRenewal(t *testing.T) {
 	defer teardown()
 
 	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{iatOffset: -2 * 3600})
-	webVpnProxy(rec, req, "app1")
+	webVpnProxy(testWebvpn, rec, req, "app1")
 	assert.Equal(t, http.StatusOK, rec.Code, "滑动续期：旧但有效的会话应放行")
 }
 
@@ -509,7 +509,7 @@ func TestWebVpnProxyHostRewrite(t *testing.T) {
 	defer teardown()
 
 	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "apphost"})
-	webVpnProxy(rec, req, "apphost")
+	webVpnProxy(testWebvpn, rec, req, "apphost")
 
 	backendSeen.Lock()
 	got := backendSeen.last
@@ -525,7 +525,7 @@ func TestWebVpnProxyAppNotFound(t *testing.T) {
 	defer teardown()
 
 	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "ghost"})
-	webVpnProxy(rec, req, "ghost")
+	webVpnProxy(testWebvpn, rec, req, "ghost")
 	assert.Equal(t, http.StatusNotFound, rec.Code, "未配置的应用应 404")
 }
 
@@ -540,14 +540,13 @@ func TestWebVpnExchangeFromPortal(t *testing.T) {
 	assert.NoError(t, err)
 	portalJTI, err := jwt.JtiOf(portalTok)
 	assert.NoError(t, err)
-	grantTok, err := webvpn.GetManager().Session().IssueGrant(
-		nil, nil, &dbdata.User{Username: "alice", Type: "local", Status: 1}, portalJTI)
-	assert.NoError(t, err)
-
 	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true, portal: portalTok})
+	grantTok, err := testWebvpn.Session().IssueGrant(
+		httptest.NewRecorder(), req, &dbdata.User{Username: "alice", Type: "local", Status: 1}, portalJTI)
+	assert.NoError(t, err)
 	req.AddCookie(&http.Cookie{Name: "webvpn_grant", Value: grantTok})
 
-	consumed := WebVpnHandler(rec, req)
+	consumed := WebVpnHandler(testServices, rec, req)
 	assert.True(t, consumed, "WebVPN 子域请求应被本处理器消费")
 	assert.Equal(t, http.StatusOK, rec.Code, "持 webvpn_grant 应自动兑换并放行")
 	var gotWebVpn bool
@@ -564,13 +563,12 @@ func TestWebVpnExchangeFromQueryRedirectsToCleanURL(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
 
-	grantTok, err := webvpn.GetManager().Session().IssueGrant(
-		nil, nil, &dbdata.User{Username: "alice", Type: "local", Status: 1}, "portal-jti")
-	assert.NoError(t, err)
-
 	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
+	grantTok, err := testWebvpn.Session().IssueGrant(
+		httptest.NewRecorder(), req, &dbdata.User{Username: "alice", Type: "local", Status: 1}, "portal-jti")
+	assert.NoError(t, err)
 	req.URL.RawQuery = url.Values{webvpnGrantQuery: []string{grantTok}}.Encode()
-	assert.True(t, WebVpnHandler(rec, req))
+	assert.True(t, WebVpnHandler(testServices, rec, req))
 	assert.Equal(t, http.StatusFound, rec.Code, "URL grant 兑换后应清理地址栏参数")
 	location := rec.Header().Get("Location")
 	assert.NotContains(t, location, webvpnGrantQuery, "清理后的地址不应继续携带 grant")
@@ -581,7 +579,7 @@ func TestWebVpnExchangeFromQueryRedirectsToCleanURL(t *testing.T) {
 			cleanReq.AddCookie(cookie)
 		}
 	}
-	assert.True(t, WebVpnHandler(cleanRec, cleanReq))
+	assert.True(t, WebVpnHandler(testServices, cleanRec, cleanReq))
 	assert.Equal(t, http.StatusOK, cleanRec.Code, "清理 URL 后应凭正式会话直接放行")
 }
 
@@ -594,7 +592,7 @@ func TestWebVpnInvalidQueryGrantRedirectsToCleanURL(t *testing.T) {
 
 	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true, portal: portalTok})
 	req.URL.RawQuery = url.Values{webvpnGrantQuery: []string{"invalid-grant"}, "keep": []string{"1"}}.Encode()
-	assert.True(t, WebVpnHandler(rec, req))
+	assert.True(t, WebVpnHandler(testServices, rec, req))
 	assert.Equal(t, http.StatusFound, rec.Code, "无效 URL grant 也应先清理地址栏")
 	location := rec.Header().Get("Location")
 	assert.NotContains(t, location, webvpnGrantQuery, "无效 grant 不应继续出现在跳转地址")
@@ -609,18 +607,17 @@ func TestWebVpnGrantIsReusable(t *testing.T) {
 	assert.NoError(t, err)
 	portalJTI, err := jwt.JtiOf(portalTok)
 	assert.NoError(t, err)
-	grantTok, err := webvpn.GetManager().Session().IssueGrant(
-		nil, nil, &dbdata.User{Username: "alice", Type: "local", Status: 1}, portalJTI)
-	assert.NoError(t, err)
-
 	req1, rec1, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true, portal: portalTok})
+	grantTok, err := testWebvpn.Session().IssueGrant(
+		httptest.NewRecorder(), req1, &dbdata.User{Username: "alice", Type: "local", Status: 1}, portalJTI)
+	assert.NoError(t, err)
 	req1.AddCookie(&http.Cookie{Name: "webvpn_grant", Value: grantTok})
-	assert.True(t, WebVpnHandler(rec1, req1), "首次兑换应消费请求")
+	assert.True(t, WebVpnHandler(testServices, rec1, req1), "首次兑换应消费请求")
 	assert.Equal(t, http.StatusOK, rec1.Code, "首次兑换应放行")
 
 	req2, rec2, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
 	req2.AddCookie(&http.Cookie{Name: "webvpn_grant", Value: grantTok})
-	assert.True(t, WebVpnHandler(rec2, req2), "二次兑换请求仍应被本处理器消费")
+	assert.True(t, WebVpnHandler(testServices, rec2, req2), "二次兑换请求仍应被本处理器消费")
 	assert.NotEqual(t, http.StatusOK, rec2.Code, "同一 grant 二次兑换不得再次放行")
 
 	_, err = jwt.GetJwtData(portalTok)
@@ -641,7 +638,7 @@ func TestWebVpnGrantExpires(t *testing.T) {
 
 	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
 	req.AddCookie(&http.Cookie{Name: "webvpn_grant", Value: expiredTok})
-	WebVpnHandler(rec, req)
+	WebVpnHandler(testServices, rec, req)
 	assert.NotEqual(t, http.StatusOK, rec.Code, "过期 grant 兑换必须失败")
 }
 
@@ -654,13 +651,12 @@ func TestWebVpnExchangeKeepsPortalSession(t *testing.T) {
 	portalJTI, err := jwt.JtiOf(portalTok)
 	assert.NoError(t, err)
 
-	grantTok, err := webvpn.GetManager().Session().IssueGrant(
-		nil, nil, &dbdata.User{Username: "alice", Type: "local", Status: 1}, portalJTI)
-	assert.NoError(t, err)
-
 	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true, portal: portalTok})
+	grantTok, err := testWebvpn.Session().IssueGrant(
+		httptest.NewRecorder(), req, &dbdata.User{Username: "alice", Type: "local", Status: 1}, portalJTI)
+	assert.NoError(t, err)
 	req.AddCookie(&http.Cookie{Name: "webvpn_grant", Value: grantTok})
-	WebVpnHandler(rec, req)
+	WebVpnHandler(testServices, rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	_, err = jwt.GetJwtData(portalTok)
@@ -672,17 +668,17 @@ func TestWebVpnLogoutRevokesSession(t *testing.T) {
 	defer teardown()
 
 	req, rec, token := newWebVpnReqEx(t, webVpnReqOpts{host: "app1"})
-	webVpnProxy(rec, req, "app1")
+	webVpnProxy(testWebvpn, rec, req, "app1")
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	logoutReq := httptest.NewRequest(http.MethodPost, "/webvpn/logout", nil)
 	logoutReq.AddCookie(&http.Cookie{Name: webVpnSessionCookie, Value: token})
 	logoutRec := httptest.NewRecorder()
-	webVpnLogout(logoutRec, logoutReq)
+	webVpnLogout(testWebvpn, logoutRec, logoutReq)
 
 	req2, rec2, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
 	req2.AddCookie(&http.Cookie{Name: webVpnSessionCookie, Value: token})
-	webVpnProxy(rec2, req2, "app1")
+	webVpnProxy(testWebvpn, rec2, req2, "app1")
 	assert.NotEqual(t, http.StatusOK, rec2.Code, "登出后原会话应立即失效")
 }
 
@@ -707,10 +703,10 @@ func TestPortalLogoutRevokesWebVpnSession(t *testing.T) {
 	logoutReq.AddCookie(&http.Cookie{Name: portalCookieName, Value: portalTok})
 	logoutReq.Header.Set("X-Forwarded-Proto", "https")
 	logoutRec := httptest.NewRecorder()
-	PortalLogout(logoutRec, logoutReq)
+	testPortal.Logout(logoutRec, logoutReq)
 	assert.Equal(t, http.StatusOK, logoutRec.Code, "门户登出应成功")
 
-	mgr := webvpn.GetManager()
+	mgr := testWebvpn
 	_, ok := mgr.Session().UserFromToken(token)
 	assert.False(t, ok, "门户登出后该用户的 WebVPN 会话应被联动吊销")
 
@@ -743,7 +739,7 @@ func TestWebVpnPortalLoggedInAutoExchange(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: portalCookieName, Value: portalTok})
 	rec := httptest.NewRecorder()
 
-	handled := WebVpnHandler(rec, req)
+	handled := WebVpnHandler(testServices, rec, req)
 	assert.True(t, handled, "WebVpnHandler 应处理该请求")
 	assert.Equal(t, http.StatusOK, rec.Code, "门户已登录用户应通过免登兑换直接进入，而非跳登录页")
 	assert.Empty(t, rec.Header().Get("Location"), "不应重定向到登录页")
@@ -763,11 +759,11 @@ func TestWebVpnProxyAuditLogged(t *testing.T) {
 	defer teardown()
 
 	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", clientIP: "203.0.113.9"})
-	webVpnProxy(rec, req, "app1")
+	webVpnProxy(testWebvpn, rec, req, "app1")
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	assert.Eventually(t, func() bool {
-		list, _, err := dbdata.WebVpnAuditList(10, 1, dbdata.WebVpnAuditSearch{Username: "alice", AppName: "app1"})
+		list, _, err := dbdata.WebVpn.AuditList(10, 1, dbdata.WebVpnAuditSearch{Username: "alice", AppName: "app1"})
 		if err != nil {
 			return false
 		}
@@ -789,18 +785,18 @@ func TestWebVpnRevokedPersistAcrossRestart(t *testing.T) {
 	tok := issueWebVpnTokenForTest(t, "alice", []string{"alice-group"},
 		time.Now().Add(-time.Minute).Unix(), time.Now().Add(2*time.Hour).Unix())
 
-	u, ok := webvpn.GetManager().Session().UserFromToken(tok)
+	u, ok := testWebvpn.Session().UserFromToken(tok)
 	ast.True(ok, "未吊销前会话应可用")
 	ast.Equal("alice", u.Username)
 
-	webvpn.GetManager().Revoker().RevokeUser("alice")
+	testWebvpn.Revoker().User("alice")
 
-	_, ok = webvpn.GetManager().Session().UserFromToken(tok)
+	_, ok = testWebvpn.Session().UserFromToken(tok)
 	ast.False(ok, "踢出后同进程内旧会话应立即失效")
 
-	dbdata.WebVpnRevokeReset()
+	dbdata.WebVpn.RevokeReset()
 
-	_, ok = webvpn.GetManager().Session().UserFromToken(tok)
+	_, ok = testWebvpn.Session().UserFromToken(tok)
 	ast.False(ok, "重启（内存清空）后旧会话应仍按 DB 阈值失效")
 }
 
@@ -814,7 +810,7 @@ func TestWebVpnRevokedBeforeThreshold(t *testing.T) {
 		time.Now().Add(-10*time.Minute).Unix(), time.Now().Add(2*time.Hour).Unix())
 	ast.True(webVpnUserFromTokenOK(oldTok), "踢出前旧会话应可用")
 
-	webvpn.GetManager().Revoker().RevokeUser("bob")
+	testWebvpn.Revoker().User("bob")
 
 	ast.False(webVpnUserFromTokenOK(oldTok), "踢出后旧会话应失效")
 
@@ -851,7 +847,7 @@ func TestWebVpnSessionAbsoluteMaxLifetime(t *testing.T) {
 }
 
 func webVpnUserFromTokenOK(token string) bool {
-	_, ok := webvpn.GetManager().Session().UserFromToken(token)
+	_, ok := testWebvpn.Session().UserFromToken(token)
 	return ok
 }
 
@@ -869,7 +865,7 @@ func TestWebVpnHandlerSubdomainPortalApiForbidden(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, p, nil)
 		req.Host = "evil.wv.example.com" // 任意 WebVPN 子域
 		rec := httptest.NewRecorder()
-		handled := WebVpnHandler(rec, req)
+		handled := WebVpnHandler(testServices, rec, req)
 		ast.True(handled, "子域 /portal/api/* 应由 WebVpnHandler 拦截（不应 delegate），path=%s", p)
 		ast.Equal(http.StatusForbidden, rec.Code, "子域 /portal/api/* 应返回 403，path=%s", p)
 	}
@@ -877,7 +873,7 @@ func TestWebVpnHandlerSubdomainPortalApiForbidden(t *testing.T) {
 		req := httptest.NewRequest(m, "/portal", nil)
 		req.Host = "evil.wv.example.com"
 		rec := httptest.NewRecorder()
-		handled := WebVpnHandler(rec, req)
+		handled := WebVpnHandler(testServices, rec, req)
 		ast.True(handled, "子域非 GET /portal 应由 WebVpnHandler 拦截，method=%s", m)
 		ast.Equal(http.StatusForbidden, rec.Code, "子域非 GET /portal 应返回 403，method=%s", m)
 	}
@@ -906,7 +902,7 @@ func TestWebVpnHandlerSubdomainPortalLoginAllowed(t *testing.T) {
 		req := httptest.NewRequest(c.method, c.path, nil)
 		req.Host = "app.wv.example.com" // 任意 WebVPN 子域
 		rec := httptest.NewRecorder()
-		handled := WebVpnHandler(rec, req)
+		handled := WebVpnHandler(testServices, rec, req)
 		ast.False(handled, "子域登录前置接口应 delegate 回主路由，method=%s path=%s", c.method, c.path)
 		ast.NotEqual(http.StatusForbidden, rec.Code, "子域登录前置接口不应 403，method=%s path=%s", c.method, c.path)
 	}
@@ -931,7 +927,7 @@ func TestWebVpnHandlerSubdomainWhitelistAllowed(t *testing.T) {
 		req := httptest.NewRequest(c.method, c.path, nil)
 		req.Host = "app.wv.example.com"
 		rec := httptest.NewRecorder()
-		handled := WebVpnHandler(rec, req)
+		handled := WebVpnHandler(testServices, rec, req)
 		ast.False(handled, "子域白名单路径应 delegate 回主路由，method=%s path=%s", c.method, c.path)
 	}
 }
@@ -945,7 +941,7 @@ func TestWebVpnHandlerSubdomainNonWhitelistProxy(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/some/random/path", nil)
 	req.Host = "app.wv.example.com"
 	rec := httptest.NewRecorder()
-	handled := WebVpnHandler(rec, req)
+	handled := WebVpnHandler(testServices, rec, req)
 	ast.True(handled, "子域非白名单路径应由 WebVpnHandler 转交代理")
 }
 
@@ -961,7 +957,7 @@ func TestWebVpnHandlerPortalHostUIServedLocally(t *testing.T) {
 		req.Host = host
 		req.AddCookie(&http.Cookie{Name: webVpnSessionCookie, Value: token})
 		rec := httptest.NewRecorder()
-		handled := WebVpnHandler(rec, req)
+		handled := WebVpnHandler(testServices, rec, req)
 		ast.False(handled, "门户主机 %s 的 /ui/ 应 delegate 回主路由，不应被当应用反代", host)
 		ast.NotContains(rec.Body.String(), "应用不存在", "门户主机 %s 不应报“应用不存在”", host)
 	}
@@ -973,7 +969,7 @@ func TestWebVpnHandlerAppHostUIProxied(t *testing.T) {
 	ast := assert.New(t)
 
 	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", path: "/ui/dashboard"})
-	handled := WebVpnHandler(rec, req)
+	handled := WebVpnHandler(testServices, rec, req)
 	ast.True(handled, "命中应用的子域 /ui/ 应由 WebVpnHandler 反代")
 
 	backendSeen.Lock()
@@ -994,7 +990,7 @@ func TestWebVpnHandlerNonSubdomainIgnored(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/portal/api/logout", nil)
 	req.Host = "www.example.com" // 非 WebVPN 子域
 	rec := httptest.NewRecorder()
-	handled := WebVpnHandler(rec, req)
+	handled := WebVpnHandler(testServices, rec, req)
 	ast.False(handled, "非 WebVPN 子域请求不应由 WebVpnHandler 处理")
 }
 
@@ -1028,14 +1024,14 @@ func TestWebVpnSafeRedirect(t *testing.T) {
 	defer teardown()
 	ast := assert.New(t)
 
-	ast.True(webVpnSafeRedirect("https://app.wv.example.com/foo"), "子域 https 应放行")
-	ast.True(webVpnSafeRedirect("https://app.wv.example.com:4343/foo"), "子域带端口 https 应放行")
-	ast.True(webVpnSafeRedirect("https://wv.example.com/foo"), "主域 https 应放行")
-	ast.False(webVpnSafeRedirect("https://evil.com/foo"), "外部域名应拒绝")
-	ast.False(webVpnSafeRedirect("https://wv.example.com.evil.org/foo"), "子域混淆应拒绝")
-	ast.False(webVpnSafeRedirect("http://app.wv.example.com/foo"), "非 https 应拒绝")
-	ast.False(webVpnSafeRedirect(""), "空地址应拒绝")
-	ast.False(webVpnSafeRedirect("/foo"), "相对地址应拒绝")
+	ast.True(isSafeRedirect("https://app.wv.example.com/foo"), "子域 https 应放行")
+	ast.True(isSafeRedirect("https://app.wv.example.com:4343/foo"), "子域带端口 https 应放行")
+	ast.True(isSafeRedirect("https://wv.example.com/foo"), "主域 https 应放行")
+	ast.False(isSafeRedirect("https://evil.com/foo"), "外部域名应拒绝")
+	ast.False(isSafeRedirect("https://wv.example.com.evil.org/foo"), "子域混淆应拒绝")
+	ast.False(isSafeRedirect("http://app.wv.example.com/foo"), "非 https 应拒绝")
+	ast.False(isSafeRedirect(""), "空地址应拒绝")
+	ast.False(isSafeRedirect("/foo"), "相对地址应拒绝")
 }
 
 // 主域地址取 webvpn_sso_domain：无端口沿用来源端口，未配置返回空
@@ -1080,7 +1076,7 @@ func TestWebVpnPortalSSOSubdomainRedirect(t *testing.T) {
 		nil)
 	req.Host = "app.wv.example.com:4343"
 	rec := httptest.NewRecorder()
-	PortalSSO(rec, req)
+	testPortal.SSOLogin(rec, req)
 
 	ast.Equal(http.StatusFound, rec.Code, "子域第三方登录应 302 跳门户域名")
 	loc := rec.Header().Get("Location")
@@ -1095,7 +1091,7 @@ func TestWebVpnPortalSSOSubdomainRedirect(t *testing.T) {
 		nil)
 	req2.Host = "app.wv.example.com:4343"
 	rec2 := httptest.NewRecorder()
-	PortalSSO(rec2, req2)
+	testPortal.SSOLogin(rec2, req2)
 	ast.Equal(http.StatusBadRequest, rec2.Code, "未配置 webvpn_sso_domain 时子域三方登录应返回 400")
 }
 
@@ -1151,7 +1147,7 @@ func TestPortalLoginOnWebVpnSubdomainSkipsPortalCookie(t *testing.T) {
 	req.Header.Set("X-Forwarded-Proto", "https")
 
 	rec := httptest.NewRecorder()
-	portalIssueLoginResponse(rec, req, &dbdata.User{Username: "alice"}, "test")
+	testPortal.portalIssueLoginResponse(rec, req, &dbdata.User{Username: "alice"}, "test")
 
 	var hasPortal, hasGrant bool
 	for _, c := range rec.Result().Cookies() {
@@ -1169,7 +1165,7 @@ func TestPortalLoginOnWebVpnSubdomainSkipsPortalCookie(t *testing.T) {
 	req2.Host = "mv.example.com"
 	req2.Header.Set("X-Forwarded-Proto", "https")
 	rec2 := httptest.NewRecorder()
-	portalIssueLoginResponse(rec2, req2, &dbdata.User{Username: "alice"}, "test")
+	testPortal.portalIssueLoginResponse(rec2, req2, &dbdata.User{Username: "alice"}, "test")
 	var hasPortal2 bool
 	for _, c := range rec2.Result().Cookies() {
 		if c.Name == portalCookieName {
@@ -1189,12 +1185,12 @@ func TestWebVpnSessionScopedToAppPermission(t *testing.T) {
 	ast.NoError(err)
 	portalJTI, err := jwt.JtiOf(portalTok)
 	ast.NoError(err)
-	grantTok, err := webvpn.GetManager().Session().IssueGrant(
-		nil, nil, &dbdata.User{Username: "alice", Type: "local"}, portalJTI)
-	ast.NoError(err)
 	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true, portal: portalTok})
+	grantTok, err := testWebvpn.Session().IssueGrant(
+		httptest.NewRecorder(), req, &dbdata.User{Username: "alice", Type: "local"}, portalJTI)
+	ast.NoError(err)
 	req.AddCookie(&http.Cookie{Name: "webvpn_grant", Value: grantTok})
-	ast.True(WebVpnHandler(rec, req))
+	ast.True(WebVpnHandler(testServices, rec, req))
 	ast.Equal(http.StatusOK, rec.Code, "已授权应用 app1 应放行")
 
 	var sessTok string
@@ -1207,12 +1203,12 @@ func TestWebVpnSessionScopedToAppPermission(t *testing.T) {
 
 	req2, rec2, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app2", noSession: true})
 	req2.AddCookie(&http.Cookie{Name: webVpnSessionCookie, Value: sessTok})
-	webVpnProxy(rec2, req2, "app2")
+	webVpnProxy(testWebvpn, rec2, req2, "app2")
 	ast.Equal(http.StatusForbidden, rec2.Code, "未授权应用必须 403")
 
 	req3, rec3, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
 	req3.AddCookie(&http.Cookie{Name: webVpnSessionCookie, Value: sessTok})
-	webVpnProxy(rec3, req3, "app1")
+	webVpnProxy(testWebvpn, rec3, req3, "app1")
 	ast.Equal(http.StatusOK, rec3.Code, "已授权应用应仍放行")
 }
 
@@ -1224,15 +1220,15 @@ func TestWebVpnRevokedSessionDeniedOnEveryApp(t *testing.T) {
 	_, _, token := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", user: "alice"})
 	ast.NotEmpty(token)
 
-	webvpn.GetManager().Revoker().RevokeUser("alice")
+	testWebvpn.Revoker().User("alice")
 
 	req1, rec1, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
 	req1.AddCookie(&http.Cookie{Name: webVpnSessionCookie, Value: token})
-	webVpnProxy(rec1, req1, "app1")
+	webVpnProxy(testWebvpn, rec1, req1, "app1")
 	ast.NotEqual(http.StatusOK, rec1.Code, "踢出后该会话访问 app1 必须失效")
 
 	req2, rec2, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "apphost", noSession: true})
 	req2.AddCookie(&http.Cookie{Name: webVpnSessionCookie, Value: token})
-	webVpnProxy(rec2, req2, "apphost")
+	webVpnProxy(testWebvpn, rec2, req2, "apphost")
 	ast.NotEqual(http.StatusOK, rec2.Code, "踢出后该会话访问其他应用也必须失效")
 }

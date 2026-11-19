@@ -4,18 +4,17 @@ import (
 	"time"
 
 	"github.com/wsczx/remlink/base"
-	"github.com/wsczx/remlink/dbdata"
 	mail "github.com/xhit/go-simple-mail/v2"
 )
 
 // SMTP 邮件发送
-func sendEmail(smtpCfg *dbdata.SettingSmtp, msg Message) error {
+func sendEmail(smtpCfg *SmtpConfig, msg Message) error {
 	server := mail.NewSMTPClient()
 
 	server.Host = smtpCfg.Host
 	server.Port = smtpCfg.Port
 	server.Username = smtpCfg.Username
-	server.Password = string(smtpCfg.Password)
+	server.Password = smtpCfg.Password
 
 	switch smtpCfg.Encryption {
 	case "SSLTLS":

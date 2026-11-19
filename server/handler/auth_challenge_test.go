@@ -8,7 +8,7 @@ import (
 	"github.com/wsczx/remlink/auth/authsrv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
-	"github.com/wsczx/remlink/pkg/dbtest"
+	"github.com/wsczx/remlink/dbtest"
 	"github.com/wsczx/remlink/pkg/utils"
 )
 
@@ -70,23 +70,23 @@ func TestMaskPhone(t *testing.T) {
 	assert.Equal(t, "123", maskPhone("123"))
 }
 
-// RunForcePwdChange：校验策略 + 哈希 + 写库清除 ForcePwd + 重载
-func TestRunForcePwdChange(t *testing.T) {
+// RunForcePasswordChange：校验策略 + 哈希 + 写库清除 ForcePwd + 重载
+func TestRunForcePasswordChange(t *testing.T) {
 	base.Test()
 	dbtest.SetupDB(t)
 
 	username := "forcepwd-unit"
-	_ = dbdata.Del(&dbdata.User{Username: username})
-	u, _ := createPortalPwdUser(t, username, "OldPass@123")
+	_ = dbdata.GetDB().Delete(&dbdata.User{Username: username})
+	u, _ := createPortalPasswordUser(t, username, "OldPass@123")
 	u.ForcePwd = true
-	_ = dbdata.SetUser(u)
+	_ = dbdata.Users.SetUser(u)
 
 	newPwd := "NewPass@456"
-	err := RunForcePwdChange(newChallengeCtx(username), username, newPwd)
+	err := RunForcePasswordChange(newChallengeCtx(username), username, newPwd)
 	assert.Nil(t, err)
 
 	after := &dbdata.User{}
-	assert.Nil(t, dbdata.One("Username", username, after))
+	assert.Nil(t, dbdata.Users.GetByUsername(username, after))
 	assert.False(t, after.ForcePwd)
 	// 读取对 pin_code 透明解密，无法直接 verify 密文，故用同一哈希算法自洽校验
 	hashed, herr := utils.PasswordHash(newPwd)
@@ -99,12 +99,12 @@ func TestRunForcePwdChange(t *testing.T) {
 	assert.NotNil(t, ctx.UserInfoLoaded())
 	assert.False(t, ctx.UserInfoLoaded().ForcePwd)
 
-	_ = dbdata.Del(&dbdata.User{Username: username})
+	_ = dbdata.GetDB().Delete(&dbdata.User{Username: username})
 }
 
 // 拒绝不合策略的密码
-func TestRunForcePwdChange_RejectWeak(t *testing.T) {
+func TestRunForcePasswordChange_RejectWeak(t *testing.T) {
 	base.Test()
-	err := RunForcePwdChange(newChallengeCtx("nope"), "nope", "123")
+	err := RunForcePasswordChange(newChallengeCtx("nope"), "nope", "123")
 	assert.NotNil(t, err)
 }

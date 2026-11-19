@@ -22,10 +22,7 @@ func ServeUI() http.Handler {
 }
 
 // 默认品牌展示，未配置自定义品牌时回退
-const (
-	defaultBrandTitle   = "RemLink"
-	defaultBrandFavicon = ""
-)
+const defaultBrandTitle = "RemLink"
 
 // 写入前端 index.html；读取失败则返回 404
 func ServeIndex(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +32,8 @@ func ServeIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	brand := dbdata.SettingPortalBrand{}
-	_ = dbdata.SettingGet(&brand)
+	// 品牌配置缺失时用零值
+	_ = dbdata.Settings.Get(&brand)
 
 	title := brand.Title
 	if title == "" {

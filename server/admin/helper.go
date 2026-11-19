@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"github.com/wsczx/remlink/pkg/utils"
 	"io"
 	"net/http"
 	"strconv"
@@ -9,7 +10,6 @@ import (
 	"github.com/wsczx/remlink/dbdata"
 )
 
-// 读取并解析 JSON 请求体（带大小上限）；出错时已自行写错误响应，调用方直接 return
 func readJSON(w http.ResponseWriter, r *http.Request, maxLen int64, v any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, maxLen)
 	defer r.Body.Close()
@@ -25,7 +25,6 @@ func readJSON(w http.ResponseWriter, r *http.Request, maxLen int64, v any) error
 	return nil
 }
 
-// 解析表单 id 参数。非法时已写好错误响应，返回 (0, false)
 func parseID(w http.ResponseWriter, r *http.Request, errMsg string) (int, bool) {
 	_ = r.ParseForm()
 	id, _ := strconv.Atoi(r.FormValue("id"))
@@ -36,7 +35,6 @@ func parseID(w http.ResponseWriter, r *http.Request, errMsg string) (int, bool) 
 	return id, true
 }
 
-// 解析分页参数（page/page_size），非法值回退默认
 func parsePaging(r *http.Request) (page, pageSize int) {
 	page, _ = strconv.Atoi(r.FormValue("page"))
 	if page < 1 {
@@ -46,6 +44,7 @@ func parsePaging(r *http.Request) (page, pageSize int) {
 	if pageSize <= 0 {
 		pageSize = dbdata.PageSize
 	}
+	// 防止超大 page_size 把整表载入内存
 	const maxPageSize = 200
 	if pageSize > maxPageSize {
 		pageSize = maxPageSize
@@ -59,30 +58,67 @@ func detailByID[T any](w http.ResponseWriter, r *http.Request, errMsg string) {
 		return
 	}
 	var data T
-	if err := dbdata.One("Id", id, &data); err != nil {
+	if err := dbdata.GetDB().Get("Id", id, &data); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	RespSuccess(w, data)
+	RespSuccess(w, &data)
 }
 
-// 按 id 删除记录：先查出完整记录供 onDeleted 回调（可空）使用
+// 先查出完整记录供可选的 onDeleted 回调使用
 func delByID[T any](w http.ResponseWriter, r *http.Request, errMsg string, onDeleted func(*T)) {
 	id, ok := parseID(w, r, errMsg)
 	if !ok {
 		return
 	}
-	data := new(T)
-	if err := dbdata.One("Id", id, data); err != nil {
+	s := dbdata.GetDB()
+	var data T
+	if err := s.Get("Id", id, &data); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	if err := dbdata.Del(data); err != nil {
+	if err := s.Delete(&data); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
 	if onDeleted != nil {
-		onDeleted(data)
+		onDeleted(&data)
 	}
 	RespSuccess(w, nil)
+}
+
+// 统一分页列表响应：空结果转 []，返回 {count,page_size,datas}
+func listResp[T any](w http.ResponseWriter, count, pageSize int, datas []T) {
+	if datas == nil {
+		datas = []T{}
+	}
+	RespSuccess(w, map[string]any{
+		"count":     count,
+		"page_size": pageSize,
+		"datas":     datas,
+	})
+}
+
+// 取当前页数据与总数；查询出错时已写错误响应并返回 false
+// where 为空表示无条件查询
+func findPage[T any](w http.ResponseWriter, m *T, page, pageSize int, where string, args ...any) ([]T, int, bool) {
+	var count int
+	var datas []T
+	var err error
+	s := dbdata.GetDB()
+	if where != "" {
+		count = s.CountWhere(m, where, args...)
+		err = s.FindWhere(&datas, pageSize, page, where, args...)
+	} else {
+		count = s.Count(m)
+		err = s.Find(&datas, pageSize, page)
+	}
+	if err != nil && !utils.CheckErrNotFound(err) {
+		RespError(w, RespInternalErr, err)
+		return nil, 0, false
+	}
+	if datas == nil {
+		datas = []T{}
+	}
+	return datas, count, true
 }

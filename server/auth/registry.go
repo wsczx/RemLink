@@ -11,7 +11,9 @@ type ProviderRegistry struct {
 	factory map[string]func() Authenticator
 }
 
-var Registry = NewProviderRegistry()
+var Registry *ProviderRegistry
+
+func SetRegistry(r *ProviderRegistry) { Registry = r }
 
 func NewProviderRegistry() *ProviderRegistry {
 	return &ProviderRegistry{

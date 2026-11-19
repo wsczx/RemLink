@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+// IP 与 MAC 映射的存储入口
+type IpMapStore struct{ *table[IpMap] }
+
+// IP 与 MAC 映射的存储入口实例，由 SetDB 注入持久化实现
+var IpMaps = &IpMapStore{}
+
 type IpMap struct {
 	Id        int       `json:"id" xorm:"pk autoincr not null"`
 	IpAddr    string    `json:"ip_addr" xorm:"varchar(64) not null unique"`
@@ -22,15 +28,13 @@ type IpMap struct {
 	UpdatedAt time.Time `json:"updated_at" xorm:"DateTime updated"`
 }
 
-func SetIpMap(v *IpMap) error {
+func (st *IpMapStore) SetIpMap(v *IpMap) error {
 	var err error
 
 	if len(v.IpAddr) < 4 || len(v.MacAddr) < 6 {
 		return errors.New("IP或MAC错误")
 	}
 
-	// IpAddr 必须是合法 IPv4：非法值（如 "abc"、IPv6 地址）会在 IP 池分配时
-	// 进入 Ip2long 导致 panic，造成对应 MAC 客户端登录即崩溃且连接数泄漏
 	if ip := net.ParseIP(v.IpAddr); ip == nil || ip.To4() == nil {
 		return errors.New("IP错误：仅支持 IPv4 地址")
 	}
@@ -49,9 +53,34 @@ func SetIpMap(v *IpMap) error {
 
 	v.UpdatedAt = time.Now()
 	if v.Id > 0 {
-		err = Set(v)
+		err = GetDB().Save(v)
 	} else {
-		err = Add(v)
+		err = GetDB().Insert(v)
 	}
 	return err
+}
+
+// 按 ID 加载 IP 映射
+func (st *IpMapStore) GetByID(id int, dest *IpMap) error {
+	return GetDB().Get("Id", id, dest)
+}
+
+// 按 IPv4 地址加载 IP 映射
+func (st *IpMapStore) GetByIP(ip string, dest *IpMap) error {
+	return GetDB().Get("ip_addr", ip, dest)
+}
+
+// 按 IPv6 地址加载 IP 映射
+func (st *IpMapStore) GetByIP6(ip string, dest *IpMap) error {
+	return GetDB().Get("ip_addr6", ip, dest)
+}
+
+// 按 ID 删除 IP 映射
+func (st *IpMapStore) Delete(id int) error {
+	return GetDB().Delete(&IpMap{Id: id})
+}
+
+// 返回 IP 映射总行数
+func (st *IpMapStore) Count() int {
+	return GetDB().Count(&IpMap{})
 }

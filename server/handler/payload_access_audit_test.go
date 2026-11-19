@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/binary"
 	"net"
 	"sync"
 	"testing"
@@ -12,13 +13,25 @@ import (
 	"github.com/wsczx/remlink/sessdata"
 )
 
+// 构造 IPv6 报文，用于审计路径的地址族解析
+func buildV6Packet(nextHeader uint8, src, dst net.IP, payloadLen int) []byte {
+	data := make([]byte, 40+payloadLen)
+	data[0] = 0x60 // 版本=6
+	binary.BigEndian.PutUint16(data[4:6], uint16(payloadLen))
+	data[6] = nextHeader
+	copy(data[8:24], src.To16())
+	copy(data[24:40], dst.To16())
+	return data
+}
+
 // 需最小化初始化审计全局状态（否则 nil panic / channel 阻塞）
 func TestLogAudit_v6_UDP(t *testing.T) {
-	auditPayload = &AuditPayload{
+	aa := NewAccessAudit(sessdata.NewSessionManager())
+	aa.Payload = &AuditPayload{
 		Pool:       utils.NewWorkerPool(1, 16),
 		IpAuditMap: &sync.Map{},
 	}
-	logBatch = &LogBatch{LogChan: make(chan dbdata.AccessAudit, 16)}
+	aa.Batch = &LogBatch{LogChan: make(chan dbdata.AccessAudit, 16)}
 
 	dst := net.ParseIP("2001:db8::1")
 	pkt := buildV6Packet(17, net.ParseIP("2001:db8::2"), dst, 20)
@@ -26,15 +39,15 @@ func TestLogAudit_v6_UDP(t *testing.T) {
 	pkt[41] = 0x40
 	pkt[42] = 0
 	pkt[43] = 53
-	// 用 cap==BufferSize 的 buf 包裹，避免 putPayload 触发 base.Warn（测试环境日志未初始化）
-	buf := make([]byte, len(pkt), BufferSize)
+	// 用 cap==sessdata.PayloadBufferSize 的 buf 包裹，避免 PutPayload 触发 base.Warn（测试环境日志未初始化）
+	buf := make([]byte, len(pkt), sessdata.PayloadBufferSize)
 	copy(buf, pkt)
 	pl := &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: buf}
 
-	logAudit("user", "group", pl)
+	aa.log("user", "group", pl)
 
 	select {
-	case audit := <-logBatch.LogChan:
+	case audit := <-aa.Batch.LogChan:
 		if audit.Dst != dst.String() {
 			t.Errorf("audit.Dst = %q, want %q", audit.Dst, dst.String())
 		}
@@ -87,5 +100,22 @@ func TestLogBatchAppendAuditKeepsDifferentDomains(t *testing.T) {
 	}
 	if len(batch.Logs) != 2 {
 		t.Fatalf("len(batch.Logs) = %d, want 2", len(batch.Logs))
+	}
+}
+
+// 解帧后的长度由客户端控制；超短报文不得触发越界读取
+func TestParseAuditPacketRejectsShortPackets(t *testing.T) {
+	cases := [][]byte{
+		nil,
+		{},
+		{0x45},
+		make([]byte, 19),
+		{0x45, 0, 0, 20, 0, 0, 0, 0, 64, 17, 0, 0}, // 12 字节，IHL 合法但不足 20
+	}
+	for i, data := range cases {
+		pl := &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: data}
+		if _, ok := parseAuditPacket(pl); ok {
+			t.Errorf("case %d (len=%d) 应被拒绝", i, len(data))
+		}
 	}
 }

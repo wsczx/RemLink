@@ -12,21 +12,6 @@ type AuthLdap struct {
 	auth.LDAPConfig
 }
 
-// 从 Group 的 AuthProfile 中通过 Provider 名称解析 LDAP 配置
-func ResolveLdapConfig(g *Group) (*AuthLdap, error) {
-	cfg, err := resolveProviderConfigMap(g, "ldap", "LDAP")
-	if err != nil {
-		return nil, err
-	}
-
-	result := &AuthLdap{}
-	if err := auth.GetProviderConfigFromMap(cfg, &result.LDAPConfig); err != nil {
-		return nil, err
-	}
-	result.Defaults()
-	return result, nil
-}
-
 // 从 LDAP 同步用户到本地数据库
 func (a *AuthLdap) SaveUsers(g *Group) error {
 	// 建立LDAP连接
@@ -58,7 +43,7 @@ func (a *AuthLdap) SaveUsers(g *Group) error {
 		return entry.GetAttributeValue("mobile")
 	}
 
-	needOTP := a.EnableOtp || HasAuthType(g.AuthProfile, "otp")
+	needOTP := a.EnableOtp || Groups.HasAuthType(g.AuthProfile, "otp")
 	remote := make(map[string]RemoteUser)
 	for _, entry := range sr.Entries {
 		if a.SyncUserStatus {
@@ -75,22 +60,36 @@ func (a *AuthLdap) SaveUsers(g *Group) error {
 			Email: entry.GetAttributeValue("mail"),
 		}
 	}
-	// 判据是过滤前的原始搜索结果（与旧行为一致：全部被状态过滤时仍执行清理）
+	// 判据是过滤前的原始搜索结果
 	if len(sr.Entries) == 0 {
 		return fmt.Errorf("LDAP 搜索到的用户列表为空（可能连接失败、base DN 配置错误或搜索权限不足），组: %s", g.Name)
 	}
 
-	// LDAP 语义：本地已填写的字段不覆盖（保留本地编辑）；无拒绝名单
 	return syncExternalUsers(g, "ldap", "LDAP", remote, needOTP, nil, true)
 }
 
+// 从 Group 的 AuthProfile 中通过 Provider 名称解析 LDAP 配置
+func (st *GroupStore) ResolveLdapConfig(g *Group) (*AuthLdap, error) {
+	cfg, err := resolveProviderConfigMap(g, "ldap", "LDAP")
+	if err != nil {
+		return nil, err
+	}
+
+	result := &AuthLdap{}
+	if err := auth.GetProviderConfigFromMap(cfg, &result.LDAPConfig); err != nil {
+		return nil, err
+	}
+	result.Defaults()
+	return result, nil
+}
+
 // 同步所有 LDAP 认证源用户（按各 LDAP 认证源的 sync_users 独立控制）
-func SyncLdapUsers() {
+func (st *GroupStore) SyncLdapUsers() {
 	syncExternalUsersBySource(extSyncSource{
 		authType: "ldap",
 		name:     "LDAP",
 		resolve: func(g *Group) (bool, func(*Group) error, error) {
-			cfg, err := ResolveLdapConfig(g)
+			cfg, err := st.ResolveLdapConfig(g)
 			if err != nil {
 				return false, nil, err
 			}

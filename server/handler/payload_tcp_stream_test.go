@@ -32,11 +32,11 @@ func TestSNIParserWaitsForCompleteClientHello(t *testing.T) {
 	record := []byte{0x16, 0x03, 0x03, byte((4 + len(body)) >> 8), byte(4 + len(body)), 1, byte(len(body) >> 16), byte(len(body) >> 8), byte(len(body))}
 	record = append(record, body...)
 	for _, cut := range []int{1, 8, len(record) - 1} {
-		if proto, info := sniNewParser(record[:cut]); proto != acc_proto_tcp || info != "" {
+		if proto, info := newSNIParser(record[:cut]); proto != acc_proto_tcp || info != "" {
 			t.Fatalf("partial ClientHello at %d = (%d, %q), want incomplete TCP", cut, proto, info)
 		}
 	}
-	if proto, info := sniNewParser(record); proto != acc_proto_https || info != "example.com" {
+	if proto, info := newSNIParser(record); proto != acc_proto_https || info != "example.com" {
 		t.Fatalf("complete ClientHello = (%d, %q), want HTTPS example.com", proto, info)
 	}
 }
@@ -81,7 +81,7 @@ func TestTCPStreamCacheKeepsLongerRetransmission(t *testing.T) {
 	now := time.Unix(180, 0)
 	cache.add(key, makeTCPStreamSegment(100, "AAAA"), now)
 	cache.add(key, makeTCPStreamSegment(100, "AAAAAA"), now.Add(time.Millisecond))
-	assembled := assembleTCPStream(cache.streams[key].segments, cache.streams[key].baseSeq)
+	assembled := buildTCPStream(cache.streams[key].segments, cache.streams[key].baseSeq)
 	if string(assembled) != "AAAAAA" {
 		t.Fatalf("assembled retransmission = %q", assembled)
 	}

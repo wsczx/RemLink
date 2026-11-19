@@ -1,334 +1,180 @@
 package dbdata
 
 import (
-	"errors"
-	"net/http"
-	"strings"
-	"time"
+	"reflect"
 
-	_ "github.com/denisenkom/go-mssqldb"
-	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/lib/pq"
-	"github.com/wsczx/remlink/base"
+	"github.com/wsczx/remlink/pkg/utils"
 	"xorm.io/xorm"
-	"xorm.io/xorm/core"
-	"xorm.io/xorm/dialects"
 )
 
-var (
-	xdb *xorm.Engine
-)
-
-func GetXdb() *xorm.Engine {
-	return xdb
-}
-func TableModels() []any {
-	return []any{
-		&User{},
-		&Setting{},
-		&Group{},
-		&IpMap{},
-		&AccessAudit{},
-		&AdminOpLog{},
-		&Policy{},
-		&StatsNetwork{},
-		&StatsCpu{},
-		&StatsMem{},
-		&StatsOnline{},
-		&UserActLog{},
-		&PasswordReset{},
-		&ClientCertData{},
-		&Provider{},
-		&WebVpnApp{},
-		&WebVpnAudit{},
-		&WebVpnRevoke{},
-	}
+type DB struct {
+	engine *xorm.Engine
 }
 
-func initDb() {
-	var err error
-	dbType := base.GetCfg().DbType
-	dbSource := base.GetCfg().DbSource
+func NewDB(engine *xorm.Engine) *DB { return &DB{engine: engine} }
 
-	// SQLite 单写锁：默认加 busy_timeout 让驱动在拿不到写锁时等待而非立即报
-	// "database is locked"。否则高并发写（流控自增、审计批量写）会频繁撞锁
-	if dbType == "sqlite3" {
-		// modernc.org/sqlite 仅对 file: URI 形式解析 ? 后的查询参数，相对/绝对路径补 file: 前缀
-		if dbSource != ":memory:" && !strings.HasPrefix(dbSource, "file:") {
-			dbSource = "file:" + dbSource
-		}
-		if !strings.Contains(dbSource, "_busy_timeout=") {
-			sep := "?"
-			if strings.Contains(dbSource, "?") {
-				sep = "&"
-			}
-			dbSource += sep + "_busy_timeout=5000"
-		}
-		// 注入 SQLite 锁退避重试（见 db_sqlite_retry.go）
-		sqlDB, dErr := newRetrySqliteDB(dbSource)
-		if dErr != nil {
-			base.Fatal(dErr)
-		}
-		dialect, dErr := dialects.OpenDialect(dbType, dbSource)
-		if dErr != nil {
-			base.Fatal(dErr)
-		}
-		xdb, err = xorm.NewEngineWithDialectAndDB(dbType, dbSource, dialect, core.FromDB(sqlDB))
-	} else {
-		xdb, err = xorm.NewEngine(dbType, dbSource)
-	}
-	if err != nil {
-		base.Fatal(err)
-	}
+// 返回底层 xorm 引擎，供封装未覆盖的复杂查询/事务/原生 SQL 使用
+func (s *DB) Engine() *xorm.Engine { return s.engine }
 
-	// 初始化xorm时区
-	xdb.DatabaseTZ = time.Local
-	xdb.TZLocation = time.Local
+func SetShowSQL(on bool) { GetDB().Engine().ShowSQL(on) }
 
-	if base.GetCfg().ShowSQL {
-		xdb.ShowSQL(true)
-	}
-
-	// 初始化数据库
-	err = xdb.Sync2(TableModels()...)
-	if err != nil {
-		base.Fatal(err)
-	}
+func (s *DB) Insert(v any) error {
+	_, err := s.engine.InsertOne(v)
+	return err
 }
 
-func initData() {
-	var (
-		err error
-	)
-
-	// 判断是否初次使用
-	install := &SettingInstall{}
-	err = SettingGet(install)
-
-	if err == nil && install.Installed {
-		// 已经安装过
-		return
-	}
-
-	// 发生错误
-	if err != ErrNotFound {
-		base.Fatal(err)
-	}
-
-	err = addInitData()
-	if err != nil {
-		base.Fatal(err)
-	}
-
+func (s *DB) InsertBatch(v any) error {
+	_, err := s.engine.Insert(v)
+	return err
 }
 
-func addInitData() error {
-	var (
-		err error
-	)
+func (s *DB) Update(field string, value any, v any) error {
+	_, err := s.engine.Where(field+"=?", value).Update(v)
+	return err
+}
 
-	sess := xdb.NewSession()
-	defer sess.Close()
+func (s *DB) Delete(v any) error {
+	_, err := s.engine.Delete(v)
+	return err
+}
 
-	err = sess.Begin()
+func (s *DB) Save(v any) error {
+	_, err := s.engine.ID(extract(v, "Id")).AllCols().Update(v)
+	return err
+}
+
+func (s *DB) Get(field string, value any, dest any) error {
+	return getOne(s.engine, field+"=?", dest, value)
+}
+
+func (s *DB) GetWhere(where string, dest any, args ...any) error {
+	return getOne(s.engine, where, dest, args...)
+}
+
+func (s *DB) Find(dest any, limit, page int) error {
+	if limit <= 0 {
+		return s.engine.OrderBy("id ASC").Find(dest)
+	}
+	return s.engine.OrderBy("id ASC").Limit(limit, (page-1)*limit).Find(dest)
+}
+
+func (s *DB) FindWhere(dest any, limit, page int, where string, args ...any) error {
+	if limit == 0 {
+		return s.engine.Where(where, args...).OrderBy("id ASC").Find(dest)
+	}
+	return s.engine.Where(where, args...).OrderBy("id ASC").Limit(limit, (page-1)*limit).Find(dest)
+}
+
+func (s *DB) Count(v any) int {
+	n, _ := s.engine.Count(v)
+	return int(n)
+}
+
+func (s *DB) CountWhere(v any, where string, args ...any) int {
+	n, _ := s.engine.Where(where, args...).Count(v)
+	return int(n)
+}
+
+// 按条件查询单条记录
+func getOne(engine *xorm.Engine, where string, dest any, args ...any) error {
+	has, err := engine.Where(where, args...).Get(dest)
 	if err != nil {
 		return err
 	}
-	defer sess.Rollback()
-
-	// SettingSmtp
-	smtp := &SettingSmtp{
-		Host:       "127.0.0.1",
-		Port:       25,
-		From:       "vpn@xx.com",
-		Encryption: "None",
+	if !has {
+		return utils.ErrNotFound
 	}
-	err = SettingSessAdd(sess, smtp)
-	if err != nil {
-		return err
-	}
-
-	// SettingAuditLog
-	auditLog := SettingGetAuditLogDefault()
-	err = SettingSessAdd(sess, auditLog)
-	if err != nil {
-		return err
-	}
-
-	// ServerConfig
-	cfg := *base.GetCfg()
-	base.CompleteConfig(&cfg)
-	serverConfig := &SettingServerConfig{Config: cfg}
-	err = SettingSessAdd(sess, serverConfig)
-	if err != nil {
-		return err
-	}
-
-	// Profile
-	profile := &SettingProfile{Content: base.DefaultProfileXML}
-	err = SettingSessAdd(sess, profile)
-	if err != nil {
-		return err
-	}
-
-	// SettingDnsProvider
-	provider := &SettingLetsEncrypt{
-		Domain:      "vpn.xxx.com",
-		Legomail:    "legomail",
-		Name:        "aliyun",
-		Renew:       false,
-		DNSProvider: DNSProvider{},
-	}
-	err = SettingSessAdd(sess, provider)
-	if err != nil {
-		return err
-	}
-	// LegoUser
-	legouser := &LegoUserData{}
-	err = SettingSessAdd(sess, legouser)
-	if err != nil {
-		return err
-	}
-	// SettingOther
-	other := &SettingOther{
-		LinkAddr:    "vpn.xx.com",
-		Banner:      "您已接入公司网络，请按照公司规定使用。\n请勿进行非工作下载及视频行为！",
-		Homecode:    http.StatusOK,
-		Homeindex:   "RemLink 是一个企业级远程办公 sslvpn 的软件，可以支持多人同时在线使用。",
-		AccountMail: accountMail,
-		CertMail:    certMail,
-	}
-	err = SettingSessAdd(sess, other)
-	if err != nil {
-		return err
-	}
-
-	err = sess.Commit()
-	if err != nil {
-		return err
-	}
-
-	// 创建内置策略：全局代理
-	pAll := &Policy{
-		Name:         "全局代理",
-		Note:         "系统初始化内置策略",
-		AllowLan:     true,
-		ClientDns:    []ValData{{Val: "114.114.114.114", Note: "默认dns"}},
-		RouteInclude: []ValData{{Val: ALL}},
-		Status:       1,
-	}
-	err = SetPolicy(pAll)
-	if err != nil {
-		return err
-	}
-
-	// 创建内置策略：仅内网分流
-	pOps := &Policy{
-		Name:         "仅内网分流",
-		Note:         "系统初始化内置策略",
-		AllowLan:     true,
-		ClientDns:    []ValData{{Val: "114.114.114.114", Note: "默认dns"}},
-		RouteInclude: []ValData{{Val: "10.0.0.0/8"}},
-		Status:       1,
-	}
-	err = SetPolicy(pOps)
-	if err != nil {
-		return err
-	}
-
-	// 创建用户组，引用策略
-	g1 := Group{
-		Name:     "all",
-		PolicyId: pAll.Id,
-		Status:   1,
-	}
-	err = SetGroup(&g1)
-	if err != nil {
-		return err
-	}
-
-	g2 := Group{
-		Name:     "ops",
-		PolicyId: pOps.Id,
-		Status:   1,
-	}
-	err = SetGroup(&g2)
-	if err != nil {
-		return err
-	}
-
-	install := &SettingInstall{Installed: true}
-	if err = SettingSave(install); err != nil {
-		return err
-	}
-	base.LoadPersistedConfig(cfg)
-
 	return nil
 }
 
-func CheckErrNotFound(err error) bool {
-	return errors.Is(err, ErrNotFound)
+type table[T any] struct{}
+
+func (t *table[T]) engine() *xorm.Engine {
+	if s := GetDB(); s != nil {
+		return s.engine
+	}
+	return nil
 }
 
-// base64 图片
-// 用户动态码(请妥善保存):<br/>
-// <img src="{{.OtpImgBase64}}"/><br/>
-const accountMail = `<p>您好:</p>
-<p>&nbsp;&nbsp;您的{{.Issuer}}账号已经审核开通。</p>
-<p>
-    登陆地址: <b>{{.LinkAddr}}</b> <br/>
-    用户组: <b>{{.Group}}</b> <br/>
-    用户名: <b>{{.Username}}</b> <br/>
-    用户PIN码: <b>{{.PinCode}}</b> <br/>
-    用户过期时间: <b>{{.LimitTime}}</b> <br/>
-    {{if .DisableOtp}}
-    <!-- nothing -->
-    {{else}}
-	
-    <!-- 
-    用户动态码(3天后失效):<br/>
-    <img src="{{.OtpImg}}"/><br/>
-    -->
-    用户动态码(请妥善保存):<br/>
-    <img src="cid:userOtpQr.png" alt="userOtpQr" /><br/>
+// 按字段值加载单条记录
+func (t *table[T]) Get(field string, value any) (*T, error) {
+	var v T
+	if err := GetDB().Get(field, value, &v); err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
 
-    {{end}}
-</p>
-<div>
-    使用说明:
-    <ul>
-        <li>请使用OTP软件扫描动态码二维码</li>
-        <li>然后使用anyconnect客户端进行登陆</li>
-        <li>登陆密码为 PIN 码</li>
-		<li>OTP密码为扫码后生成的动态码</li>
-    </ul>
-</div>
-<p>
-    软件下载地址: https://{{.LinkAddr}}/files/info.txt
-</p>`
+// 按条件加载单条记录
+func (t *table[T]) GetWhere(where string, args ...any) (*T, error) {
+	var v T
+	if err := GetDB().GetWhere(where, &v, args...); err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
 
-const certMail = `<p>您好:</p>
-<p>&nbsp;&nbsp;您的 VPN 客户端证书已生成，请查收附件。</p>
-<p>
-    用户名: <b>{{.Username}}</b> <br/>
-    用户组: <b>{{.Groupname}}</b> <br/>
-    序列号: <b>{{.SerialNumber}}</b> <br/>
-    过期时间: <b>{{.NotAfter}}</b> <br/>
-    <br/>
-    P12 证书密码: <b>{{.Password}}</b> <br/>
-</p>
-<div>
-    安装说明:
-    <ul>
-        <li>下载附件中的 .p12 证书文件</li>
-        <li>双击安装，按提示输入上述密码</li>
-        <li>在 AnyConnect 客户端选择此证书进行连接</li>
-        <li>连接地址: https://{{.LinkAddr}}</li>
-    </ul>
-</div>
-<p>如有疑问请联系管理员。</p>`
+// 查询列表；limit<=0 表示不分页
+func (t *table[T]) Find(limit, page int) ([]T, error) {
+	var vs []T
+	if err := GetDB().Find(&vs, limit, page); err != nil {
+		return nil, err
+	}
+	return vs, nil
+}
 
-// 返回默认证书邮件模板，供管理后台获取初始值
-func CertMailTemplate() string {
-	return certMail
+// 按条件分页查询列表
+func (t *table[T]) FindWhere(limit, page int, where string, args ...any) ([]T, error) {
+	var vs []T
+	if err := GetDB().FindWhere(&vs, limit, page, where, args...); err != nil {
+		return nil, err
+	}
+	return vs, nil
+}
+
+// 返回模型对应的记录总数
+func (t *table[T]) Count() int { return GetDB().Count(new(T)) }
+
+// 返回符合条件的记录数
+func (t *table[T]) CountWhere(where string, args ...any) int {
+	return GetDB().CountWhere(new(T), where, args...)
+}
+
+// 插入单条记录
+func (t *table[T]) Insert(v *T) error { return GetDB().Insert(v) }
+
+// 批量插入记录
+func (t *table[T]) InsertBatch(v any) error { return GetDB().InsertBatch(v) }
+
+// 更新记录的全部字段
+func (t *table[T]) Save(v *T) error { return GetDB().Save(v) }
+
+// 删除记录
+func (t *table[T]) Delete(v *T) error { return GetDB().Delete(v) }
+
+const PageSize = 10
+
+func QuoteIdent(name string) string {
+	return GetDB().Engine().Quote(name)
+}
+
+func extract(data any, fieldName string) any {
+	ref := reflect.ValueOf(data)
+	r := &ref
+	if r.Kind() == reflect.Pointer {
+		e := r.Elem()
+		r = &e
+	}
+	field := r.FieldByName(fieldName).Interface()
+	return field
+}
+
+// 在指定会话内分页查询并返回总数（事务内使用）
+func FindAndCount(session *xorm.Session, data any, limit, page int) (int64, error) {
+	if limit == 0 {
+		return session.FindAndCount(data)
+	}
+	start := (page - 1) * limit
+	totalCount, err := session.Limit(limit, start).FindAndCount(data)
+	return totalCount, err
 }

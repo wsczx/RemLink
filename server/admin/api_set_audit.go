@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"github.com/wsczx/remlink/pkg/utils"
 	"net/http"
 	"strconv"
 	"time"
@@ -13,9 +14,9 @@ func SetAuditList(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	page, _ := parsePaging(r)
 	var datas []dbdata.AccessAudit
-	session := dbdata.GetAuditSession(r.Form)
+	session := dbdata.Audits.GetAuditSession(r.Form)
 	count, err := dbdata.FindAndCount(session, &datas, dbdata.PageSize, page)
-	if err != nil && !dbdata.CheckErrNotFound(err) {
+	if err != nil && !utils.CheckErrNotFound(err) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
@@ -28,7 +29,7 @@ func SetAuditList(w http.ResponseWriter, r *http.Request) {
 	for _, d := range datas {
 		names = append(names, d.Username)
 	}
-	nickMap := dbdata.NicknameMap(names)
+	nickMap := dbdata.Users.NicknameMap(names)
 	for i := range datas {
 		datas[i].Nickname = nickMap[datas[i].Username]
 	}
@@ -60,9 +61,9 @@ func SetAuditExport(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	var datas []dbdata.AccessAudit
 	maxNum := 1000000
-	session := dbdata.GetAuditSession(r.Form)
+	session := dbdata.Audits.GetAuditSession(r.Form)
 	count, err := dbdata.FindAndCount(session, &datas, maxNum, 0)
-	if err != nil && !dbdata.CheckErrNotFound(err) {
+	if err != nil && !utils.CheckErrNotFound(err) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
@@ -74,7 +75,7 @@ func SetAuditExport(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespParamErr, "你导出的数据量超过100万条，请调整搜索条件，再导出")
 		return
 	}
-	dbdata.AdminLog("系统设置", "审计日志导出", "导出了访问审计日志("+r.FormValue("search")+")", r.RemoteAddr)
+	dbdata.AdminLogs.AdminLog("系统设置", "审计日志导出", "导出了访问审计日志("+r.FormValue("search")+")", r.RemoteAddr)
 	rows := make([]accessAuditExportRow, 0, len(datas))
 	for _, audit := range datas {
 		rows = append(rows, accessAuditExportRow{
@@ -130,7 +131,7 @@ func UserActLogList(w http.ResponseWriter, r *http.Request) {
 	var datas []dbdata.UserActLog
 	session := dbdata.UserActLogIns.GetSession(r.Form)
 	count, err := dbdata.FindAndCount(session, &datas, dbdata.PageSize, page)
-	if err != nil && !dbdata.CheckErrNotFound(err) {
+	if err != nil && !utils.CheckErrNotFound(err) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
@@ -143,7 +144,7 @@ func UserActLogList(w http.ResponseWriter, r *http.Request) {
 	for _, d := range datas {
 		names = append(names, d.Username)
 	}
-	nickMap := dbdata.NicknameMap(names)
+	nickMap := dbdata.Users.NicknameMap(names)
 	for i := range datas {
 		datas[i].Nickname = nickMap[datas[i].Username]
 	}
@@ -165,9 +166,9 @@ func AdminOpLogList(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	page, _ := parsePaging(r)
 	var datas []dbdata.AdminOpLog
-	session := dbdata.GetAdminOpLogSession(r.Form)
+	session := dbdata.AdminLogs.GetAdminOpLogSession(r.Form)
 	count, err := dbdata.FindAndCount(session, &datas, dbdata.PageSize, page)
-	if err != nil && !dbdata.CheckErrNotFound(err) {
+	if err != nil && !utils.CheckErrNotFound(err) {
 		RespError(w, RespInternalErr, err)
 		return
 	}

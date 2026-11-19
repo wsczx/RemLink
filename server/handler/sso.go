@@ -23,50 +23,81 @@ type ssoProvider struct {
 	buildAuthURL func(groupName, redirectURI, state string) (string, error)
 }
 
-// 新增一种 SSO/OAuth2 认证类型的「最小改动清单」
-//  1. 本文件 ssoProviders 加一项（callbackPath + buildAuthURL）——WebAuth / 原生 XML / 门户三端均自动透传 sso_type，无需改这三端
-//  2. auth/authsrv/<type>.go 实现 Challenger（Challenge().Type==ChallengeSSO 且 Data 带 sso_type），并注册回调端点 <Type>AuthCallback
-//  3. server.go 注册路由 /<callbackPath>/callback → <Type>AuthCallback
-//  4. dbdata/provider.go + userauth_<type>.go 注册 Provider 配置与用户同步
-//  5. auth/config_<type>.go + base/config.go 加配置结构体
-//  6. 如需 [sso,otp] 组合，dbdata/group.go 的 SyncExternalUsersForOTP 加分支
-//  7. 前端 Provider / 认证步骤下拉加该类型
-var ssoProviders = map[string]ssoProvider{
-	"wxwork": {
-		callbackPath: "WXAuth",
-		buildAuthURL: func(groupName, redirectURI, state string) (string, error) {
-			cfg, err := dbdata.GetAuthWework(groupName)
-			if err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("https://login.work.weixin.qq.com/wwlogin/sso/login?login_type=CorpApp&appid=%s&agentid=%s&redirect_uri=%s&state=%s",
-				cfg.CorpID, cfg.AgentID, url.QueryEscape(redirectURI), url.QueryEscape(state)), nil
-		}},
-	"feishu": {
-		callbackPath: "FeishuAuth",
-		buildAuthURL: func(groupName, redirectURI, state string) (string, error) {
-			cfg, err := dbdata.GetAuthFeishu(groupName)
-			if err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("https://open.feishu.cn/open-apis/authen/v1/authorize?app_id=%s&redirect_uri=%s&state=%s",
-				cfg.AppID, url.QueryEscape(redirectURI), url.QueryEscape(state)), nil
-		}},
-	"dingtalk": {
-		callbackPath: "DingtalkAuth",
-		buildAuthURL: func(groupName, redirectURI, state string) (string, error) {
-			cfg, err := dbdata.GetAuthDingtalk(groupName)
-			if err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("https://login.dingtalk.com/oauth2/auth?redirect_uri=%s&response_type=code&client_id=%s&state=%s&scope=%s&prompt=consent",
-				url.QueryEscape(redirectURI), cfg.ClientID, url.QueryEscape(state), dingtalkSSOScope), nil
-		}},
+// 新增 SSO 类型需同时登记：providers 表、authsrv 的 Challenger 与回调路由、
+// dbdata 的 Provider 配置与用户同步、base 配置结构、前端下拉选项
+type SSOHandler struct {
+	providers    map[string]ssoProvider
+	callbacks    map[string]func(groupName string) (ssoCallback, error)
+	authSessions *AuthSessionManager
+	portal       *PortalService // 组装期由 App.UsePortal 接线
+}
+
+func (h *SSOHandler) UsePortal(p *PortalService) { h.portal = p }
+
+func NewSSOHandler(authSessions *AuthSessionManager) *SSOHandler {
+	return &SSOHandler{
+		providers: map[string]ssoProvider{
+			"wxwork": {
+				callbackPath: "WXAuth",
+				buildAuthURL: func(groupName, redirectURI, state string) (string, error) {
+					cfg, err := dbdata.Groups.GetAuthWework(groupName)
+					if err != nil {
+						return "", err
+					}
+					return fmt.Sprintf("https://login.work.weixin.qq.com/wwlogin/sso/login?login_type=CorpApp&appid=%s&agentid=%s&redirect_uri=%s&state=%s",
+						cfg.CorpID, cfg.AgentID, url.QueryEscape(redirectURI), url.QueryEscape(state)), nil
+				}},
+			"feishu": {
+				callbackPath: "FeishuAuth",
+				buildAuthURL: func(groupName, redirectURI, state string) (string, error) {
+					cfg, err := dbdata.Groups.GetAuthFeishu(groupName)
+					if err != nil {
+						return "", err
+					}
+					return fmt.Sprintf("https://open.feishu.cn/open-apis/authen/v1/authorize?app_id=%s&redirect_uri=%s&state=%s",
+						cfg.AppID, url.QueryEscape(redirectURI), url.QueryEscape(state)), nil
+				}},
+			"dingtalk": {
+				callbackPath: "DingtalkAuth",
+				buildAuthURL: func(groupName, redirectURI, state string) (string, error) {
+					cfg, err := dbdata.Groups.GetAuthDingtalk(groupName)
+					if err != nil {
+						return "", err
+					}
+					return fmt.Sprintf("https://login.dingtalk.com/oauth2/auth?redirect_uri=%s&response_type=code&client_id=%s&state=%s&scope=%s&prompt=consent",
+						url.QueryEscape(redirectURI), cfg.ClientID, url.QueryEscape(state), dingtalkSSOScope), nil
+				}},
+		},
+		callbacks: map[string]func(groupName string) (ssoCallback, error){
+			"wxwork": func(groupName string) (ssoCallback, error) {
+				cfg, err := dbdata.Groups.GetAuthWework(groupName)
+				if err != nil {
+					return nil, err
+				}
+				return &wxworkSSOCallback{cfg: cfg}, nil
+			},
+			"feishu": func(groupName string) (ssoCallback, error) {
+				cfg, err := dbdata.Groups.GetAuthFeishu(groupName)
+				if err != nil {
+					return nil, err
+				}
+				return &feishuSSOCallback{cfg: cfg}, nil
+			},
+			"dingtalk": func(groupName string) (ssoCallback, error) {
+				cfg, err := dbdata.Groups.GetAuthDingtalk(groupName)
+				if err != nil {
+					return nil, err
+				}
+				return &dingtalkSSOCallback{cfg: cfg}, nil
+			},
+		},
+		authSessions: authSessions,
+	}
 }
 
 // 统一生成 SSO OAuth 跳转地址
-func ssoBuildAuthURL(ssoType, groupName, redirectURI, state string) (string, error) {
-	p, ok := ssoProviders[ssoType]
+func (h *SSOHandler) BuildAuthURL(ssoType, groupName, redirectURI, state string) (string, error) {
+	p, ok := h.providers[ssoType]
 	if !ok {
 		return "", fmt.Errorf("不支持的 SSO 类型: %s", ssoType)
 	}
@@ -75,8 +106,8 @@ func ssoBuildAuthURL(ssoType, groupName, redirectURI, state string) (string, err
 
 // 校验 SAML 回调的待处理会话：state 有效、未被使用
 // （防重放）、来源 IP 一致，并使用 pending。返回会话与组名
-func verifySAMLPending(w http.ResponseWriter, r *http.Request, state string) (*AuthSession, string, bool) {
-	pending, err := AuthSessionManager.Get(state)
+func (h *SSOHandler) verifySAMLPending(w http.ResponseWriter, r *http.Request, state string) (*AuthSession, string, bool) {
+	pending, err := h.authSessions.Get(state)
 	if err != nil {
 		base.Error("非法的 SSO state:", state[:min(16, len(state))], ", err:", err)
 		SAMLError(w, fmt.Errorf("认证会话已过期或无效"))
@@ -109,7 +140,7 @@ func verifySAMLPending(w http.ResponseWriter, r *http.Request, state string) (*A
 		}
 	}
 	// 消费 pending，避免同一 state 被重复使用
-	AuthSessionManager.Delete(state)
+	h.authSessions.Delete(state)
 	groupname := pending.Ctx.Conn.GroupName
 	if groupname == "" {
 		base.Error("SSO pending 会话缺少组名")
@@ -120,7 +151,7 @@ func verifySAMLPending(w http.ResponseWriter, r *http.Request, state string) (*A
 }
 
 // 建立 SAML 会话、写入 Cookie 并跳转至断言消费端点
-func completeSSO(w http.ResponseWriter, r *http.Request, state, ssoType, groupname, userID string) {
+func (h *SSOHandler) completeSSO(w http.ResponseWriter, r *http.Request, state, ssoType, groupname, userID string) {
 	samlSession := &AuthSession{
 		Kind: AuthKindSSODone,
 		Ctx: &auth.Context{
@@ -132,7 +163,7 @@ func completeSSO(w http.ResponseWriter, r *http.Request, state, ssoType, groupna
 			},
 		},
 	}
-	AuthSessionManager.Save(state, samlSession)
+	h.authSessions.Save(state, samlSession)
 
 	// 设置 Cookie（Base64 编码 state）
 	encodeState := base64.StdEncoding.EncodeToString([]byte(state))
@@ -142,17 +173,17 @@ func completeSSO(w http.ResponseWriter, r *http.Request, state, ssoType, groupna
 }
 
 // 优先走门户二次登录；否则建立 SAML 会话并完成跳转
-func finishSAMLOAuth(w http.ResponseWriter, r *http.Request, state, ssoType, userID string, pending *AuthSession) {
-	if portalSSOLogin(w, r, pending, ssoType, userID) {
+func (h *SSOHandler) finishSAMLOAuth(w http.ResponseWriter, r *http.Request, state, ssoType, userID string, pending *AuthSession) {
+	if h.portal.portalSSOLogin(w, r, pending, ssoType, userID) {
 		return
 	}
-	completeSSO(w, r, state, ssoType, pending.Ctx.Conn.GroupName, userID)
+	h.completeSSO(w, r, state, ssoType, pending.Ctx.Conn.GroupName, userID)
 }
 
 // 生成 SSO state、创建 pending 会话并跳转至厂商授权页
-// 回调路径前缀从 ssoProviders 表按 ssoType 取得
-func startSSO(w http.ResponseWriter, r *http.Request, tgname, ssoType, redirect string) {
-	p, ok := ssoProviders[ssoType]
+// 回调路径前缀从 SSOHandler.providers 表按 ssoType 取得
+func (h *SSOHandler) Start(w http.ResponseWriter, r *http.Request, tgname, ssoType, redirect string) {
+	p, ok := h.providers[ssoType]
 	if !ok {
 		SAMLError(w, fmt.Errorf("不支持的 SSO 类型: %s", ssoType))
 		return
@@ -170,10 +201,10 @@ func startSSO(w http.ResponseWriter, r *http.Request, tgname, ssoType, redirect 
 		},
 	}
 	pending.Kind = AuthKindSSOPending // 标记为 SSO 待回调会话
-	AuthSessionManager.Save(state, pending)
+	h.authSessions.Save(state, pending)
 
 	redirectURI := fmt.Sprintf("%s/%s/callback", getServerAddr(r), p.callbackPath)
-	authURL, err := ssoBuildAuthURL(ssoType, tgname, redirectURI, state)
+	authURL, err := h.BuildAuthURL(ssoType, tgname, redirectURI, state)
 	if err != nil {
 		base.Error("生成 SSO 授权地址失败:", err)
 		SAMLError(w, fmt.Errorf("生成认证地址失败"))
