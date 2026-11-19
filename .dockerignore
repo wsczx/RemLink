@@ -2,7 +2,7 @@
 .git/
 .gitignore
 
-# 数据库文件（包含敏感数据）
+# 数据库文件
 server/conf/
 *.db
 

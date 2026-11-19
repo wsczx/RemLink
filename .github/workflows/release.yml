@@ -60,13 +60,6 @@ jobs:
           echo "APP_VER=$appVer" >> $GITHUB_ENV
           echo "commitId=$commitId" >> $GITHUB_ENV
 
-          # 按版本号自动识别预发布：含 beta/alpha/rc/preview/dev 标识时标记为 Prerelease
-          case "$appVer" in
-            *beta*|*alpha*|*rc*|*preview*|*dev*) is_prerelease=true ;;
-            *) is_prerelease=false ;;
-          esac
-          echo "APP_PRERELEASE=$is_prerelease" >> $GITHUB_ENV
-
       - name: Extract changelog for current version
         id: changelog
         shell: bash
@@ -114,7 +107,7 @@ jobs:
             commitId=${{ env.commitId }}
           tags: |
             wsczx/remlink:${{ env.APP_VER }}
-            ${{ ((github.event_name == 'push' || github.event.inputs.enable_latest_tag == true || github.event.inputs.enable_latest_tag == 'true') && env.APP_PRERELEASE == 'false') && 'wsczx/remlink:latest' || '' }}
+            ${{ (github.event_name == 'push' || github.event.inputs.enable_latest_tag == true || github.event.inputs.enable_latest_tag == 'true') && 'wsczx/remlink:latest' || '' }}
 
       - name: Build deploy binary (extract from image)
         shell: bash
@@ -132,13 +125,11 @@ jobs:
           allowUpdates: true
           replacesArtifacts: true
           removeArtifacts: true
-          prerelease: ${{ env.APP_PRERELEASE }}
           body: ${{ steps.changelog.outputs.body }}
 
       # 同步 Release 到 Gitee 镜像
-      # 预发布版跳过；未配置 GITEE_TOKEN secret 时自动跳过
+      # 未配置 GITEE_TOKEN secret 时自动跳过
       - name: Sync release to Gitee mirror
-        if: env.APP_PRERELEASE == 'false'
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           CHANGELOG_BODY: ${{ steps.changelog.outputs.body }}

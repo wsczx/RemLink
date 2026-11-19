@@ -12,22 +12,11 @@
 #   ./scripts/local-release.sh [-l]   # 需 gh 已登录 + docker 已登录（或分别用 GH_TOKEN / DOCKERHUB_TOKEN 环境变量覆盖）
 #   ARCH="linux/amd64" ./scripts/local-release.sh          # 仅 amd64
 #   ./scripts/local-release.sh -l                          # 同时打 latest 镜像标签
-# 预发布识别：version 含 beta/alpha/rc/preview/dev 时自动标记为 GitHub Prerelease（正式版不带标识则发布正式 Release）
 set -euo pipefail
 
 REPO_PUBLIC=wsczx/RemLink
 VER=$(cat version)
 COMMIT=$(git rev-parse HEAD)
-# 按版本号自动识别预发布：版本号含 beta/alpha/rc/preview 等标识时，GitHub Release 标记为 Prerelease
-PRERELEASE=0
-case "$VER" in
-  *beta*|*alpha*|*rc*|*preview*|*dev*) PRERELEASE=1 ;;
-esac
-PRERELEASE_FLAG=""
-if [ "$PRERELEASE" = "1" ]; then
-  PRERELEASE_FLAG="--prerelease"
-  echo "==> 版本 ${VER} 含预发布标识，将标记为 Prerelease"
-fi
 # Docker 构建架构，逗号分隔
 ARCH="${ARCH:-linux/amd64,linux/arm64}"
 # 是否启用国内源加速（容器内切 ustc apk 源 + goproxy.cn）：默认 yes（本地构建机在国内，加速 go mod/apk）；
@@ -86,10 +75,8 @@ docker buildx build --push \
   --build-arg "CN=${CN}" \
   -f docker/Dockerfile \
   -t "wsczx/remlink:${VER}" .
-if [ "$LATEST_TAG" = "1" ] && [ "$PRERELEASE" != "1" ]; then
+if [ "$LATEST_TAG" = "1" ]; then
   docker buildx imagetools create -t "wsczx/remlink:latest" "wsczx/remlink:${VER}"
-elif [ "$LATEST_TAG" = "1" ] && [ "$PRERELEASE" = "1" ]; then
-  echo "==> 预发布版不打 latest 标签（避免 latest 指向 beta 镜像）"
 fi
 
 # 提取二进制
@@ -98,13 +85,11 @@ RELEASE_ARCHES=$(echo "$ARCH" | tr ',' ' ') bash scripts/release.sh
 # 发布到公共仓库（二进制）
 gh release delete "v${VER}" -R "$REPO_PUBLIC" 2>/dev/null || true
 gh release create "v${VER}" -R "$REPO_PUBLIC" \
-  -t "RemLink v${VER}" -n "$body" $PRERELEASE_FLAG artifact-dist/*
+  -t "RemLink v${VER}" -n "$body" artifact-dist/*
 
-# 同步 Release 到 Gitee 镜像（可选；预发布版不同步，避免用户误升级到 beta）
+# 同步 Release 到 Gitee 镜像（可选，供在线升级在 GitHub 不可达时回退下载）
 GITEE_TOKEN="${GITEE_TOKEN:-$(git config --get gitee.token 2>/dev/null || true)}"
-if [ "$PRERELEASE" = "1" ]; then
-  echo "==> 预发布版跳过 Gitee 镜像同步"
-elif [ -n "${GITEE_TOKEN:-}" ]; then
+if [ -n "${GITEE_TOKEN:-}" ]; then
   echo "==> 同步 Release 到 Gitee 镜像"
   gitee_api="https://gitee.com/api/v5/repos/${REPO_PUBLIC}"
 

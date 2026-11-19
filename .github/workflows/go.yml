@@ -4,12 +4,11 @@ on:
   workflow_dispatch:
 
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
-
   build:
     name: Build
     runs-on: ubuntu-24.04
@@ -20,8 +19,8 @@ jobs:
       - name: Set up Go 1.x
         uses: actions/setup-go@v7
         with:
-          go-version-file: 'server/go.mod'
-          cache-dependency-path: 'server/go.sum'
+          go-version-file: "server/go.mod"
+          cache-dependency-path: "server/go.sum"
 
       - name: Get dependencies
         run: |
@@ -33,8 +32,9 @@ jobs:
           cd server
           mkdir ui
           touch ui/index.html
-          go build -v -o remlink -trimpath -ldflags "-X main.CommitId=`git rev-parse HEAD`"
-          ./remlink tool -v
+          go build -v -o remlink -trimpath -ldflags "-X main.appVer=$(cat ../version) -X main.commitId=$(git rev-parse HEAD) -X main.buildDate=$(date -Iseconds)"
+          ./remlink tool -v | tee /tmp/remlink-version.txt
+          grep -F "$(cat ../version)" /tmp/remlink-version.txt
 
       - name: Test
         run: |
