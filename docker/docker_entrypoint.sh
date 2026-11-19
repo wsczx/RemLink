@@ -1,14 +1,12 @@
 #!/bin/bash
-var1=$1
 
-case $var1 in
+case $1 in
 "bash" | "sh")
-  echo $var1
   exec "$@"
   ;;
 
 "tool")
-  /app/remlink "$@"
+  exec /app/remlink "$@"
   ;;
 
 *)

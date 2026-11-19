@@ -9,7 +9,7 @@ fi
 apk add tzdata upx
 
 cd /server
-go mod tidy
+go mod download
 
 ldflags="-s -w -X main.appVer=$appVer -X main.commitId=$commitId -X main.buildDate=$(date -Iseconds)"
 
